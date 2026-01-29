@@ -4,7 +4,12 @@ from typing import List
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Drawing Detector"
     API_V1_STR: str = "/api/v1"
-    BACKEND_CORS_ORIGINS: List[str] = ["*"]
+    BACKEND_CORS_ORIGINS: List[str] = [
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:3000",  # Alternative dev port
+        "https://drawing-detecter.web.app",  # Firebase production
+        "https://drawing-detecter.firebaseapp.com"  # Firebase alternative domain
+    ]
     
     # Azure OpenAI Settings - These should be set in .env
     AZURE_OPENAI_ENDPOINT: str = ""

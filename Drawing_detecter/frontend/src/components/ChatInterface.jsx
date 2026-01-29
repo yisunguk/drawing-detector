@@ -66,9 +66,11 @@ const ChatInterface = ({ activeDoc }) => {
         try {
             const context = formatContext();
 
-            // Use relative URL for API call - assumes proxy setup in vite.config.js or same origin in production
-            // For local dev with separate backend port, you might need full URL
-            const API_URL = import.meta.env.PROD ? 'https://drawing-detecter.web.app/api/v1/chat/' : 'http://127.0.0.1:8000/api/v1/chat/';
+            // Use environment variable for API URL
+            // Development: http://127.0.0.1:8000
+            // Production: Cloud Run backend URL (set in .env.production)
+            const API_URL = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/v1/chat/`;
+
 
             const response = await fetch(API_URL, {
                 method: 'POST',
