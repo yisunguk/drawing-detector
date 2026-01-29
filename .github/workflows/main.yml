@@ -9,19 +9,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. 빌드 작업 (npm ci 대신 npm install 사용)
+      # 1. 빌드 작업 (리눅스용 전용 모듈 설치 포함)
       - name: Install and Build
         run: |
           cd Drawing_detecter/frontend
-          # 기존의 엄격한 설치(ci) 대신, 환경에 맞는 패키지를 새로 계산해서 설치(install)합니다.
           npm install
+          # 리눅스 환경 빌드 시 발생하는 Rollup 에러 방지를 위한 모듈 설치
+          npm install @rollup/rollup-linux-x64-gnu
           npm run build
 
-      # 2. 파이어베이스 배포 (entryPoint 추가)
+      # 2. 파이어베이스 배포 (firebase.json 위치 지정)
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DRAWING_DETECTER }}'
           channelId: live
           projectId: rag-1af49
-          entryPoint: Drawing_detecter  # firebase.json이 있는 폴더 지정
+          entryPoint: Drawing_detecter
