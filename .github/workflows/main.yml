@@ -9,7 +9,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. 빌드 작업 (리눅스용 전용 모듈 설치 포함)
+      # 1. 빌드 작업 (리눅스용 롤업 모듈 설치 포함)
       - name: Install and Build
         run: |
           cd Drawing_detecter/frontend
@@ -18,11 +18,11 @@ jobs:
           npm install @rollup/rollup-linux-x64-gnu
           npm run build
 
-      # 2. 파이어베이스 배포 (firebase.json 위치 지정)
+      # 2. 파이어베이스 배포 (수동 배포 성공한 프로젝트 ID로 변경)
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DRAWING_DETECTER }}'
           channelId: live
-          projectId: rag-1af49
+          projectId: "drawing-detecter" # rag-1af49에서 실제 수동 배포한 ID로 수정
           entryPoint: Drawing_detecter
