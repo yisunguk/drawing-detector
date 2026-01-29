@@ -9,11 +9,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. 빌드 작업 (폴더 경로 이동 추가)
+      # 1. 빌드 작업 (npm ci 대신 npm install 사용)
       - name: Install and Build
         run: |
           cd Drawing_detecter/frontend
-          npm ci
+          # 기존의 엄격한 설치(ci) 대신, 환경에 맞는 패키지를 새로 계산해서 설치(install)합니다.
+          npm install
           npm run build
 
       # 2. 파이어베이스 배포 (entryPoint 추가)
