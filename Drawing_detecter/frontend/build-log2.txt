@@ -1,0 +1,27 @@
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m??[39m 3 modules transformed.
+x Build failed in 1.88s
+error during build:
+[vite:esbuild] Transform failed with 1 error:
+D:/Projects/Drawing_detecter/frontend/src/App.jsx:829:12: ERROR: Expected ")" but found "{"
+file: D:/Projects/Drawing_detecter/frontend/src/App.jsx:829:12
+
+Expected ")" but found "{"
+827|  
+828|  
+829|              {/* Source Selection Modal */ }
+   |              ^
+830|      {
+831|          showSourceModal && (
+
+    at failureErrorWithLog (D:\Projects\Drawing_detecter\frontend\node_modules\esbuild\lib\main.js:1472:15)
+    at D:\Projects\Drawing_detecter\frontend\node_modules\esbuild\lib\main.js:755:50
+    at responseCallbacks.<computed> (D:\Projects\Drawing_detecter\frontend\node_modules\esbuild\lib\main.js:622:9)
+    at handleIncomingPacket (D:\Projects\Drawing_detecter\frontend\node_modules\esbuild\lib\main.js:677:12)
+    at Socket.readFromStdout (D:\Projects\Drawing_detecter\frontend\node_modules\esbuild\lib\main.js:600:7)
+    at Socket.emit (node:events:519:28)
+    at addChunk (node:internal/streams/readable:561:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    at Readable.push (node:internal/streams/readable:392:5)
+    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
