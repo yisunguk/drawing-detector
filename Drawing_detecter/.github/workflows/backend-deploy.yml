@@ -1,0 +1,47 @@
+name: Backend Deploy to Cloud Run
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: drawing-detector-backend
+  REGION: us-central1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: Authorize Docker
+        run: gcloud auth configure-docker
+
+      - name: Build and Push Container
+        run: |-
+          docker build -t gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} ./backend
+          docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |-
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-secrets="AZURE_OPENAI_ENDPOINT=AZURE_OPENAI_ENDPOINT:latest,AZURE_OPENAI_KEY=AZURE_OPENAI_KEY:latest,AZURE_OPENAI_API_VERSION=AZURE_OPENAI_API_VERSION:latest,AZURE_OPENAI_DEPLOYMENT_NAME=AZURE_OPENAI_DEPLOYMENT_NAME:latest,AZURE_BLOB_CONNECTION_STRING=AZURE_BLOB_CONNECTION_STRING:latest,AZURE_BLOB_SAS_TOKEN=AZURE_BLOB_SAS_TOKEN:latest,AZURE_BLOB_CONTAINER_NAME=AZURE_BLOB_CONTAINER_NAME:latest" \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 300
