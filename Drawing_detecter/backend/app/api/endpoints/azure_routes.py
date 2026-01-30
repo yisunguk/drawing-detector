@@ -10,9 +10,18 @@ def get_container_client():
     if not settings.AZURE_BLOB_CONNECTION_STRING and not (settings.AZURE_STORAGE_ACCOUNT_NAME and settings.AZURE_BLOB_SAS_TOKEN):
         raise HTTPException(status_code=500, detail="Azure Storage not configured")
     
+    blob_service_client = None
+    
+    # Method 1: Try Connection String
     if settings.AZURE_BLOB_CONNECTION_STRING and ("DefaultEndpointsProtocol" in settings.AZURE_BLOB_CONNECTION_STRING or "SharedAccessSignature" in settings.AZURE_BLOB_CONNECTION_STRING):
-        blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_BLOB_CONNECTION_STRING)
-    else:
+        try:
+            blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_BLOB_CONNECTION_STRING)
+        except Exception as e:
+            print(f"Warning: Connection string failed ({e}), falling back to SAS token.")
+            blob_service_client = None
+
+    # Method 2: Fallback to Account URL + SAS Token
+    if not blob_service_client:
         account_url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
         blob_service_client = BlobServiceClient(account_url, credential=settings.AZURE_BLOB_SAS_TOKEN)
         
