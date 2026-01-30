@@ -77,6 +77,11 @@ async def download_file(path: str):
         blob_client = container_client.get_blob_client(path)
         
         stream = blob_client.download_blob().readall()
-        return StreamingResponse(io.BytesIO(stream), media_type="application/pdf")
+        
+        media_type = "application/pdf"
+        if path.lower().endswith(".json"):
+            media_type = "application/json"
+            
+        return StreamingResponse(io.BytesIO(stream), media_type=media_type)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
