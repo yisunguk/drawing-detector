@@ -31,11 +31,18 @@ if settings.BACKEND_CORS_ORIGINS:
     )
 
 from fastapi.staticfiles import StaticFiles
+import os
+from pathlib import Path
 
 app.include_router(upload.router, prefix=f"{settings.API_V1_STR}/upload", tags=["upload"])
 app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
 
-# Mount uploads directory to serve static files
+# Mount uploads directory to serve static files if it exists
+uploads_dir = Path("uploads")
+if not uploads_dir.exists():
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    print("Created uploads directory")
+
 app.mount("/static", StaticFiles(directory="uploads"), name="static")
 if azure:
     app.include_router(azure.router, prefix=f"{settings.API_V1_STR}/azure", tags=["azure"])
