@@ -12,6 +12,12 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
+@app.middleware("http")
+async def log_requests(request, call_next):
+    print(f"Incoming request: {request.method} {request.url.path}")
+    response = await call_next(request)
+    return response
+
 # Set all CORS enabled origins
 if settings.BACKEND_CORS_ORIGINS:
     app.add_middleware(
@@ -29,8 +35,8 @@ app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["cha
 
 # Mount uploads directory to serve static files
 app.mount("/static", StaticFiles(directory="uploads"), name="static")
-# if azure:
-#    app.include_router(azure.router, prefix=f"{settings.API_V1_STR}/azure", tags=["azure"])
+if azure:
+    app.include_router(azure.router, prefix=f"{settings.API_V1_STR}/azure", tags=["azure"])
 # app.include_router(search.router, prefix=f"{settings.API_V1_STR}/search", tags=["search"])
 
 @app.get("/")

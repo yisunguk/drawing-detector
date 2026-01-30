@@ -70,6 +70,7 @@ const ChatInterface = ({ activeDoc }) => {
             // Development: http://127.0.0.1:8000
             // Production: Cloud Run backend URL (set in .env.production)
             const API_URL = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/v1/chat/`;
+            console.log('Sending chat request to:', API_URL);
 
 
             const response = await fetch(API_URL, {

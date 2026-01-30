@@ -54,6 +54,7 @@ const App = () => {
 
     const pdfRef = useRef(null);
     const canvasRef = useRef(null);
+    const renderTaskRef = useRef(null);
     const containerRef = useRef(null);
     const fileInputRef = useRef(null);
     const jsonInputRef = useRef(null);
@@ -259,18 +260,21 @@ const App = () => {
 
             const page = await pdf.getPage(pageNum);
 
-            // Apply current rotation state
-            // If rotation is 0 (default), check if we need auto-rotation for the first render
-            let currentRotation = rotation;
-            let viewport = page.getViewport({ scale: 2.0, rotation: currentRotation });
+            // Correct rotation logic:
+            // page.getViewport({rotation: X}) will apply X as the ABSOLUTE rotation.
+            // We want 'rotation' state to be relative to the page's natural orientation.
+            const naturalRotation = page.rotate || 0;
+            const totalRotation = (naturalRotation + rotation) % 360;
 
-            // Auto-rotate only if it's the initial load (rotation is 0) and it looks like Portrait
+            let viewport = page.getViewport({ scale: 2.0, rotation: totalRotation });
+
+            // Only auto-rotate if the user hasn't manually rotated AND the drawing is portrait
+            // But let's be more careful: if rotation is 0, we check natural width/height
             if (rotation === 0 && viewport.width < viewport.height) {
-                currentRotation = (viewport.rotation + 90) % 360;
-                setRotation(currentRotation); // Update state so it persists
-                viewport = page.getViewport({ scale: 2.0, rotation: currentRotation });
+                // If it's portrait, rotate 90 degrees to make it landscape (common for engineering drawings)
+                const autoRotation = (totalRotation + 90) % 360;
+                viewport = page.getViewport({ scale: 2.0, rotation: autoRotation });
             }
-
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
 
@@ -279,7 +283,32 @@ const App = () => {
             ctx.clearRect(0, 0, viewport.width, viewport.height);
 
             setCanvasSize({ width: viewport.width, height: viewport.height });
-            await page.render({ canvasContext: ctx, viewport }).promise;
+
+            // Cancel any existing render task to prevent "same canvas" error
+            if (renderTaskRef.current) {
+                try {
+                    renderTaskRef.current.cancel();
+                } catch (e) {
+                    console.warn('Render cancellation error:', e);
+                }
+            }
+
+            const renderContext = { canvasContext: ctx, viewport };
+            const renderTask = page.render(renderContext);
+            renderTaskRef.current = renderTask;
+
+            try {
+                await renderTask.promise;
+                if (renderTaskRef.current === renderTask) {
+                    renderTaskRef.current = null;
+                }
+            } catch (err) {
+                if (err.name === 'RenderingCancelledException' || err.message?.includes('cancelled')) {
+                    return;
+                }
+                console.error('Render promise error:', err);
+                throw err;
+            }
 
             // Auto-fit after rendering
             setTimeout(() => {
@@ -383,52 +412,16 @@ const App = () => {
             setAzureLoading(true);
             setError(null);
 
-            const blobServiceClient = new BlobServiceClient(`https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net?${AZURE_SAS_TOKEN}`);
-            const containerClient = blobServiceClient.getContainerClient(AZURE_CONTAINER_NAME);
+            const API_URL = import.meta.env.VITE_API_URL || '';
+            const response = await fetch(`${API_URL}/api/v1/azure/list?path=${encodeURIComponent(path)}`);
+            if (!response.ok) throw new Error('Failed to fetch Azure items');
 
-            let prefix = path;
-            if (prefix && !prefix.endsWith('/')) {
-                prefix += '/';
-            }
-
-            const items = [];
-            const folders = new Set();
-
-            // List blobs
-            for await (const blob of containerClient.listBlobsFlat({ prefix: prefix })) {
-                const name = blob.name;
-                const relativeName = name.slice(prefix.length);
-
-                if (relativeName.includes('/')) {
-                    // It's in a subfolder
-                    const folderName = relativeName.split('/')[0];
-                    if (!folders.has(folderName)) {
-                        folders.add(folderName);
-                        items.push({
-                            name: folderName,
-                            type: 'folder',
-                            path: prefix + folderName + '/'
-                        });
-                    }
-                } else {
-                    // It's a file
-                    if (relativeName) {
-                        items.push({
-                            name: relativeName,
-                            type: 'file',
-                            path: name,
-                            size: blob.properties.contentLength,
-                            last_modified: blob.properties.lastModified.toISOString()
-                        });
-                    }
-                }
-            }
-
+            const items = await response.json();
             setAzureItems(items);
             setAzurePath(path);
         } catch (err) {
             console.error('Error fetching Azure files:', err);
-            setError('Failed to load files from Azure Storage. Please check your connection.');
+            setError('Failed to load files from Azure Storage via Backend.');
         } finally {
             setAzureLoading(false);
         }
@@ -438,39 +431,36 @@ const App = () => {
         try {
             setAzureLoading(true);
             setError(null);
-            setShowAzureBrowser(false);
 
-            const blobServiceClient = new BlobServiceClient(`https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net?${AZURE_SAS_TOKEN}`);
-            const containerClient = blobServiceClient.getContainerClient(AZURE_CONTAINER_NAME);
-            const blobClient = containerClient.getBlobClient(file.path);
+            const API_URL = import.meta.env.VITE_API_URL || '';
+            const response = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`);
+            if (!response.ok) throw new Error('Failed to download from Azure via Backend');
 
-            // Download blob
-            const downloadBlockBlobResponse = await blobClient.download();
-            const blob = await downloadBlockBlobResponse.blobBody;
+            const blob = await response.blob();
 
             if (uploadType === 'pdf' && file.name.toLowerCase().endsWith('.pdf')) {
                 const id = `doc-${Date.now()}`;
                 const name = file.name.replace(/\.pdf$/i, '');
-
                 const arrayBuffer = await blob.arrayBuffer();
 
                 setDocuments(prev => [...prev, { id, name, pdfData: arrayBuffer, ocrData: null, pdfTextData: null, totalPages: 1 }]);
                 setActiveDocId(id);
                 setActivePage(1);
                 setRotation(0);
+                setShowAzureBrowser(false);
             } else if (uploadType === 'json' && activeDocId && file.name.toLowerCase().endsWith('.json')) {
                 const text = await blob.text();
                 try {
                     const json = JSON.parse(text);
                     setDocuments(prev => prev.map(d => d.id === activeDocId ? { ...d, ocrData: json, pdfTextData: null } : d));
+                    setShowAzureBrowser(false);
                 } catch { alert('Invalid JSON'); }
             } else {
                 alert(`Please select a .${uploadType} file.`);
             }
-
         } catch (err) {
             console.error('Error downloading Azure file:', err);
-            setError('Failed to download file from Azure');
+            setError('Failed to download file from Azure via Backend');
         } finally {
             setAzureLoading(false);
         }
