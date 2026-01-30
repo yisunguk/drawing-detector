@@ -17,8 +17,11 @@ def get_container_client():
     # Method 1: Try Explicit Account Name + SAS Token (Preferred)
     if not blob_service_client and settings.AZURE_STORAGE_ACCOUNT_NAME and settings.AZURE_BLOB_SAS_TOKEN:
         try:
+            # Fix common gcloud escaping issue where comma must be encoded as %2C
+            sas_token = settings.AZURE_BLOB_SAS_TOKEN.replace("%2C", ",")
+            
             account_url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
-            blob_service_client = BlobServiceClient(account_url, credential=settings.AZURE_BLOB_SAS_TOKEN)
+            blob_service_client = BlobServiceClient(account_url, credential=sas_token)
         except Exception as e:
             print(f"Warning: SAS Token auth failed ({e}), trying connection string.")
             blob_service_client = None
