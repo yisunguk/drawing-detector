@@ -39,12 +39,12 @@ jobs:
         run: gcloud auth configure-docker
       - name: Build and Push
         run: |
-          docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/drawing-detector-backend:${{ github.sha }} ./backend
-          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/drawing-detector-backend:${{ github.sha }}
+          docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/api:${{ github.sha }} ./backend
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/api:${{ github.sha }}
       - name: Deploy
         run: |
-          gcloud run deploy drawing-detector-backend \
-            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/drawing-detector-backend:${{ github.sha }} \
+          gcloud run deploy api \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/api:${{ github.sha }} \
             --region us-central1 \
             --platform managed \
             --allow-unauthenticated \
