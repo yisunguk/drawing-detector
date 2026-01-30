@@ -15,16 +15,15 @@ jobs:
       - name: Install and Build
         run: |
           cd frontend
+          echo "VITE_API_URL=https://us-central1-drawing-detecter.cloudfunctions.net/api" > .env.production
           npm install
           npm run build
-        env:
-          VITE_API_URL: "https://us-central1-drawing-detecter.cloudfunctions.net/api"
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: "${{ secrets.GITHUB_TOKEN }}"
           firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_DRAWING_DETECTER }}"
           channelId: live
-          projectId: drawing-detecter-448802
+          projectId: drawing-detector
 
   backend:
     name: Deploy Backend to Cloud Run

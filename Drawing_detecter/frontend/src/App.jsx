@@ -101,7 +101,7 @@ const App = () => {
     const extractPdfText = useCallback(async (pdf, pageNum) => {
         try {
             const page = await pdf.getPage(pageNum);
-            // Use natural viewport without automatic adjustments that might flip drawings
+            const scale = 2.0;
             const viewport = page.getViewport({ scale });
 
             const textContent = await page.getTextContent();
