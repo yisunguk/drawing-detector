@@ -10,7 +10,7 @@ def get_container_client():
     if not settings.AZURE_BLOB_CONNECTION_STRING and not (settings.AZURE_STORAGE_ACCOUNT_NAME and settings.AZURE_BLOB_SAS_TOKEN):
         raise HTTPException(status_code=500, detail="Azure Storage not configured")
     
-    if settings.AZURE_BLOB_CONNECTION_STRING and "DefaultEndpointsProtocol" in settings.AZURE_BLOB_CONNECTION_STRING:
+    if settings.AZURE_BLOB_CONNECTION_STRING and ("DefaultEndpointsProtocol" in settings.AZURE_BLOB_CONNECTION_STRING or "SharedAccessSignature" in settings.AZURE_BLOB_CONNECTION_STRING):
         blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_BLOB_CONNECTION_STRING)
     else:
         account_url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
