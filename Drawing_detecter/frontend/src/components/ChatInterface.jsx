@@ -30,16 +30,24 @@ const ChatInterface = ({ activeDoc }) => {
         let context = `Document Name: ${activeDoc.name}\n`;
 
         if (activeDoc.ocrData) {
-            // Use OCR data if available
+            // Check if it's the standard OCR structure (Array or Object with layout.lines)
             const pages = Array.isArray(activeDoc.ocrData) ? activeDoc.ocrData : [activeDoc.ocrData];
-            pages.forEach((page, idx) => {
-                context += `\nPage ${page.page_number || idx + 1}:\n`;
-                if (page.layout?.lines) {
-                    page.layout.lines.forEach(line => {
-                        context += `${line.content}\n`;
-                    });
-                }
-            });
+            const hasOcrStructure = pages.some(p => p?.layout?.lines);
+
+            if (hasOcrStructure) {
+                // Use OCR data if available
+                pages.forEach((page, idx) => {
+                    context += `\nPage ${page.page_number || idx + 1}:\n`;
+                    if (page.layout?.lines) {
+                        page.layout.lines.forEach(line => {
+                            context += `${line.content}\n`;
+                        });
+                    }
+                });
+            } else {
+                // Fallback: Dump the entire JSON as context (for custom metadata)
+                context += `\nMetadata / JSON Content:\n${JSON.stringify(activeDoc.ocrData, null, 2)}\n`;
+            }
         } else if (activeDoc.pdfTextData) {
             // Use PDF text data if available
             activeDoc.pdfTextData.forEach((page, idx) => {
