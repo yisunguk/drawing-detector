@@ -68,13 +68,21 @@ if azure_routes:
 
 @app.get("/azure-debug")
 async def debug_azure():
+    sas = settings.AZURE_BLOB_SAS_TOKEN
+    conn = settings.AZURE_BLOB_CONNECTION_STRING
+    account = settings.AZURE_STORAGE_ACCOUNT_NAME
+    
     return {
         "azure_loaded": azure_routes is not None,
         "error": azure_routes_error,
         "env_vars_check": {
-            "conn_string": bool(settings.AZURE_BLOB_CONNECTION_STRING),
-            "sas_token": bool(settings.AZURE_BLOB_SAS_TOKEN),
-            "account_name": bool(settings.AZURE_STORAGE_ACCOUNT_NAME)
+            "conn_string_len": len(conn) if conn else 0,
+            "conn_string_valid_prefix": "DefaultEndpointsProtocol" in conn if conn else False,
+            "sas_token_len": len(sas) if sas else 0,
+            "sas_token_start": sas[:5] if sas else None,
+            "sas_token_has_question_mark": sas.startswith("?") if sas else False,
+            "account_name": account,
+            "container_name": settings.AZURE_BLOB_CONTAINER_NAME
         }
     }
 
