@@ -3,13 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.endpoints import upload, chat
 
-azure_error = None
-azure = None
+azure_routes_error = None
+azure_routes = None
 try:
-    from app.api.endpoints import azure
+    from app.api.endpoints import azure_routes
 except Exception as e:
-    azure_error = str(e)
-    print(f"Error loading azure module: {e}")
+    azure_routes_error = str(e)
+    print(f"Error loading azure_routes module: {e}")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -62,15 +62,15 @@ if not uploads_dir.exists():
     print("Created uploads directory")
 
 app.mount("/static", StaticFiles(directory="uploads"), name="static")
-if azure:
-    app.include_router(azure.router, prefix=f"{settings.API_V1_STR}/azure", tags=["azure"])
+if azure_routes:
+    app.include_router(azure_routes.router, prefix=f"{settings.API_V1_STR}/azure", tags=["azure"])
 # app.include_router(search.router, prefix=f"{settings.API_V1_STR}/search", tags=["search"])
 
 @app.get("/azure-debug")
 async def debug_azure():
     return {
-        "azure_loaded": azure is not None,
-        "error": azure_error,
+        "azure_loaded": azure_routes is not None,
+        "error": azure_routes_error,
         "env_vars_check": {
             "conn_string": bool(settings.AZURE_BLOB_CONNECTION_STRING),
             "sas_token": bool(settings.AZURE_BLOB_SAS_TOKEN),
