@@ -1,11 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.endpoints import upload, chat
-try:
-    from app.api.endpoints import azure
-except ImportError:
-    azure = None
+from app.api.endpoints import upload, chat, azure
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -58,8 +54,7 @@ if not uploads_dir.exists():
     print("Created uploads directory")
 
 app.mount("/static", StaticFiles(directory="uploads"), name="static")
-if azure:
-    app.include_router(azure.router, prefix=f"{settings.API_V1_STR}/azure", tags=["azure"])
+app.include_router(azure.router, prefix=f"{settings.API_V1_STR}/azure", tags=["azure"])
 # app.include_router(search.router, prefix=f"{settings.API_V1_STR}/search", tags=["search"])
 
 @app.get("/")
