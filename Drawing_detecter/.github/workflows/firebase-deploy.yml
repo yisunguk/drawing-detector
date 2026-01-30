@@ -1,48 +1,48 @@
-name: App Deploy (Frontend & Backend)
-'on':
+name: App Deploy
+
+on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
 jobs:
-  build_and_deploy_frontend:
+  frontend:
+    name: Deploy Frontend to Firebase
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Frontend Dependencies
-        run: cd frontend && npm install
-      - name: Build Frontend
-        run: cd frontend && npm run build
+      - name: Install and Build
+        run: |
+          cd frontend
+          npm install
+          npm run build
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DRAWING_DETECTER }}'
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_DRAWING_DETECTER }}"
           channelId: live
           projectId: drawing-detector
 
-  deploy_backend:
+  backend:
+    name: Deploy Backend to Cloud Run
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
-
       - name: Google Auth
         uses: 'google-github-actions/auth@v2'
         with:
           credentials_json: '${{ secrets.GCP_SA_KEY }}'
-
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
-
       - name: Authorize Docker
         run: gcloud auth configure-docker
-
-      - name: Build and Push Container
-        run: |-
+      - name: Build and Push
+        run: |
           docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/drawing-detector-backend:${{ github.sha }} ./backend
           docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/drawing-detector-backend:${{ github.sha }}
-
-      - name: Deploy to Cloud Run
-        run: |-
+      - name: Deploy
+        run: |
           gcloud run deploy drawing-detector-backend \
             --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/drawing-detector-backend:${{ github.sha }} \
             --region us-central1 \
