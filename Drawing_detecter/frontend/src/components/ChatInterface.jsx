@@ -69,8 +69,11 @@ const ChatInterface = ({ activeDoc }) => {
             // Use environment variable for API URL
             // Development: http://127.0.0.1:8000
             // Production: Cloud Run backend URL (set in .env.production)
-            const API_URL = `${import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'}/api/v1/chat/`;
+            // Robust API URL construction: ensure no double slashes and correct path
+            const baseApi = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, "");
+            const API_URL = `${baseApi}/api/v1/chat/`;
             console.log('Sending chat request to:', API_URL);
+            console.log('Using VITE_API_URL:', import.meta.env.VITE_API_URL);
 
 
             const response = await fetch(API_URL, {

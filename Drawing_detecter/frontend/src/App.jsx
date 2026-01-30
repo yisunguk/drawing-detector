@@ -101,12 +101,8 @@ const App = () => {
     const extractPdfText = useCallback(async (pdf, pageNum) => {
         try {
             const page = await pdf.getPage(pageNum);
-            const scale = 2.0;
-            let viewport = page.getViewport({ scale });
-
-            if (viewport.width < viewport.height) {
-                viewport = page.getViewport({ scale, rotation: (viewport.rotation + 90) % 360 });
-            }
+            // Use natural viewport without automatic adjustments that might flip drawings
+            const viewport = page.getViewport({ scale });
 
             const textContent = await page.getTextContent();
             const items = [];
@@ -260,21 +256,11 @@ const App = () => {
 
             const page = await pdf.getPage(pageNum);
 
-            // Correct rotation logic:
-            // page.getViewport({rotation: X}) will apply X as the ABSOLUTE rotation.
-            // We want 'rotation' state to be relative to the page's natural orientation.
+            // Respect natural rotation + user rotation
             const naturalRotation = page.rotate || 0;
             const totalRotation = (naturalRotation + rotation) % 360;
 
             let viewport = page.getViewport({ scale: 2.0, rotation: totalRotation });
-
-            // Only auto-rotate if the user hasn't manually rotated AND the drawing is portrait
-            // But let's be more careful: if rotation is 0, we check natural width/height
-            if (rotation === 0 && viewport.width < viewport.height) {
-                // If it's portrait, rotate 90 degrees to make it landscape (common for engineering drawings)
-                const autoRotation = (totalRotation + 90) % 360;
-                viewport = page.getViewport({ scale: 2.0, rotation: autoRotation });
-            }
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
 
