@@ -21,14 +21,27 @@ async def log_requests(request, call_next):
     return response
 
 # Set all CORS enabled origins
+# Always enable CORS with explicit origins
+cors_origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://drawing-detecter.web.app",
+    "https://drawing-detecter.firebaseapp.com",
+]
+
+# Add any additional origins from settings
 if settings.BACKEND_CORS_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    cors_origins.extend([str(origin) for origin in settings.BACKEND_CORS_ORIGINS])
+
+print(f"CORS origins configured: {cors_origins}")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 from fastapi.staticfiles import StaticFiles
 import os
