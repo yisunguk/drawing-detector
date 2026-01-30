@@ -13,6 +13,7 @@ app = FastAPI(
 )
 
 print(f"Backend '{settings.PROJECT_NAME}' starting up...")
+print(f"🚀 Test deployment verification - Deployed at: 2026-01-30 23:59 KST")
 
 @app.middleware("http")
 async def log_requests(request, call_next):
