@@ -1,52 +1,46 @@
-name: App Deploy
+name: Backend Cloud Run Deploy
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'Drawing_detecter/backend/**'
+      - '.github/workflows/backend-deploy.yml'
   workflow_dispatch:
 
-jobs:
-  frontend:
-    name: Deploy Frontend to Firebase
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install and Build
-        run: |
-          cd frontend
-          echo "VITE_API_URL=https://us-central1-drawing-detecter.cloudfunctions.net/api" > .env.production
-          npm install
-          npm run build
-      - uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: "${{ secrets.GITHUB_TOKEN }}"
-          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_DRAWING_DETECTER }}"
-          channelId: live
-          projectId: drawing-detector
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: drawing-detector-backend
+  REGION: us-central1
 
-  backend:
-    name: Deploy Backend to Cloud Run
+jobs:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Google Auth
         uses: 'google-github-actions/auth@v2'
         with:
           credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
+
       - name: Authorize Docker
         run: gcloud auth configure-docker
+
       - name: Build and Push
         run: |
-          docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/api:${{ github.sha }} ./backend
-          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/api:${{ github.sha }}
-      - name: Deploy
+          docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} ./Drawing_detecter/backend
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy api \
-            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/api:${{ github.sha }} \
-            --region us-central1 \
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
             --set-secrets="AZURE_OPENAI_ENDPOINT=AZURE_OPENAI_ENDPOINT:latest,AZURE_OPENAI_KEY=AZURE_OPENAI_KEY:latest,AZURE_OPENAI_API_VERSION=AZURE_OPENAI_API_VERSION:latest,AZURE_OPENAI_DEPLOYMENT_NAME=AZURE_OPENAI_DEPLOYMENT_NAME:latest,AZURE_BLOB_CONNECTION_STRING=AZURE_BLOB_CONNECTION_STRING:latest,AZURE_BLOB_SAS_TOKEN=AZURE_BLOB_SAS_TOKEN:latest,AZURE_BLOB_CONTAINER_NAME=AZURE_BLOB_CONTAINER_NAME:latest,AZURE_STORAGE_ACCOUNT_NAME=AZURE_STORAGE_ACCOUNT_NAME:latest" \
