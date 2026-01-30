@@ -407,8 +407,18 @@ const App = () => {
             const response = await fetch(`${API_URL}/api/v1/azure/list?path=${encodeURIComponent(path)}`);
 
             if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.detail || 'Failed to fetch Azure items');
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    const errData = await response.json();
+                    throw new Error(errData.detail || 'Failed to fetch Azure items');
+                } else {
+                    const text = await response.text();
+                    console.error("Non-JSON Error Response:", text);
+                    // Extract title if it's HTML
+                    const titleMatch = text.match(/<title>(.*?)<\/title>/i);
+                    const title = titleMatch ? titleMatch[1] : text.slice(0, 100);
+                    throw new Error(`Server Error (${response.status}): ${title}`);
+                }
             }
 
             const items = await response.json();
@@ -431,8 +441,17 @@ const App = () => {
             const response = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`);
 
             if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.detail || 'Failed to download from Azure via Backend');
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    const errData = await response.json();
+                    throw new Error(errData.detail || 'Failed to download from Azure via Backend');
+                } else {
+                    const text = await response.text();
+                    console.error("Non-JSON Error Response:", text);
+                    const titleMatch = text.match(/<title>(.*?)<\/title>/i);
+                    const title = titleMatch ? titleMatch[1] : text.slice(0, 100);
+                    throw new Error(`Server Error (${response.status}): ${title}`);
+                }
             }
 
             const blob = await response.blob();
