@@ -403,7 +403,8 @@ const App = () => {
             setAzureLoading(true);
             setError(null);
 
-            const API_URL = import.meta.env.VITE_API_URL || '';
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
+            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
             const response = await fetch(`${API_URL}/api/v1/azure/list?path=${encodeURIComponent(path)}`);
 
             if (!response.ok) {
@@ -437,7 +438,8 @@ const App = () => {
             setAzureLoading(true);
             setError(null);
 
-            const API_URL = import.meta.env.VITE_API_URL || '';
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
+            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
             const response = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`);
 
             if (!response.ok) {

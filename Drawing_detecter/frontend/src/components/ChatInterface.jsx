@@ -70,12 +70,18 @@ const ChatInterface = ({ activeDoc }) => {
             // Development: http://127.0.0.1:8000
             // Production: Cloud Run backend URL (set in .env.production)
 
-            // Hardcoded fallback for production as env variables are being elusive in build
-            const PRODUCTION_API_URL = 'https://us-central1-drawing-detecter.cloudfunctions.net/api';
-            const baseApi = (import.meta.env.VITE_API_URL || PRODUCTION_API_URL).replace(/\/$/, "");
-            const API_URL = `${baseApi}/api/v1/chat/`;
-            console.log('Sending chat request to:', API_URL);
-            console.log('Using VITE_API_URL:', import.meta.env.VITE_API_URL);
+            // Hardcoded fallback for production
+            // Hardcoded fallback for production
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
+            const rawBase = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+            const baseApi = rawBase.replace(/\/$/, "");
+
+            // If the base URL already ends with /api (as in the Cloud Run service URL provided),
+            // we should not add another /api before /v1.
+            const apiPath = baseApi.endsWith('/api') ? '/v1/chat/' : '/api/v1/chat/';
+            const API_URL = `${baseApi}${apiPath}`;
+
+            console.log('Chat debug:', { baseApi, API_URL, envUrl: import.meta.env.VITE_API_URL });
 
 
             const response = await fetch(API_URL, {
