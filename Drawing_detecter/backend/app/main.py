@@ -12,6 +12,8 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
+print(f"Backend '{settings.PROJECT_NAME}' starting up...")
+
 @app.middleware("http")
 async def log_requests(request, call_next):
     print(f"Incoming request: {request.method} {request.url.path}")
