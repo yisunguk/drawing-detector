@@ -21,3 +21,7 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
+
+update-secrets.ps1
+
+update-secrets-v2.ps1

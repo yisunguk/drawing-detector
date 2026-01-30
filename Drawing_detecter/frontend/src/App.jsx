@@ -256,11 +256,16 @@ const App = () => {
 
             const page = await pdf.getPage(pageNum);
 
-            // Respect natural rotation + user rotation
-            const naturalRotation = page.rotate || 0;
-            const totalRotation = (naturalRotation + rotation) % 360;
+            // Standard PDF.js rotation handling:
+            // Passing 'rotation' to getViewport applies it as an ABSOLUTE rotation (0, 90, 180, 270).
+            // By default, rotation state is 0. If drawings look upside down, we can adjust here.
+            let viewport = page.getViewport({ scale: 2.0, rotation: rotation });
 
-            let viewport = page.getViewport({ scale: 2.0, rotation: totalRotation });
+            // If the drawing is naturally portrait (tall), rotate to landscape (wide) for better viewing
+            // but only if it's the initial load (rotation === 0)
+            if (rotation === 0 && viewport.width < viewport.height) {
+                viewport = page.getViewport({ scale: 2.0, rotation: 90 });
+            }
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
 
@@ -400,14 +405,18 @@ const App = () => {
 
             const API_URL = import.meta.env.VITE_API_URL || '';
             const response = await fetch(`${API_URL}/api/v1/azure/list?path=${encodeURIComponent(path)}`);
-            if (!response.ok) throw new Error('Failed to fetch Azure items');
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.detail || 'Failed to fetch Azure items');
+            }
 
             const items = await response.json();
             setAzureItems(items);
             setAzurePath(path);
         } catch (err) {
             console.error('Error fetching Azure files:', err);
-            setError('Failed to load files from Azure Storage via Backend.');
+            setError(err.message || 'Failed to load files from Azure Storage via Backend.');
         } finally {
             setAzureLoading(false);
         }
@@ -420,7 +429,11 @@ const App = () => {
 
             const API_URL = import.meta.env.VITE_API_URL || '';
             const response = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`);
-            if (!response.ok) throw new Error('Failed to download from Azure via Backend');
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.detail || 'Failed to download from Azure via Backend');
+            }
 
             const blob = await response.blob();
 
@@ -446,7 +459,7 @@ const App = () => {
             }
         } catch (err) {
             console.error('Error downloading Azure file:', err);
-            setError('Failed to download file from Azure via Backend');
+            setError(err.message || 'Failed to download file from Azure via Backend');
         } finally {
             setAzureLoading(false);
         }
