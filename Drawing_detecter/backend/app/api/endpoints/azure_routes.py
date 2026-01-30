@@ -12,18 +12,24 @@ def get_container_client():
     
     blob_service_client = None
     
-    # Method 1: Try Connection String
-    if settings.AZURE_BLOB_CONNECTION_STRING and ("DefaultEndpointsProtocol" in settings.AZURE_BLOB_CONNECTION_STRING or "SharedAccessSignature" in settings.AZURE_BLOB_CONNECTION_STRING):
+    blob_service_client = None
+    
+    # Method 1: Try Explicit Account Name + SAS Token (Preferred)
+    if not blob_service_client and settings.AZURE_STORAGE_ACCOUNT_NAME and settings.AZURE_BLOB_SAS_TOKEN:
+        try:
+            account_url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
+            blob_service_client = BlobServiceClient(account_url, credential=settings.AZURE_BLOB_SAS_TOKEN)
+        except Exception as e:
+            print(f"Warning: SAS Token auth failed ({e}), trying connection string.")
+            blob_service_client = None
+
+    # Method 2: Fallback to Connection String
+    if not blob_service_client and settings.AZURE_BLOB_CONNECTION_STRING and ("DefaultEndpointsProtocol" in settings.AZURE_BLOB_CONNECTION_STRING or "SharedAccessSignature" in settings.AZURE_BLOB_CONNECTION_STRING):
         try:
             blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_BLOB_CONNECTION_STRING)
         except Exception as e:
-            print(f"Warning: Connection string failed ({e}), falling back to SAS token.")
+            print(f"Warning: Connection string failed ({e})")
             blob_service_client = None
-
-    # Method 2: Fallback to Account URL + SAS Token
-    if not blob_service_client:
-        account_url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
-        blob_service_client = BlobServiceClient(account_url, credential=settings.AZURE_BLOB_SAS_TOKEN)
         
     return blob_service_client.get_container_client(settings.AZURE_BLOB_CONTAINER_NAME)
 
