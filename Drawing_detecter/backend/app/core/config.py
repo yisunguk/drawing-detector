@@ -18,10 +18,10 @@ class Settings(BaseSettings):
     AZURE_OPENAI_DEPLOYMENT_NAME: str = "gpt-35-turbo"
 
     # Azure Blob Storage Settings
-    AZURE_STORAGE_ACCOUNT_NAME: str = ""
+    AZURE_STORAGE_ACCOUNT_NAME: str = "encdevmkcsaaitest"
     AZURE_BLOB_CONNECTION_STRING: str = ""
     AZURE_BLOB_SAS_TOKEN: str = ""
-    AZURE_BLOB_CONTAINER_NAME: str = ""
+    AZURE_BLOB_CONTAINER_NAME: str = "blob-leesunguk"
 
     class Config:
         env_file = ".env"
