@@ -1,10 +1,10 @@
-name: Deploy to Firebase Hosting on merge
+name: App Deploy (Frontend & Backend)
 'on':
   push:
     branches:
       - main
 jobs:
-  build_and_deploy:
+  build_and_deploy_frontend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,4 +17,38 @@ jobs:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DRAWING_DETECTER }}'
           channelId: live
-          projectId: drawing-detecter
+          projectId: drawing-detector
+
+  deploy_backend:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: Authorize Docker
+        run: gcloud auth configure-docker
+
+      - name: Build and Push Container
+        run: |-
+          docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/drawing-detector-backend:${{ github.sha }} ./backend
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/drawing-detector-backend:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |-
+          gcloud run deploy drawing-detector-backend \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/drawing-detector-backend:${{ github.sha }} \
+            --region us-central1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-secrets="AZURE_OPENAI_ENDPOINT=AZURE_OPENAI_ENDPOINT:latest,AZURE_OPENAI_KEY=AZURE_OPENAI_KEY:latest,AZURE_OPENAI_API_VERSION=AZURE_OPENAI_API_VERSION:latest,AZURE_OPENAI_DEPLOYMENT_NAME=AZURE_OPENAI_DEPLOYMENT_NAME:latest,AZURE_BLOB_CONNECTION_STRING=AZURE_BLOB_CONNECTION_STRING:latest,AZURE_BLOB_SAS_TOKEN=AZURE_BLOB_SAS_TOKEN:latest,AZURE_BLOB_CONTAINER_NAME=AZURE_BLOB_CONTAINER_NAME:latest,AZURE_STORAGE_ACCOUNT_NAME=AZURE_STORAGE_ACCOUNT_NAME:latest" \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 300
