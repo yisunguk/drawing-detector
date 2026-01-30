@@ -444,21 +444,39 @@ const App = () => {
 
             if (!response.ok) {
                 const contentType = response.headers.get("content-type");
+                let errorMessage = `Server Error (${response.status})`;
                 if (contentType && contentType.includes("application/json")) {
                     const errData = await response.json();
-                    throw new Error(errData.detail || 'Failed to download from Azure via Backend');
+                    errorMessage = errData.detail || errorMessage;
                 } else {
                     const text = await response.text();
-                    console.error("Non-JSON Error Response:", text);
                     const titleMatch = text.match(/<title>(.*?)<\/title>/i);
-                    const title = titleMatch ? titleMatch[1] : text.slice(0, 100);
-                    throw new Error(`Server Error (${response.status}): ${title}`);
+                    errorMessage = titleMatch ? titleMatch[1] : text.slice(0, 100);
                 }
+                throw new Error(errorMessage);
             }
 
             const blob = await response.blob();
+            const fileName = file.name.toLowerCase();
 
-            if (uploadType === 'pdf' && file.name.toLowerCase().endsWith('.pdf')) {
+            // Logic to match handleFilesUpload identically
+            if (activeDocId && fileName.endsWith('.json')) {
+                // Treat as JSON metadata Upload
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const json = JSON.parse(event.target.result);
+                        setDocuments(prev => prev.map(d => d.id === activeDocId ? { ...d, ocrData: json, pdfTextData: null } : d));
+                        setShowAzureBrowser(false);
+                        alert("Metadata loaded successfully!");
+                    } catch (e) {
+                        console.error("JSON Parse Error:", e);
+                        alert('Invalid JSON file.');
+                    }
+                };
+                reader.readAsText(blob);
+            } else if (fileName.endsWith('.pdf')) {
+                // PDF Upload
                 const id = `doc-${Date.now()}`;
                 const name = file.name.replace(/\.pdf$/i, '');
                 const arrayBuffer = await blob.arrayBuffer();
@@ -468,16 +486,10 @@ const App = () => {
                 setActivePage(1);
                 setRotation(0);
                 setShowAzureBrowser(false);
-            } else if (uploadType === 'json' && activeDocId && file.name.toLowerCase().endsWith('.json')) {
-                const text = await blob.text();
-                try {
-                    const json = JSON.parse(text);
-                    setDocuments(prev => prev.map(d => d.id === activeDocId ? { ...d, ocrData: json, pdfTextData: null } : d));
-                    setShowAzureBrowser(false);
-                } catch { alert('Invalid JSON'); }
             } else {
-                alert(`Please select a .${uploadType} file.`);
+                alert(`Unsupported file type: ${file.name}`);
             }
+
         } catch (err) {
             console.error('Error downloading Azure file:', err);
             setError(err.message || 'Failed to download file from Azure via Backend');
