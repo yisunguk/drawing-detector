@@ -56,6 +56,7 @@ const App = () => {
     const [azureItems, setAzureItems] = useState([]);
     const [azureLoading, setAzureLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [autoSelectFirstResult, setAutoSelectFirstResult] = useState(false);
 
     const pdfRef = useRef(null);
     const canvasRef = useRef(null);
@@ -721,7 +722,16 @@ const App = () => {
     // Citation Handler
     const handleCitationClick = (keyword) => {
         setSearchTerm(keyword);
+        setAutoSelectFirstResult(true);
     };
+
+    // Auto-select first result when triggered by citation click
+    useEffect(() => {
+        if (autoSelectFirstResult && searchResults.length > 0) {
+            handleResultClick(searchResults[0]);
+            setAutoSelectFirstResult(false);
+        }
+    }, [searchResults, autoSelectFirstResult]);
 
     return (
         <div className="flex h-screen w-full bg-[#fcfaf7] text-[#333333] font-sans overflow-hidden relative">
