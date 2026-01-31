@@ -591,7 +591,7 @@ const App = () => {
     };
 
     const getSelectedCenter = () => {
-        if (!selectedResult || !canvasSize.width) return null;
+        if (!selectedResult || !canvasSize.width || !selectedResult.polygon) return null;
         const p = selectedResult.polygon;
         const lw = selectedResult.layoutWidth;
         const lh = selectedResult.layoutHeight;
