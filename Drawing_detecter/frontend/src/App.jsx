@@ -562,7 +562,29 @@ const App = () => {
                 const name = file.name.replace(/\.pdf$/i, '');
                 const arrayBuffer = await blob.arrayBuffer();
 
-                setDocuments(prev => [...prev, { id, name, pdfData: arrayBuffer, ocrData: null, pdfTextData: null, totalPages: 1 }]);
+                // Auto-fetch JSON logic
+                let fetchedJson = null;
+                // Check if path contains 'drawings' (case insensitive)
+                if (file.path.toLowerCase().includes('drawings')) {
+                    const jsonPath = file.path.replace(/drawings/i, 'json') + '.json';
+                    try {
+                        const jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
+                        if (jsonResponse.ok) {
+                            const jsonBlob = await jsonResponse.blob();
+                            const jsonText = await jsonBlob.text();
+                            fetchedJson = JSON.parse(jsonText);
+                            console.log("Auto-fetched JSON metadata:", jsonPath);
+                            // Optional: Notify user
+                            // alert("PDF and corresponding JSON metadata loaded automatically!");
+                        } else {
+                            console.log("JSON metadata not found at:", jsonPath);
+                        }
+                    } catch (jsonErr) {
+                        console.warn("Failed to auto-fetch JSON:", jsonErr);
+                    }
+                }
+
+                setDocuments(prev => [...prev, { id, name, pdfData: arrayBuffer, ocrData: fetchedJson, pdfTextData: null, totalPages: 1 }]);
                 setActiveDocId(id);
                 setActivePage(1);
                 setRotation(0);
