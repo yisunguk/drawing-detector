@@ -40,6 +40,8 @@ def get_container_client():
 async def list_files(path: str = ""):
     try:
         container_client = get_container_client()
+        # Sanitize path: Azure blob paths do not start with /
+        path = path.lstrip('/')
         prefix = path if path.endswith('/') or not path else path + '/'
         
         items = []
