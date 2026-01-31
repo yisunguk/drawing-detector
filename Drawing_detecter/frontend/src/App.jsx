@@ -44,6 +44,7 @@ const App = () => {
     const [copiedTag, setCopiedTag] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+    const [extractionProgress, setExtractionProgress] = useState(null); // { current, total }
 
     // Azure Integration State
     const [showSourceModal, setShowSourceModal] = useState(false);
@@ -297,14 +298,17 @@ const App = () => {
                         const textData = [];
                         // Initial chunk size can be small to get *some* search results fast, then larger
                         // For simplicity, we process all but yield to main thread occasionally if needed
+                        setExtractionProgress({ current: 0, total: pdf.numPages });
                         for (let i = 1; i <= pdf.numPages; i++) {
                             const data = await extractPdfText(pdf, i);
                             if (data) textData.push(data);
-                            // Optional: Update state every 50 pages or so to show progress? 
-                            // For now, simpler to just do all in background then update.
-                            // If 300 pages, this might take 30s, but UI stands responsive.
+                            setExtractionProgress({ current: i, total: pdf.numPages });
+
+                            // Yield to main thread every 5 pages to keep UI responsive
+                            if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
                         }
                         setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, pdfTextData: textData } : d));
+                        setExtractionProgress(null);
                     })();
                 }
             }
@@ -830,6 +834,20 @@ const App = () => {
                         <button onClick={() => { setZoom(1); setPanX(50); setPanY(50); setRotation(0); }} className="p-1.5 hover:bg-[#f4f1ea] text-[#555555] hover:text-[#333333] rounded-md transition-all" title="Reset"><RotateCcw size={16} /></button>
 
                         <div className="h-6 w-px bg-[#e5e1d8] mx-2"></div>
+
+                        {/* Extraction Progress Bar */}
+                        {extractionProgress && (
+                            <div className="flex items-center gap-2 mr-4 bg-[#fff8f0] border border-[#ffecd6] px-2 py-1 rounded-md">
+                                <Loader2 size={14} className="animate-spin text-[#d97757]" />
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] font-medium text-[#d97757] leading-tight">Processing Text</span>
+                                    <div className="w-20 h-1 bg-[#ffecd6] rounded-full mt-0.5 overflow-hidden">
+                                        <div className="h-full bg-[#d97757] transition-all duration-300" style={{ width: `${(extractionProgress.current / extractionProgress.total) * 100}%` }}></div>
+                                    </div>
+                                </div>
+                                <span className="text-[9px] text-[#c05535] font-mono ml-1">{extractionProgress.current}/{extractionProgress.total}</span>
+                            </div>
+                        )}
 
                         {/* Pagination - Always show if doc is loaded, even if 1 page, to be consistent */}
                         {activeDoc && (
