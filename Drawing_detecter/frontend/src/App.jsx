@@ -268,23 +268,32 @@ const App = () => {
     }, [searchTerm, documents, activeDocId, searchScope, filters, parseInstrumentBubbles]);
 
     // PDF 로드 및 페이지 렌더링
+    const pdfCache = useRef({}); // Cache for parsed PDF documents: { [docId]: pdfProxy }
+
+    // PDF 로드 및 페이지 렌더링
     const loadAndRenderPage = useCallback(async (doc, pageNum) => {
         if (!window.pdfjsLib || !canvasRef.current || !doc?.pdfData) return;
         setIsLoading(true);
 
         try {
-            let pdf = pdfRef.current;
-            if (!pdf || pdf.docId !== doc.id) {
+            let pdf = pdfCache.current[doc.id];
+
+            // If not in cache, load it and cache it
+            if (!pdf) {
+                // We use the raw ArrayBuffer. pdfjsLib handles it.
+                // We do NOT attach docId to the object itself rely on the cache key
                 pdf = await window.pdfjsLib.getDocument({ data: doc.pdfData }).promise;
-                pdf.docId = doc.id;
-                pdfRef.current = pdf;
+                pdfCache.current[doc.id] = pdf;
 
-                const totalPages = pdf.numPages;
-                setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, totalPages } : d));
+                // Update total pages in state only if it's new (to avoid infinite loops or unnecessary updates)
+                if (doc.totalPages !== pdf.numPages) {
+                    setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, totalPages: pdf.numPages } : d));
+                }
 
+                // Auto-extract text if needed
                 if (!doc.ocrData && !doc.pdfTextData) {
                     const textData = [];
-                    for (let i = 1; i <= totalPages; i++) {
+                    for (let i = 1; i <= pdf.numPages; i++) {
                         const data = await extractPdfText(pdf, i);
                         if (data) textData.push(data);
                     }
@@ -344,7 +353,7 @@ const App = () => {
                 throw err;
             }
 
-            // Auto-fit after rendering
+            // Auto-fit after rendering is purely visual, can stay here.
             setTimeout(() => {
                 if (containerRef.current && viewport.width && viewport.height) {
                     const containerWidth = containerRef.current.clientWidth;
@@ -353,9 +362,10 @@ const App = () => {
                     const scaleX = (containerWidth - padding) / viewport.width;
                     const scaleY = (containerHeight - padding) / viewport.height;
                     const fitZoom = Math.min(scaleX, scaleY);
-                    setZoom(fitZoom);
-                    setPanX(50);
-                    setPanY(50);
+
+                    // Only auto-fit if it's the first render of this doc/page distinct from zoom actions
+                    // For now, we keep it simple or it might reset zoom annoyingly.
+                    // Let's rely on the useEffect fitToScreen for initial load instead of forcing it deeply here.
                 }
             }, 100);
 
