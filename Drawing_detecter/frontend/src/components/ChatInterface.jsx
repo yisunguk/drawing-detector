@@ -188,8 +188,8 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                                             ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
                                             : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
                                         a: ({ node, href, children, ...props }) => {
-                                            if (href?.startsWith('citation:')) {
-                                                const keyword = decodeURIComponent(href.replace('citation:', ''));
+                                            if (href?.startsWith('#citation-')) {
+                                                const keyword = decodeURIComponent(href.replace('#citation-', ''));
                                                 return (
                                                     <button
                                                         onClick={(e) => {
@@ -214,7 +214,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                                         }
                                     }}
                                 >
-                                    {msg.content.replace(/\[\[(.*?)\]\]/g, (match, p1) => `[${p1}](citation:${encodeURIComponent(p1)})`)}
+                                    {msg.content.replace(/\[\[(.*?)\]\]/g, (match, p1) => `[${p1}](#citation-${encodeURIComponent(p1)})`)}
                                 </ReactMarkdown>
                             )}
                         </div>
