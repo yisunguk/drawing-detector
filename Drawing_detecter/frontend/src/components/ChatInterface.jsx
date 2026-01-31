@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Bot, User, Loader2, Sparkles, AlertCircle } from 'lucide-react';
 
-const ChatInterface = ({ activeDoc }) => {
+const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active' }) => {
     const [messages, setMessages] = useState([
         { role: 'assistant', content: '안녕하세요! 도면에 대해 궁금한 점을 물어보세요.' }
     ]);
@@ -17,48 +17,64 @@ const ChatInterface = ({ activeDoc }) => {
         scrollToBottom();
     }, [messages]);
 
-    // Reset chat when document changes
+    // Reset chat when document changes or scope changes
     useEffect(() => {
-        setMessages([
-            { role: 'assistant', content: `안녕하세요! "${activeDoc?.name || '도면'}"에 대해 궁금한 점을 물어보세요.` }
-        ]);
-    }, [activeDoc?.id]);
+        if (chatScope === 'active') {
+            setMessages([
+                { role: 'assistant', content: `안녕하세요! "${activeDoc?.name || '도면'}"에 대해 궁금한 점을 물어보세요.` }
+            ]);
+        } else {
+            setMessages([
+                { role: 'assistant', content: `안녕하세요! 현재 열려있는 ${documents.length}개의 모든 문서에 대해 물어보세요.` }
+            ]);
+        }
+    }, [activeDoc?.id, chatScope, documents.length]);
 
     const formatContext = () => {
-        if (!activeDoc) return '';
+        // Decide which docs to include
+        const docsToInclude = chatScope === 'active'
+            ? (activeDoc ? [activeDoc] : [])
+            : documents;
 
-        let context = `Document Name: ${activeDoc.name}\n`;
+        if (docsToInclude.length === 0) return '';
 
-        if (activeDoc.ocrData) {
-            // Check if it's the standard OCR structure (Array or Object with layout.lines)
-            const pages = Array.isArray(activeDoc.ocrData) ? activeDoc.ocrData : [activeDoc.ocrData];
-            const hasOcrStructure = pages.some(p => p?.layout?.lines);
+        let context = '';
 
-            if (hasOcrStructure) {
-                // Use OCR data if available
-                pages.forEach((page, idx) => {
-                    context += `\nPage ${page.page_number || idx + 1}:\n`;
+        docsToInclude.forEach(doc => {
+            context += `\n=== Document Name: ${doc.name} ===\n`;
+
+            if (doc.ocrData) {
+                // Check if it's the standard OCR structure (Array or Object with layout.lines)
+                const pages = Array.isArray(doc.ocrData) ? doc.ocrData : [doc.ocrData];
+                const hasOcrStructure = pages.some(p => p?.layout?.lines);
+
+                if (hasOcrStructure) {
+                    // Use OCR data if available
+                    pages.forEach((page, idx) => {
+                        context += `\n[Page ${page.page_number || idx + 1}]\n`;
+                        if (page.layout?.lines) {
+                            page.layout.lines.forEach(line => {
+                                context += `${line.content}\n`;
+                            });
+                        }
+                    });
+                } else {
+                    // Fallback: Dump the entire JSON as context (for custom metadata)
+                    context += `\n[Metadata / JSON Content]\n${JSON.stringify(doc.ocrData, null, 2)}\n`;
+                }
+            } else if (doc.pdfTextData) {
+                // Use PDF text data if available
+                doc.pdfTextData.forEach((page, idx) => {
+                    context += `\n[Page ${page.page_number || idx + 1}]\n`;
                     if (page.layout?.lines) {
                         page.layout.lines.forEach(line => {
                             context += `${line.content}\n`;
                         });
                     }
                 });
-            } else {
-                // Fallback: Dump the entire JSON as context (for custom metadata)
-                context += `\nMetadata / JSON Content:\n${JSON.stringify(activeDoc.ocrData, null, 2)}\n`;
             }
-        } else if (activeDoc.pdfTextData) {
-            // Use PDF text data if available
-            activeDoc.pdfTextData.forEach((page, idx) => {
-                context += `\nPage ${page.page_number || idx + 1}:\n`;
-                if (page.layout?.lines) {
-                    page.layout.lines.forEach(line => {
-                        context += `${line.content}\n`;
-                    });
-                }
-            });
-        }
+            context += `\n=== End of ${doc.name} ===\n`;
+        });
 
         return context;
     };

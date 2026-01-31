@@ -45,6 +45,8 @@ const App = () => {
     const [isDragging, setIsDragging] = useState(false);
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [extractionProgress, setExtractionProgress] = useState(null); // { current, total }
+    // Chat Context Scope: 'active' (default) or 'all'
+    const [chatScope, setChatScope] = useState('active');
 
     // Azure Integration State
     const [showSourceModal, setShowSourceModal] = useState(false);
@@ -860,6 +862,25 @@ const App = () => {
                     </div>
 
                     <div className="flex items-center gap-3 text-xs font-medium">
+                        {/* Chat Scope Toggle */}
+                        <div className="flex items-center gap-1 bg-[#f4f1ea] rounded-lg p-0.5 border border-[#e5e1d8]">
+                            <button
+                                onClick={() => setChatScope('active')}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${chatScope === 'active' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#888888] hover:text-[#555555]'}`}
+                                title="Chat with current document only"
+                            >
+                                Active
+                            </button>
+                            <button
+                                onClick={() => setChatScope('all')}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${chatScope === 'all' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#888888] hover:text-[#555555]'}`}
+                                title="Chat with all open documents"
+                            >
+                                All
+                            </button>
+                        </div>
+                        <div className="w-px h-4 bg-[#e5e1d8]"></div>
+
                         {isLoading && <span className="text-[#d97757] flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" />Processing...</span>}
                         {activeDoc && (hasOcr ? <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">OCR Ready</span> : hasPdfText ? <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">PDF Text</span> : <span className="text-red-500 bg-red-50 px-2 py-0.5 rounded-full border border-red-100">No Data</span>)}
                         <button
@@ -942,7 +963,7 @@ const App = () => {
             {/* Right Sidebar (Chat) */}
             <div className={`${rightSidebarOpen ? 'w-[350px]' : 'w-0'} border-l border-[#e5e1d8] bg-white transition-all duration-300 overflow-hidden flex flex-col`}>
                 <div className="w-[350px] h-full">
-                    <ChatInterface activeDoc={activeDoc} />
+                    <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} />
                 </div>
             </div>
 
