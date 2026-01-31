@@ -58,6 +58,7 @@ const App = () => {
     const [extractionProgress, setExtractionProgress] = useState(null); // { current, total }
     // Chat Context Scope: 'active' (default) or 'all'
     const [chatScope, setChatScope] = useState('active');
+    const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
 
     // Azure Integration State
     const [showSourceModal, setShowSourceModal] = useState(false);
@@ -529,7 +530,7 @@ const App = () => {
         }
 
         // Trigger scope selection modal if total documents > 1 (Existing + New)
-        if (type === 'pdf' && (documents.length + files.length > 1) && chatScope !== 'all') {
+        if (type === 'pdf' && (documents.length + files.length > 1) && !hasUserSelectedScope) {
             setShowScopeSelectionModal(true);
         }
 
@@ -692,7 +693,7 @@ const App = () => {
         setSelectedAzureItems([]);
 
         // Trigger scope selection modal if total documents > 1 (Existing + New)
-        if (documents.length + selectedAzureItems.length > 1 && chatScope !== 'all') {
+        if (documents.length + selectedAzureItems.length > 1 && !hasUserSelectedScope) {
             setShowScopeSelectionModal(true);
         }
     };
@@ -1247,7 +1248,7 @@ const App = () => {
 
                         <div className="flex flex-col gap-3">
                             <button
-                                onClick={() => { setChatScope('active'); setShowScopeSelectionModal(false); }}
+                                onClick={() => { setChatScope('active'); setShowScopeSelectionModal(false); setHasUserSelectedScope(true); }}
                                 className="flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group text-left"
                             >
                                 <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]">
@@ -1260,7 +1261,7 @@ const App = () => {
                             </button>
 
                             <button
-                                onClick={() => { setChatScope('all'); setShowScopeSelectionModal(false); }}
+                                onClick={() => { setChatScope('all'); setShowScopeSelectionModal(false); setHasUserSelectedScope(true); }}
                                 className="flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group text-left"
                             >
                                 <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]">
