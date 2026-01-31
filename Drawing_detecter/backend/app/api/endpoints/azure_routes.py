@@ -48,7 +48,7 @@ async def list_files(path: str = ""):
         folders = set()
         
         # Use walk_blobs for efficient hierarchical listing (avoids fetching all recursive children)
-        # Use walk_blobs for efficient hierarchical listing (avoids fetching all recursive children)
+        print(f"DEBUG: Listing path '{path}' with delimiter '/'")
         blobs = container_client.walk_blobs(name_starts_with=path, delimiter='/')
         
         count = 0
