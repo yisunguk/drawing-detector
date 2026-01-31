@@ -412,28 +412,41 @@ const App = () => {
 
     const handleFilesUpload = async (e, type) => {
         const files = Array.from(e.target.files);
+
+        // Helper to read file as Promise
+        const readFile = (file, readAs) => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (event) => resolve(event.target.result);
+            reader.onerror = (error) => reject(error);
+            if (readAs === 'arrayBuffer') reader.readAsArrayBuffer(file);
+            else reader.readAsText(file);
+        });
+
         for (const file of files) {
             const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const name = file.name.replace(/\.(pdf|json)$/i, '');
 
             if (type === 'pdf') {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    setDocuments(prev => [...prev, { id, name, pdfData: event.target.result, ocrData: null, pdfTextData: null, totalPages: 1 }]);
+                try {
+                    const result = await readFile(file, 'arrayBuffer');
+                    // Sequential update guarantees no race condition
+                    setDocuments(prev => [...prev, { id, name, pdfData: result, ocrData: null, pdfTextData: null, totalPages: 1 }]);
                     setActiveDocId(id);
                     setActivePage(1);
                     setRotation(0);
-                };
-                reader.readAsArrayBuffer(file);
+                    // Small delay to let React process updates if needed (optional but safer for batching)
+                    await new Promise(r => setTimeout(r, 50));
+                } catch (err) {
+                    console.error("Error reading file:", file.name, err);
+                }
             } else if (type === 'json' && activeDocId) {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    try {
-                        const json = JSON.parse(event.target.result);
-                        setDocuments(prev => prev.map(d => d.id === activeDocId ? { ...d, ocrData: json, pdfTextData: null } : d));
-                    } catch { /* ignore */ }
-                };
-                reader.readAsText(file);
+                try {
+                    const result = await readFile(file, 'text');
+                    const json = JSON.parse(result);
+                    setDocuments(prev => prev.map(d => d.id === activeDocId ? { ...d, ocrData: json, pdfTextData: null } : d));
+                } catch (err) {
+                    console.error("Error parsing JSON:", file.name, err);
+                }
             }
         }
         e.target.value = '';
