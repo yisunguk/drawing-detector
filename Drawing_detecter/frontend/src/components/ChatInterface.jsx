@@ -20,7 +20,12 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
     }, [messages]);
 
     // Reset chat when document changes or scope changes
+    // Reset chat when document changes or scope changes
     useEffect(() => {
+        // Prevent clearing history if the user has already started a conversation
+        const hasUserMessages = messages.some(msg => msg.role === 'user');
+        if (hasUserMessages) return;
+
         if (chatScope === 'active') {
             setMessages([
                 { role: 'assistant', content: `안녕하세요! "${activeDoc?.name || '도면'}"에 대해 궁금한 점을 물어보세요.` }
