@@ -68,6 +68,7 @@ const App = () => {
     const [azureLoading, setAzureLoading] = useState(false);
     const [error, setError] = useState(null);
     const [autoSelectFirstResult, setAutoSelectFirstResult] = useState(false);
+    const [selectedAzureItems, setSelectedAzureItems] = useState([]);
 
     // Sidebar Resize State
     const [sidebarWidth, setSidebarWidth] = useState(350);
@@ -562,7 +563,7 @@ const App = () => {
         }
     };
 
-    const handleAzureFileSelect = async (file) => {
+    const handleAzureFileSelect = async (file, keepBrowserOpen = false) => {
         try {
             setAzureLoading(true);
             setError(null);
@@ -637,8 +638,9 @@ const App = () => {
                 setDocuments(prev => [...prev, { id, name, pdfData: arrayBuffer, ocrData: fetchedJson, pdfTextData: null, totalPages: 1, colorIndex }]);
                 setActiveDocId(id);
                 setActivePage(1);
+                setActivePage(1);
                 setRotation(0);
-                setShowAzureBrowser(false);
+                if (!keepBrowserOpen) setShowAzureBrowser(false);
             } else {
                 alert(`Unsupported file type: ${file.name}`);
             }
@@ -651,12 +653,32 @@ const App = () => {
         }
     };
 
-    const handleAzureItemClick = async (item) => {
+    const handleAzureItemClick = (item) => {
         if (item.type === 'folder') {
             fetchAzureItems(item.path);
         } else {
-            handleAzureFileSelect(item);
+            // Toggle selection for files
+            setSelectedAzureItems(prev => {
+                const exists = prev.some(i => i.path === item.path);
+                if (exists) {
+                    return prev.filter(i => i.path !== item.path);
+                } else {
+                    return [...prev, item];
+                }
+            });
         }
+    };
+
+    const handleAzureBatchUpload = async () => {
+        if (selectedAzureItems.length === 0) return;
+
+        // Process sequentially to ensure order and state stability
+        for (const item of selectedAzureItems) {
+            await handleAzureFileSelect(item, true);
+        }
+
+        setShowAzureBrowser(false);
+        setSelectedAzureItems([]);
     };
 
 
@@ -920,7 +942,7 @@ const App = () => {
                         <button onClick={() => initiateUpload('json')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#d97757] bg-[#fff0eb] hover:bg-[#ffe0d6] hover:text-[#c05535] rounded-md transition-colors"><Plus size={14} /> 메타데이터 업로드</button>
                     </div>
                     <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFilesUpload(e, 'pdf')} />
-                    <input ref={jsonInputRef} type="file" accept=".json" className="hidden" onChange={(e) => handleFilesUpload(e, 'json')} />
+                    <input ref={jsonInputRef} type="file" accept=".json" multiple className="hidden" onChange={(e) => handleFilesUpload(e, 'json')} />
                 </div>
 
                 {/* Toolbar */}
@@ -1141,21 +1163,41 @@ const App = () => {
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-4 gap-2">
-                                        {azureItems.map((item, i) => (
-                                            <div key={i} onClick={() => handleAzureItemClick(item)} className="p-3 rounded-lg border border-[#e5e1d8] hover:border-[#0078d4] hover:bg-[#f0f8ff] cursor-pointer flex flex-col items-center gap-2 text-center transition-all group">
-                                                {item.type === 'folder' ? (
-                                                    <Folder size={32} className="text-[#d97757] group-hover:text-[#0078d4]" />
-                                                ) : (
-                                                    <File size={32} className="text-[#888888] group-hover:text-[#0078d4]" />
-                                                )}
-                                                <span className="text-xs font-medium text-[#333333] break-all line-clamp-2">{item.name}</span>
-                                            </div>
-                                        ))}
+                                        {azureItems.map((item, i) => {
+                                            const isSelected = selectedAzureItems.some(sel => sel.path === item.path);
+                                            return (
+                                                <div key={i} onClick={() => handleAzureItemClick(item)}
+                                                    className={`p-3 rounded-lg border cursor-pointer flex flex-col items-center gap-2 text-center transition-all group relative ${isSelected ? 'bg-[#fff8f0] border-[#d97757] ring-1 ring-[#d97757]' : 'border-[#e5e1d8] hover:border-[#0078d4] hover:bg-[#f0f8ff]'}`}>
+                                                    {item.type === 'folder' ? (
+                                                        <Folder size={32} className="text-[#d97757] group-hover:text-[#0078d4]" />
+                                                    ) : (
+                                                        <File size={32} className={isSelected ? "text-[#d97757]" : "text-[#888888] group-hover:text-[#0078d4]"} />
+                                                    )}
+                                                    {isSelected && <div className="absolute top-2 right-2 bg-[#d97757] text-white rounded-full p-0.5"><Check size={10} /></div>}
+                                                    <span className={`text-xs font-medium break-all line-clamp-2 ${isSelected ? 'text-[#d97757]' : 'text-[#333333]'}`}>{item.name}</span>
+                                                </div>
+                                            )
+                                        })}
                                         {azureItems.length === 0 && (
                                             <div className="col-span-4 text-center py-10 text-[#888888]">Folder is empty</div>
                                         )}
                                     </div>
                                 )}
+                            </div>
+
+                            {/* Azure Modal Footer */}
+                            <div className="p-4 border-t border-[#e5e1d8] bg-[#fcfaf7] rounded-b-xl flex justify-between items-center">
+                                <span className="text-xs text-[#888888]">{selectedAzureItems.length} files selected</span>
+                                <div className="flex gap-2">
+                                    <button onClick={() => { setSelectedAzureItems([]); setShowAzureBrowser(false); }} className="px-4 py-2 bg-white border border-[#dcd8d0] hover:bg-[#e5e1d8] text-[#555555] rounded-lg text-sm font-medium transition-colors">Cancel</button>
+                                    <button
+                                        onClick={handleAzureBatchUpload}
+                                        disabled={selectedAzureItems.length === 0}
+                                        className="px-4 py-2 bg-[#d97757] hover:bg-[#c05535] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                                    >
+                                        <Download size={16} /> Load Selected ({selectedAzureItems.length})
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
