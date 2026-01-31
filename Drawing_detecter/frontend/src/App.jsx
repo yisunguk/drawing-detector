@@ -1158,8 +1158,10 @@ const App = () => {
                             <div className="flex-1 overflow-y-auto p-2">
                                 {azureLoading ? (
                                     <div className="flex flex-col items-center justify-center h-full text-[#888888]">
-                                        <Loader2 size={32} className="animate-spin mb-2" />
-                                        <span>Loading...</span>
+                                        <Loader2 size={32} className="animate-spin mb-3 text-[#d97757]" />
+                                        <span className="font-medium text-[#333333] mb-1">데이터를 불러오고 있습니다</span>
+                                        <span className="text-xs text-[#888888]">파일이 많을 경우 시간이 소요될 수 있습니다.</span>
+                                        <span className="text-xs text-[#888888]">잠시만 기다려주세요...</span>
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-4 gap-2">
