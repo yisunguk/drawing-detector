@@ -175,56 +175,93 @@ const App = () => {
         const results = [];
         const docsToSearch = searchScope === 'all' ? documents : documents.filter(d => d.id === activeDocId);
 
+        // Recursive helper for generic JSON
+        const searchGenericJson = (obj, doc, pageNum) => {
+            if (!obj) return;
+            if (typeof obj === 'string') {
+                if (obj.toLowerCase().replace(/\s+/g, '').includes(cleanSearch)) {
+                    results.push({
+                        content: obj,
+                        polygon: null, // No geometry
+                        docId: doc.id,
+                        docName: doc.name,
+                        pageNum,
+                        tagType: 'other', // Default type
+                        layoutWidth: 0,
+                        layoutHeight: 0,
+                        isMetadata: true
+                    });
+                }
+            } else if (Array.isArray(obj)) {
+                obj.forEach(item => searchGenericJson(item, doc, pageNum));
+            } else if (typeof obj === 'object') {
+                Object.values(obj).forEach(val => searchGenericJson(val, doc, pageNum));
+            }
+        };
+
         docsToSearch.forEach(doc => {
             const dataSource = doc.ocrData || doc.pdfTextData;
             if (!dataSource) return;
             const pages = Array.isArray(dataSource) ? dataSource : [dataSource];
 
-            pages.forEach((pageData, idx) => {
-                if (!pageData?.layout) return;
-                const pageNum = pageData.page_number || idx + 1;
-                const lines = pageData.layout.lines || [];
+            // Check if it looks like standard OCR
+            const hasOcrStructure = pages.some(p => p?.layout?.lines);
 
-                lines.forEach(line => {
-                    const cleanContent = line.content.replace(/\s+/g, '').toLowerCase();
-                    if (cleanContent.includes(cleanSearch)) {
-                        const type = classifyTag(line.content);
-                        if (filters[type]) {
-                            results.push({
-                                content: line.content,
-                                polygon: [...line.polygon],
-                                docId: doc.id,
-                                docName: doc.name,
-                                pageNum,
-                                tagType: type,
-                                layoutWidth: pageData.layout.width,
-                                layoutHeight: pageData.layout.height,
-                            });
-                        }
-                    }
-                });
+            if (hasOcrStructure || doc.pdfTextData) {
+                // ... Existing OCR-based search ...
+                pages.forEach((pageData, idx) => {
+                    if (!pageData?.layout) return;
+                    const pageNum = pageData.page_number || idx + 1;
+                    const lines = pageData.layout.lines || [];
 
-                if (doc.ocrData) {
-                    const bubbles = parseInstrumentBubbles(pageData);
-                    bubbles.forEach(bubble => {
-                        const nb = bubble.content.toLowerCase().replace(/[\s/]+/g, '');
-                        if (nb.includes(cleanSearch.replace(/[\s/]+/g, ''))) {
-                            if (filters.instrument) {
+                    lines.forEach(line => {
+                        const cleanContent = line.content.replace(/\s+/g, '').toLowerCase();
+                        if (cleanContent.includes(cleanSearch)) {
+                            const type = classifyTag(line.content);
+                            if (filters[type]) {
                                 results.push({
-                                    content: bubble.content,
-                                    polygon: [...bubble.polygon],
+                                    content: line.content,
+                                    polygon: [...line.polygon],
                                     docId: doc.id,
                                     docName: doc.name,
                                     pageNum,
-                                    tagType: 'instrument',
+                                    tagType: type,
                                     layoutWidth: pageData.layout.width,
                                     layoutHeight: pageData.layout.height,
                                 });
                             }
                         }
                     });
+
+                    if (doc.ocrData) {
+                        const bubbles = parseInstrumentBubbles(pageData);
+                        bubbles.forEach(bubble => {
+                            const nb = bubble.content.toLowerCase().replace(/[\s/]+/g, '');
+                            if (nb.includes(cleanSearch.replace(/[\s/]+/g, ''))) {
+                                if (filters.instrument) {
+                                    results.push({
+                                        content: bubble.content,
+                                        polygon: [...bubble.polygon],
+                                        docId: doc.id,
+                                        docName: doc.name,
+                                        pageNum,
+                                        tagType: 'instrument',
+                                        layoutWidth: pageData.layout.width,
+                                        layoutHeight: pageData.layout.height,
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+            } else {
+                // Fallback: Generic JSON Search
+                // Treat the whole doc.ocrData as searchable metadata
+                // We'll assign it to "Page 1" logically
+                if (filters.other) {
+                    searchGenericJson(doc.ocrData, doc, 1);
                 }
-            });
+            }
         });
         return results;
     }, [searchTerm, documents, activeDocId, searchScope, filters, parseInstrumentBubbles]);
@@ -787,10 +824,10 @@ const App = () => {
 
                             {canvasSize.width > 0 && currentPageData?.layout && (
                                 <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
-                                    {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult).map((r, i) => (
+                                    {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
                                         <polygon key={i} points={getPolygonPoints(r)} fill="rgba(250,204,21,0.2)" stroke="rgba(250,204,21,0.6)" strokeWidth="2" />
                                     ))}
-                                    {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && (
+                                    {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && selectedResult.polygon && (
                                         <>
                                             <polygon points={getPolygonPoints(selectedResult)} fill="rgba(217,119,87,0.2)" stroke="#d97757" strokeWidth="3" />
                                             <circle cx={selectedCenter.cx} cy={selectedCenter.cy} r="15" fill="none" stroke="#d97757" strokeWidth="2" opacity="0.8" />
