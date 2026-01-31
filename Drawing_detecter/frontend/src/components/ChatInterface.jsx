@@ -192,7 +192,16 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                                                 const keyword = decodeURIComponent(href.replace('citation:', ''));
                                                 return (
                                                     <button
-                                                        onClick={() => onCitationClick && onCitationClick(keyword)}
+                                                        onClick={(e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            console.log(`Citation clicked: ${keyword}`);
+                                                            if (onCitationClick) {
+                                                                onCitationClick(keyword);
+                                                            } else {
+                                                                console.warn('onCitationClick prop is missing');
+                                                            }
+                                                        }}
                                                         className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
                                                         title={`Locate "${keyword}" in drawing`}
                                                     >

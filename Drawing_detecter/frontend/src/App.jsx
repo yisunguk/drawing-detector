@@ -721,6 +721,7 @@ const App = () => {
 
     // Citation Handler
     const handleCitationClick = (keyword) => {
+        console.log(`App handled citation: ${keyword}`);
         setSearchTerm(keyword);
         setAutoSelectFirstResult(true);
     };
