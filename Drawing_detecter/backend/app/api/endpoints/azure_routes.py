@@ -45,27 +45,41 @@ async def list_files(path: str = ""):
         items = []
         folders = set()
         
-        blobs = container_client.list_blobs(name_starts_with=path)
-        for blob in blobs:
-            relative_name = blob.name[len(path):].lstrip('/')
-            if '/' in relative_name:
-                folder_name = relative_name.split('/')[0]
-                if folder_name not in folders:
-                    folders.add(folder_name)
-                    items.append({
-                        "name": folder_name,
-                        "type": "folder",
-                        "path": (path.rstrip('/') + '/' + folder_name + '/') if path else (folder_name + '/')
-                    })
+        # Use walk_blobs for efficient hierarchical listing (avoids fetching all recursive children)
+        # Use walk_blobs for efficient hierarchical listing (avoids fetching all recursive children)
+        blobs = container_client.walk_blobs(name_starts_with=path, delimiter='/')
+        
+        count = 0
+        MAX_ITEMS = 1000 # Safety limit
+        
+        for item in blobs:
+            if count >= MAX_ITEMS:
+                break
+                
+            if item.name.endswith('/'):
+                # It's a prefix (folder)
+                # Remove the trailing slash and the prefix path for the display name
+                folder_name_full = item.name.rstrip('/') 
+                folder_name_display = folder_name_full.split('/')[-1]
+                
+                # Check if it's strictly a child of current path (sanity check)
+                items.append({
+                    "name": folder_name_display,
+                    "type": "folder",
+                    "path": item.name # walk_blobs includes full prefix
+                })
             else:
-                if relative_name:
-                    items.append({
-                        "name": relative_name,
-                        "type": "file",
-                        "path": blob.name,
-                        "size": blob.size,
-                        "last_modified": blob.last_modified.isoformat()
-                    })
+                # It's a blob (file)
+                file_name_display = item.name.split('/')[-1]
+                items.append({
+                    "name": file_name_display,
+                    "type": "file",
+                    "path": item.name,
+                    "size": item.size,
+                    "last_modified": item.last_modified.isoformat() if item.last_modified else None
+                })
+            count += 1
+            
         return items
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
