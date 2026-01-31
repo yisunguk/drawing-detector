@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Bot, User, Loader2, Sparkles, AlertCircle } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active' }) => {
     const [messages, setMessages] = useState([
@@ -167,7 +169,29 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active' }) => {
                                 ? 'bg-red-50 text-red-600 border border-red-100 rounded-tl-none'
                                 : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
                             }`}>
-                            {msg.content}
+                            {msg.role === 'user' ? (
+                                msg.content
+                            ) : (
+                                <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{
+                                        table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
+                                        thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
+                                        th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
+                                        td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
+                                        ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
+                                        ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
+                                        li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+                                        p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
+                                        strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
+                                        code: ({ node, inline, ...props }) => inline
+                                            ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
+                                            : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />
+                                    }}
+                                >
+                                    {msg.content}
+                                </ReactMarkdown>
+                            )}
                         </div>
                     </div>
                 ))}
