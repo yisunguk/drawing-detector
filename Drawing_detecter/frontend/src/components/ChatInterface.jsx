@@ -202,7 +202,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                                                                 console.warn('onCitationClick prop is missing');
                                                             }
                                                         }}
-                                                        className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
+                                                        className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
                                                         title={`Locate "${keyword}" in drawing`}
                                                     >
                                                         <Sparkles size={10} />
