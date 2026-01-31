@@ -1161,7 +1161,12 @@ const App = () => {
                                         <Loader2 size={32} className="animate-spin mb-3 text-[#d97757]" />
                                         <span className="font-medium text-[#333333] mb-1">데이터를 불러오고 있습니다</span>
                                         <span className="text-xs text-[#888888]">파일이 많을 경우 시간이 소요될 수 있습니다.</span>
-                                        <span className="text-xs text-[#888888]">잠시만 기다려주세요...</span>
+                                        <span className="text-xs text-[#888888] mb-4">잠시만 기다려주세요...</span>
+
+                                        {/* Progress Bar */}
+                                        <div className="w-48 h-1 bg-[#f0ede6] rounded-full overflow-hidden relative">
+                                            <div className="absolute top-0 left-0 h-full w-full bg-[#d97757] animate-indeterminate origin-left"></div>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-4 gap-2">
