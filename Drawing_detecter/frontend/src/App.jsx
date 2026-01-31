@@ -69,6 +69,7 @@ const App = () => {
     const [error, setError] = useState(null);
     const [autoSelectFirstResult, setAutoSelectFirstResult] = useState(false);
     const [selectedAzureItems, setSelectedAzureItems] = useState([]);
+    const [showScopeSelectionModal, setShowScopeSelectionModal] = useState(false);
 
     // Sidebar Resize State
     const [sidebarWidth, setSidebarWidth] = useState(350);
@@ -510,6 +511,11 @@ const App = () => {
                     setRotation(0);
                     // Small delay to let React process updates if needed (optional but safer for batching)
                     await new Promise(r => setTimeout(r, 50));
+
+                    // Trigger scope selection modal if it's a PDF upload
+                    if (files.length > 0) {
+                        setShowScopeSelectionModal(true);
+                    }
                 } catch (err) {
                     console.error("Error reading file:", file.name, err);
                 }
@@ -679,6 +685,9 @@ const App = () => {
 
         setShowAzureBrowser(false);
         setSelectedAzureItems([]);
+
+        // Trigger scope selection modal
+        setShowScopeSelectionModal(true);
     };
 
 
@@ -1210,8 +1219,51 @@ const App = () => {
                     </div>
                 )
             }
+            {/* Scope Selection Modal */}
+            {showScopeSelectionModal && (
+                <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60]">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 w-[400px] border border-[#e5e1d8] animate-in fade-in zoom-in duration-200">
+                        <div className="text-center mb-6">
+                            <div className="bg-[#fff8f0] w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <MessageSquare size={24} className="text-[#d97757]" />
+                            </div>
+                            <h3 className="text-lg font-bold text-[#333333] mb-1">업로드 완료!</h3>
+                            <p className="text-sm text-[#666666]">채팅 범위를 어떻게 설정하시겠습니까?</p>
+                        </div>
+
+                        <div className="flex flex-col gap-3">
+                            <button
+                                onClick={() => { setChatScope('active'); setShowScopeSelectionModal(false); }}
+                                className="flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group text-left"
+                            >
+                                <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]">
+                                    <FileText size={20} className="text-[#555555] group-hover:text-[#d97757]" />
+                                </div>
+                                <div>
+                                    <div className="font-bold text-[#333333] text-sm">현재 도면만 채팅</div>
+                                    <div className="text-xs text-[#888888]">지금 보고 있는 도면에 대해서만 질문합니다.</div>
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={() => { setChatScope('all'); setShowScopeSelectionModal(false); }}
+                                className="flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group text-left"
+                            >
+                                <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]">
+                                    <Files size={20} className="text-[#555555] group-hover:text-[#d97757]" />
+                                </div>
+                                <div>
+                                    <div className="font-bold text-[#333333] text-sm">전체 도면 채팅</div>
+                                    <div className="text-xs text-[#888888]">업로드된 모든 도면을 대상으로 질문합니다.</div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
+
 
 export default App;
