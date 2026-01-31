@@ -631,538 +631,538 @@ const App = () => {
                         console.warn("Failed to auto-fetch JSON:", jsonErr);
                     }
                 }
+
+
+                const colorIndex = documents.length % DOC_COLORS.length;
+                setDocuments(prev => [...prev, { id, name, pdfData: arrayBuffer, ocrData: fetchedJson, pdfTextData: null, totalPages: 1, colorIndex }]);
+                setActiveDocId(id);
+                setActivePage(1);
+                setRotation(0);
+                setShowAzureBrowser(false);
+            } else {
+                alert(`Unsupported file type: ${file.name}`);
             }
 
-            const colorIndex = documents.length % DOC_COLORS.length;
-            setDocuments(prev => [...prev, { id, name, pdfData: arrayBuffer, ocrData: fetchedJson, pdfTextData: null, totalPages: 1, colorIndex }]);
-            setActiveDocId(id);
+        } catch (err) {
+            console.error('Error downloading Azure file:', err);
+            setError(err.message || 'Failed to download file from Azure via Backend');
+        } finally {
+            setAzureLoading(false);
+        }
+    };
+
+    const handleAzureItemClick = async (item) => {
+        if (item.type === 'folder') {
+            fetchAzureItems(item.path);
+        } else {
+            handleAzureFileSelect(item);
+        }
+    };
+
+
+    const closeDocument = (id) => {
+        setDocuments(prev => prev.filter(d => d.id !== id));
+        if (activeDocId === id) {
+            const remaining = documents.filter(d => d.id !== id);
+            setActiveDocId(remaining.length > 0 ? remaining[0].id : null);
             setActivePage(1);
             setRotation(0);
-            setShowAzureBrowser(false);
-        } else {
-            alert(`Unsupported file type: ${file.name}`);
         }
+    };
 
-    } catch (err) {
-        console.error('Error downloading Azure file:', err);
-        setError(err.message || 'Failed to download file from Azure via Backend');
-    } finally {
-        setAzureLoading(false);
-    }
-};
+    const goToPage = (num) => {
+        const total = activeDoc?.totalPages || 1;
+        const page = Math.max(1, Math.min(total, num));
+        if (page !== activePage) {
+            setActivePage(page);
+            setSelectedResult(null);
+        }
+    };
 
-const handleAzureItemClick = async (item) => {
-    if (item.type === 'folder') {
-        fetchAzureItems(item.path);
-    } else {
-        handleAzureFileSelect(item);
-    }
-};
+    const handleResultClick = (result) => {
+        setSelectedResult(result);
+        if (result.docId !== activeDocId) {
+            setActiveDocId(result.docId);
+        }
+        if (result.pageNum !== activePage) {
+            setActivePage(result.pageNum);
+        }
+    };
 
+    const getPolygonPoints = (result) => {
+        if (!canvasSize.width) return "";
+        const p = result.polygon;
+        const lw = result.layoutWidth;
+        const lh = result.layoutHeight;
+        const needScale = Math.abs(lw - canvasSize.width) > 1;
 
-const closeDocument = (id) => {
-    setDocuments(prev => prev.filter(d => d.id !== id));
-    if (activeDocId === id) {
-        const remaining = documents.filter(d => d.id !== id);
-        setActiveDocId(remaining.length > 0 ? remaining[0].id : null);
-        setActivePage(1);
-        setRotation(0);
-    }
-};
+        if (!needScale) {
+            return `${p[0]},${p[1]} ${p[2]},${p[3]} ${p[4]},${p[5]} ${p[6]},${p[7]}`;
+        } else {
+            const sx = canvasSize.width / lw;
+            const sy = canvasSize.height / lh;
+            return `${p[0] * sx},${p[1] * sy} ${p[2] * sx},${p[3] * sy} ${p[4] * sx},${p[5] * sy} ${p[6] * sx},${p[7] * sy}`;
+        }
+    };
 
-const goToPage = (num) => {
-    const total = activeDoc?.totalPages || 1;
-    const page = Math.max(1, Math.min(total, num));
-    if (page !== activePage) {
-        setActivePage(page);
-        setSelectedResult(null);
-    }
-};
+    const getSelectedCenter = () => {
+        if (!selectedResult || !canvasSize.width || !selectedResult.polygon) return null;
+        const p = selectedResult.polygon;
+        const lw = selectedResult.layoutWidth;
+        const lh = selectedResult.layoutHeight;
+        const needScale = Math.abs(lw - canvasSize.width) > 1;
 
-const handleResultClick = (result) => {
-    setSelectedResult(result);
-    if (result.docId !== activeDocId) {
-        setActiveDocId(result.docId);
-    }
-    if (result.pageNum !== activePage) {
-        setActivePage(result.pageNum);
-    }
-};
+        let cx, cy;
+        if (!needScale) {
+            cx = (p[0] + p[2]) / 2;
+            cy = (p[1] + p[5]) / 2;
+        } else {
+            const sx = canvasSize.width / lw;
+            const sy = canvasSize.height / lh;
+            cx = ((p[0] + p[2]) / 2) * sx;
+            cy = ((p[1] + p[5]) / 2) * sy;
+        }
+        return { cx, cy };
+    };
 
-const getPolygonPoints = (result) => {
-    if (!canvasSize.width) return "";
-    const p = result.polygon;
-    const lw = result.layoutWidth;
-    const lh = result.layoutHeight;
-    const needScale = Math.abs(lw - canvasSize.width) > 1;
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text);
+        setCopiedTag(text);
+        setTimeout(() => setCopiedTag(null), 2000);
+    };
 
-    if (!needScale) {
-        return `${p[0]},${p[1]} ${p[2]},${p[3]} ${p[4]},${p[5]} ${p[6]},${p[7]}`;
-    } else {
-        const sx = canvasSize.width / lw;
-        const sy = canvasSize.height / lh;
-        return `${p[0] * sx},${p[1] * sy} ${p[2] * sx},${p[3] * sy} ${p[4] * sx},${p[5] * sy} ${p[6] * sx},${p[7] * sy}`;
-    }
-};
+    const exportResults = () => {
+        const csv = ['Tag,Type,Document,Page'].concat(searchResults.map(r => `"${r.content}","${r.tagType}","${r.docName}","${r.pageNum}"`)).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'results.csv'; a.click();
+    };
 
-const getSelectedCenter = () => {
-    if (!selectedResult || !canvasSize.width || !selectedResult.polygon) return null;
-    const p = selectedResult.polygon;
-    const lw = selectedResult.layoutWidth;
-    const lh = selectedResult.layoutHeight;
-    const needScale = Math.abs(lw - canvasSize.width) > 1;
+    const tagColors = {
+        line: { bg: 'bg-emerald-50 border-emerald-200', border: 'border-emerald-300', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+        instrument: { bg: 'bg-blue-50 border-blue-200', border: 'border-blue-300', text: 'text-blue-700', dot: 'bg-blue-500' },
+        valve: { bg: 'bg-amber-50 border-amber-200', border: 'border-amber-300', text: 'text-amber-700', dot: 'bg-amber-500' },
+        equipment: { bg: 'bg-purple-50 border-purple-200', border: 'border-purple-300', text: 'text-purple-700', dot: 'bg-purple-500' },
+        gauge: { bg: 'bg-orange-50 border-orange-200', border: 'border-orange-300', text: 'text-orange-700', dot: 'bg-orange-500' },
+        other: { bg: 'bg-gray-50 border-gray-200', border: 'border-gray-300', text: 'text-gray-700', dot: 'bg-gray-500' },
+    };
 
-    let cx, cy;
-    if (!needScale) {
-        cx = (p[0] + p[2]) / 2;
-        cy = (p[1] + p[5]) / 2;
-    } else {
-        const sx = canvasSize.width / lw;
-        const sy = canvasSize.height / lh;
-        cx = ((p[0] + p[2]) / 2) * sx;
-        cy = ((p[1] + p[5]) / 2) * sy;
-    }
-    return { cx, cy };
-};
+    // Mouse Interaction
+    const handleWheel = useCallback((e) => {
+        if (!activeDoc) return;
+        e.preventDefault();
+        const delta = -e.deltaY;
+        const scaleMultiplier = delta > 0 ? 1.1 : 0.9;
+        setZoom(prev => Math.min(Math.max(prev * scaleMultiplier, 0.1), 5));
+    }, [activeDoc]);
 
-const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopiedTag(text);
-    setTimeout(() => setCopiedTag(null), 2000);
-};
+    const handleMouseDown = useCallback((e) => {
+        if (!activeDoc) return;
+        setIsDragging(true);
+        setDragStart({ x: e.clientX, y: e.clientY });
+    }, [activeDoc]);
 
-const exportResults = () => {
-    const csv = ['Tag,Type,Document,Page'].concat(searchResults.map(r => `"${r.content}","${r.tagType}","${r.docName}","${r.pageNum}"`)).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'results.csv'; a.click();
-};
+    const handleMouseMove = useCallback((e) => {
+        if (!isDragging || !activeDoc || !containerRef.current) return;
+        e.preventDefault();
+        const dx = e.clientX - dragStart.x;
+        const dy = e.clientY - dragStart.y;
+        const containerWidth = containerRef.current.clientWidth;
+        const containerHeight = containerRef.current.clientHeight;
+        const sensitivity = 0.2;
+        setPanX(prev => Math.min(Math.max(prev + (dx / containerWidth * 100 * sensitivity), 0), 100));
+        setPanY(prev => Math.min(Math.max(prev + (dy / containerHeight * 100 * sensitivity), 0), 100));
+        setDragStart({ x: e.clientX, y: e.clientY });
+    }, [isDragging, activeDoc, dragStart]);
 
-const tagColors = {
-    line: { bg: 'bg-emerald-50 border-emerald-200', border: 'border-emerald-300', text: 'text-emerald-700', dot: 'bg-emerald-500' },
-    instrument: { bg: 'bg-blue-50 border-blue-200', border: 'border-blue-300', text: 'text-blue-700', dot: 'bg-blue-500' },
-    valve: { bg: 'bg-amber-50 border-amber-200', border: 'border-amber-300', text: 'text-amber-700', dot: 'bg-amber-500' },
-    equipment: { bg: 'bg-purple-50 border-purple-200', border: 'border-purple-300', text: 'text-purple-700', dot: 'bg-purple-500' },
-    gauge: { bg: 'bg-orange-50 border-orange-200', border: 'border-orange-300', text: 'text-orange-700', dot: 'bg-orange-500' },
-    other: { bg: 'bg-gray-50 border-gray-200', border: 'border-gray-300', text: 'text-gray-700', dot: 'bg-gray-500' },
-};
+    const handleMouseUp = useCallback(() => {
+        setIsDragging(false);
+    }, []);
 
-// Mouse Interaction
-const handleWheel = useCallback((e) => {
-    if (!activeDoc) return;
-    e.preventDefault();
-    const delta = -e.deltaY;
-    const scaleMultiplier = delta > 0 ? 1.1 : 0.9;
-    setZoom(prev => Math.min(Math.max(prev * scaleMultiplier, 0.1), 5));
-}, [activeDoc]);
+    const getPanRange = () => {
+        if (!canvasSize.width || !containerSize.width) return { min: 50, max: 50 };
+        const cw = canvasSize.width * zoom;
+        const ch = canvasSize.height * zoom;
+        const overX = Math.max(0, (cw - containerSize.width) / 2 / cw * 50);
+        const overY = Math.max(0, (ch - containerSize.height) / 2 / ch * 50);
+        return { minX: 50 - overX, maxX: 50 + overX, minY: 50 - overY, maxY: 50 + overY };
+    };
+    const panRange = getPanRange();
+    const selectedCenter = getSelectedCenter();
+    const hasOcr = !!activeDoc?.ocrData;
+    const hasPdfText = !!activeDoc?.pdfTextData;
 
-const handleMouseDown = useCallback((e) => {
-    if (!activeDoc) return;
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-}, [activeDoc]);
+    // Citation Handler
+    const handleCitationClick = (keyword) => {
+        console.log(`App handled citation: ${keyword}`);
+        setSearchTerm(keyword);
+        setAutoSelectFirstResult(true);
+    };
 
-const handleMouseMove = useCallback((e) => {
-    if (!isDragging || !activeDoc || !containerRef.current) return;
-    e.preventDefault();
-    const dx = e.clientX - dragStart.x;
-    const dy = e.clientY - dragStart.y;
-    const containerWidth = containerRef.current.clientWidth;
-    const containerHeight = containerRef.current.clientHeight;
-    const sensitivity = 0.2;
-    setPanX(prev => Math.min(Math.max(prev + (dx / containerWidth * 100 * sensitivity), 0), 100));
-    setPanY(prev => Math.min(Math.max(prev + (dy / containerHeight * 100 * sensitivity), 0), 100));
-    setDragStart({ x: e.clientX, y: e.clientY });
-}, [isDragging, activeDoc, dragStart]);
+    // Auto-select first result when triggered by citation click
+    useEffect(() => {
+        if (autoSelectFirstResult && searchResults.length > 0) {
+            handleResultClick(searchResults[0]);
+            setAutoSelectFirstResult(false);
+        }
+    }, [searchResults, autoSelectFirstResult]);
 
-const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-}, []);
-
-const getPanRange = () => {
-    if (!canvasSize.width || !containerSize.width) return { min: 50, max: 50 };
-    const cw = canvasSize.width * zoom;
-    const ch = canvasSize.height * zoom;
-    const overX = Math.max(0, (cw - containerSize.width) / 2 / cw * 50);
-    const overY = Math.max(0, (ch - containerSize.height) / 2 / ch * 50);
-    return { minX: 50 - overX, maxX: 50 + overX, minY: 50 - overY, maxY: 50 + overY };
-};
-const panRange = getPanRange();
-const selectedCenter = getSelectedCenter();
-const hasOcr = !!activeDoc?.ocrData;
-const hasPdfText = !!activeDoc?.pdfTextData;
-
-// Citation Handler
-const handleCitationClick = (keyword) => {
-    console.log(`App handled citation: ${keyword}`);
-    setSearchTerm(keyword);
-    setAutoSelectFirstResult(true);
-};
-
-// Auto-select first result when triggered by citation click
-useEffect(() => {
-    if (autoSelectFirstResult && searchResults.length > 0) {
-        handleResultClick(searchResults[0]);
-        setAutoSelectFirstResult(false);
-    }
-}, [searchResults, autoSelectFirstResult]);
-
-return (
-    <div className="flex h-screen w-full bg-[#fcfaf7] text-[#333333] font-sans overflow-hidden relative">
-        {/* Sidebar */}
-        <div className={`${sidebarCollapsed ? 'w-12' : 'w-72'} border-r border-[#e5e1d8] bg-[#f4f1ea] flex flex-col transition-all duration-300`}>
-            <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#f4f1ea]">
-                {!sidebarCollapsed && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-serif font-bold text-[#5d5d5d]">Drawings Analyzer</span>
-                        <span className="text-[10px] text-[#a0a0a0] bg-[#e5e1d8] px-1.5 py-0.5 rounded-full">v{VERSION}</span>
-                    </div>
-                )}
-                <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="p-1.5 hover:bg-[#e5e1d8] rounded-md text-[#5d5d5d] transition-colors">
-                    <ChevronRight size={16} className={sidebarCollapsed ? '' : 'rotate-180'} />
-                </button>
-            </div>
-
-            {!sidebarCollapsed && (
-                <>
-                    <div className="p-4 border-b border-[#e5e1d8] space-y-3">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e8e8e]" size={14} />
-                            <input type="text" placeholder="Search tags..." className="w-full bg-white border border-[#dcd8d0] rounded-lg py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all placeholder-[#a0a0a0]" value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setSelectedResult(null); }} />
-                        </div>
-                        <div className="flex gap-1 p-1 bg-[#e5e1d8] rounded-lg">
-                            <button onClick={() => setSearchScope('all')} className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${searchScope === 'all' ? 'bg-white text-[#333333] shadow-sm' : 'text-[#666666] hover:text-[#333333]'}`}>All</button>
-                            <button onClick={() => setSearchScope('current')} className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${searchScope === 'current' ? 'bg-white text-[#333333] shadow-sm' : 'text-[#666666] hover:text-[#333333]'}`}>Current</button>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                            {Object.entries(filters).map(([k, v]) => (
-                                <button key={k} onClick={() => setFilters(f => ({ ...f, [k]: !f[k] }))} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-wide transition-all ${v ? `${tagColors[k].bg} ${tagColors[k].text} border ${tagColors[k].border}` : 'bg-[#e5e1d8] text-[#888888] border border-transparent'}`}>
-                                    <div className={`w-1.5 h-1.5 rounded-full ${v ? tagColors[k].dot : 'bg-[#a0a0a0]'}`} />{k}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="flex-1 overflow-hidden flex flex-col bg-[#f9f8f6]">
-                        <div className="px-4 py-2 border-b border-[#e5e1d8] flex items-center justify-between bg-[#f4f1ea]">
-                            <span className="text-xs font-medium text-[#666666]">{searchResults.length} results</span>
-                            <div className="flex gap-1">
-                                <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-[#e5e1d8] text-[#333333]' : 'text-[#888888] hover:bg-[#e5e1d8]'}`}><List size={14} /></button>
-                                <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-[#e5e1d8] text-[#333333]' : 'text-[#888888] hover:bg-[#e5e1d8]'}`}><Grid3X3 size={14} /></button>
-                                {searchResults.length > 0 && <button onClick={exportResults} className="p-1.5 rounded-md text-[#888888] hover:bg-[#e5e1d8] hover:text-[#333333] transition-colors"><Download size={14} /></button>}
-                            </div>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                            {searchResults.length > 0 ? (
-                                viewMode === 'list' ? searchResults.map((r, i) => {
-                                    const resDoc = documents.find(d => d.id === r.docId);
-                                    const docColor = resDoc ? DOC_COLORS[resDoc.colorIndex % DOC_COLORS.length] : DOC_COLORS[0];
-                                    return (
-                                        <div key={i} onClick={() => handleResultClick(r)} className={`p-3 rounded-lg cursor-pointer border transition-all ${selectedResult === r ? 'bg-[#fff8f0] border-[#d97757] shadow-sm' : 'bg-white border-[#e5e1d8] hover:border-[#d0cdc5] hover:shadow-sm'}`}>
-                                            <div className="flex items-start justify-between gap-2">
-                                                {/* Color Indicator */}
-                                                <div className={`w-1 self-stretch rounded-full ${docColor.indicator} mr-1 shrink-0 opacity-70`} title={resDoc?.name}></div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-semibold text-sm text-[#333333] truncate">{r.content}</span>
-                                                        <button onClick={(e) => { e.stopPropagation(); copyToClipboard(r.content); }} className="p-1 text-[#a0a0a0] hover:text-[#d97757] transition-colors">
-                                                            {copiedTag === r.content ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-                                                        </button>
-                                                    </div>
-                                                    <div className="text-[10px] text-[#888888] mt-0.5">{r.docName} • P.{r.pageNum}</div>
-                                                </div>
-                                                <span className={`text-[9px] px-2 py-0.5 rounded-full font-medium ${tagColors[r.tagType].bg} ${tagColors[r.tagType].text}`}>{r.tagType}</span>
-                                            </div>
-                                        </div>
-                                    )
-                                }) : (
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {searchResults.map((r, i) => (
-                                            <div key={i} onClick={() => handleResultClick(r)} className={`p-2 rounded-lg cursor-pointer text-center border transition-all ${selectedResult === r ? 'bg-[#fff8f0] border-[#d97757] shadow-sm' : 'bg-white border-[#e5e1d8] hover:border-[#d0cdc5] hover:shadow-sm'}`}>
-                                                <div className={`text-xs font-bold truncate ${tagColors[r.tagType].text}`}>{r.content}</div>
-                                                <div className="text-[9px] text-[#888888] mt-1">P.{r.pageNum}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-full p-6 text-[#a0a0a0]">
-                                    <Search size={32} className="mb-3 opacity-50" />
-                                    <p className="text-xs font-medium">{searchTerm ? 'No results found' : 'Enter search term'}</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </>
-            )}
-        </div>
-
-        {/* Main */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-[#fcfaf7]">
-            {/* Tabs */}
-            <div className="h-12 bg-[#fcfaf7] border-b border-[#e5e1d8] flex items-center px-2 gap-1 overflow-x-auto pt-2">
-                {documents.map(doc => {
-                    const docColor = DOC_COLORS[(doc.colorIndex || 0) % DOC_COLORS.length];
-                    const isActive = activeDocId === doc.id;
-                    return (
-                        <div key={doc.id} onClick={() => { setActiveDocId(doc.id); setActivePage(1); setSelectedResult(null); setRotation(0); }}
-                            className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg text-xs font-medium cursor-pointer border-t-4 transition-all ${isActive ? `bg-white ${docColor.text} border-x border-[#e5e1d8] shadow-sm -mb-px z-10 ${docColor.activeBorder}` : 'text-[#888888] hover:bg-[#f4f1ea] hover:text-[#555555] border-t-transparent'}`}>
-                            {/* Icon color matches tab color */}
-                            {doc.ocrData ? <FileCheck size={14} className={isActive ? docColor.text : "text-emerald-500"} /> : doc.pdfTextData ? <FileText size={14} className={isActive ? docColor.text : "text-amber-500"} /> : <FileX size={14} className={isActive ? docColor.text : "text-red-500"} />}
-                            <span className="max-w-32 truncate">{doc.name}</span>
-                            {doc.totalPages > 1 && <span className="text-[10px] opacity-70">({doc.totalPages}p)</span>}
-                            <button onClick={(e) => { e.stopPropagation(); closeDocument(doc.id); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#a0a0a0] hover:text-red-500 transition-all"><X size={12} /></button>
-                        </div>
-                    )
-                })}
-                <div className="flex gap-2 ml-3">
-                    <button onClick={() => initiateUpload('pdf')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#555555] bg-[#f4f1ea] hover:bg-[#e5e1d8] hover:text-[#333333] rounded-md transition-colors"><Plus size={14} /> 도면 업로드</button>
-                    <button onClick={() => initiateUpload('json')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#d97757] bg-[#fff0eb] hover:bg-[#ffe0d6] hover:text-[#c05535] rounded-md transition-colors"><Plus size={14} /> 메타데이터 업로드</button>
-                </div>
-                <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFilesUpload(e, 'pdf')} />
-                <input ref={jsonInputRef} type="file" accept=".json" className="hidden" onChange={(e) => handleFilesUpload(e, 'json')} />
-            </div>
-
-            {/* Toolbar */}
-            <div className="h-12 bg-white border-b border-[#e5e1d8] flex items-center justify-between px-6 shadow-sm z-10">
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1 bg-[#f4f1ea] rounded-lg p-1">
-                        <button onClick={() => setZoom(z => Math.max(z * 0.8, 0.05))} className="p-1.5 hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow"><ZoomOut size={16} /></button>
-                        <span className="text-xs font-medium w-12 text-center text-[#333333]">{(zoom * 100).toFixed(0)}%</span>
-                        <button onClick={() => setZoom(z => Math.min(z * 1.25, 5))} className="p-1.5 hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow"><ZoomIn size={16} /></button>
-                    </div>
-                    <button onClick={fitToScreen} className="px-3 py-1.5 hover:bg-[#f4f1ea] text-[#555555] hover:text-[#333333] rounded-md text-xs font-medium border border-[#e5e1d8] transition-all">Fit</button>
-                    <button onClick={() => setRotation(r => (r + 90) % 360)} className="p-1.5 hover:bg-[#f4f1ea] text-[#555555] hover:text-[#333333] rounded-md transition-all" title="Rotate"><RotateCw size={16} /></button>
-                    <button onClick={() => { setZoom(1); setPanX(50); setPanY(50); setRotation(0); }} className="p-1.5 hover:bg-[#f4f1ea] text-[#555555] hover:text-[#333333] rounded-md transition-all" title="Reset"><RotateCcw size={16} /></button>
-
-                    <div className="h-6 w-px bg-[#e5e1d8] mx-2"></div>
-
-                    {/* Extraction Progress Bar */}
-                    {extractionProgress && (
-                        <div className="flex items-center gap-2 mr-4 bg-[#fff8f0] border border-[#ffecd6] px-2 py-1 rounded-md">
-                            <Loader2 size={14} className="animate-spin text-[#d97757]" />
-                            <div className="flex flex-col">
-                                <span className="text-[10px] font-medium text-[#d97757] leading-tight">Processing Text</span>
-                                <div className="w-20 h-1 bg-[#ffecd6] rounded-full mt-0.5 overflow-hidden">
-                                    <div className="h-full bg-[#d97757] transition-all duration-300" style={{ width: `${(extractionProgress.current / extractionProgress.total) * 100}%` }}></div>
-                                </div>
-                            </div>
-                            <span className="text-[9px] text-[#c05535] font-mono ml-1">{extractionProgress.current}/{extractionProgress.total}</span>
+    return (
+        <div className="flex h-screen w-full bg-[#fcfaf7] text-[#333333] font-sans overflow-hidden relative">
+            {/* Sidebar */}
+            <div className={`${sidebarCollapsed ? 'w-12' : 'w-72'} border-r border-[#e5e1d8] bg-[#f4f1ea] flex flex-col transition-all duration-300`}>
+                <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#f4f1ea]">
+                    {!sidebarCollapsed && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-serif font-bold text-[#5d5d5d]">Drawings Analyzer</span>
+                            <span className="text-[10px] text-[#a0a0a0] bg-[#e5e1d8] px-1.5 py-0.5 rounded-full">v{VERSION}</span>
                         </div>
                     )}
-
-                    {/* Pagination - Always show if doc is loaded, even if 1 page, to be consistent */}
-                    {activeDoc && (
-                        <div className="flex items-center gap-2 bg-[#f4f1ea] rounded-lg p-1 px-2">
-                            <button onClick={() => goToPage(activePage - 1)} disabled={activePage <= 1} className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow" title="Previous Page"><ChevronLeft size={16} /></button>
-                            <span className="text-xs font-semibold w-16 text-center text-[#333333] select-none">{activePage} / {activeDoc.totalPages || 1}</span>
-                            <button onClick={() => goToPage(activePage + 1)} disabled={activePage >= (activeDoc.totalPages || 1)} className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow" title="Next Page"><ChevronRight size={16} /></button>
-                        </div>
-                    )}
-                </div>
-
-                <div className="flex items-center gap-3 text-xs font-medium">
-                    {/* Chat Scope Toggle */}
-                    <div className="flex items-center gap-1 bg-[#f4f1ea] rounded-lg p-0.5 border border-[#e5e1d8]">
-                        <button
-                            onClick={() => setChatScope('active')}
-                            className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${chatScope === 'active' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#888888] hover:text-[#555555]'}`}
-                            title="Chat with current document only"
-                        >
-                            Active
-                        </button>
-                        <button
-                            onClick={() => setChatScope('all')}
-                            className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${chatScope === 'all' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#888888] hover:text-[#555555]'}`}
-                            title="Chat with all open documents"
-                        >
-                            All
-                        </button>
-                    </div>
-                    <div className="w-px h-4 bg-[#e5e1d8]"></div>
-
-                    {isLoading && <span className="text-[#d97757] flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" />Processing...</span>}
-                    {activeDoc && (hasOcr ? <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">OCR Ready</span> : hasPdfText ? <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">PDF Text</span> : <span className="text-red-500 bg-red-50 px-2 py-0.5 rounded-full border border-red-100">No Data</span>)}
-                    <button
-                        onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
-                        className={`p-2 rounded-lg transition-all ${rightSidebarOpen ? 'bg-[#d97757] text-white shadow-sm' : 'text-[#555555] hover:bg-[#f4f1ea]'}`}
-                        title="Toggle AI Chat"
-                    >
-                        <MessageSquare size={18} />
+                    <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="p-1.5 hover:bg-[#e5e1d8] rounded-md text-[#5d5d5d] transition-colors">
+                        <ChevronRight size={16} className={sidebarCollapsed ? '' : 'rotate-180'} />
                     </button>
                 </div>
-            </div>
 
-            {/* Canvas */}
-            <div
-                ref={containerRef}
-                className={`flex-1 overflow-hidden bg-[#f0ede6] relative flex items-center justify-center ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-                onWheel={handleWheel}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-            >
-                {activeDoc ? (
-                    <div style={{ transform: `scale(${zoom}) translate(${(panX - 50) * 2}%, ${(panY - 50) * 2}%)`, transformOrigin: 'center center' }} className="relative shadow-xl transition-transform duration-75 ease-out">
-                        <canvas ref={canvasRef} className="block bg-white" />
-
-                        {canvasSize.width > 0 && currentPageData?.layout && (
-                            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
-                                {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
-                                    <polygon key={i} points={getPolygonPoints(r)} fill="rgba(250,204,21,0.2)" stroke="rgba(250,204,21,0.6)" strokeWidth="2" />
+                {!sidebarCollapsed && (
+                    <>
+                        <div className="p-4 border-b border-[#e5e1d8] space-y-3">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e8e8e]" size={14} />
+                                <input type="text" placeholder="Search tags..." className="w-full bg-white border border-[#dcd8d0] rounded-lg py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all placeholder-[#a0a0a0]" value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setSelectedResult(null); }} />
+                            </div>
+                            <div className="flex gap-1 p-1 bg-[#e5e1d8] rounded-lg">
+                                <button onClick={() => setSearchScope('all')} className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${searchScope === 'all' ? 'bg-white text-[#333333] shadow-sm' : 'text-[#666666] hover:text-[#333333]'}`}>All</button>
+                                <button onClick={() => setSearchScope('current')} className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${searchScope === 'current' ? 'bg-white text-[#333333] shadow-sm' : 'text-[#666666] hover:text-[#333333]'}`}>Current</button>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {Object.entries(filters).map(([k, v]) => (
+                                    <button key={k} onClick={() => setFilters(f => ({ ...f, [k]: !f[k] }))} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-wide transition-all ${v ? `${tagColors[k].bg} ${tagColors[k].text} border ${tagColors[k].border}` : 'bg-[#e5e1d8] text-[#888888] border border-transparent'}`}>
+                                        <div className={`w-1.5 h-1.5 rounded-full ${v ? tagColors[k].dot : 'bg-[#a0a0a0]'}`} />{k}
+                                    </button>
                                 ))}
-                                {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && selectedResult.polygon && (
-                                    <>
-                                        <polygon points={getPolygonPoints(selectedResult)} fill="rgba(217,119,87,0.2)" stroke="#d97757" strokeWidth="3" />
-                                        <circle cx={selectedCenter.cx} cy={selectedCenter.cy} r="15" fill="none" stroke="#d97757" strokeWidth="2" opacity="0.8" />
-                                        <line x1={selectedCenter.cx - 20} y1={selectedCenter.cy} x2={selectedCenter.cx + 20} y2={selectedCenter.cy} stroke="#d97757" strokeWidth="2" />
-                                        <line x1={selectedCenter.cx} y1={selectedCenter.cy - 20} x2={selectedCenter.cx} y2={selectedCenter.cy + 20} stroke="#d97757" strokeWidth="2" />
-                                    </>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-hidden flex flex-col bg-[#f9f8f6]">
+                            <div className="px-4 py-2 border-b border-[#e5e1d8] flex items-center justify-between bg-[#f4f1ea]">
+                                <span className="text-xs font-medium text-[#666666]">{searchResults.length} results</span>
+                                <div className="flex gap-1">
+                                    <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-[#e5e1d8] text-[#333333]' : 'text-[#888888] hover:bg-[#e5e1d8]'}`}><List size={14} /></button>
+                                    <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-[#e5e1d8] text-[#333333]' : 'text-[#888888] hover:bg-[#e5e1d8]'}`}><Grid3X3 size={14} /></button>
+                                    {searchResults.length > 0 && <button onClick={exportResults} className="p-1.5 rounded-md text-[#888888] hover:bg-[#e5e1d8] hover:text-[#333333] transition-colors"><Download size={14} /></button>}
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                                {searchResults.length > 0 ? (
+                                    viewMode === 'list' ? searchResults.map((r, i) => {
+                                        const resDoc = documents.find(d => d.id === r.docId);
+                                        const docColor = resDoc ? DOC_COLORS[resDoc.colorIndex % DOC_COLORS.length] : DOC_COLORS[0];
+                                        return (
+                                            <div key={i} onClick={() => handleResultClick(r)} className={`p-3 rounded-lg cursor-pointer border transition-all ${selectedResult === r ? 'bg-[#fff8f0] border-[#d97757] shadow-sm' : 'bg-white border-[#e5e1d8] hover:border-[#d0cdc5] hover:shadow-sm'}`}>
+                                                <div className="flex items-start justify-between gap-2">
+                                                    {/* Color Indicator */}
+                                                    <div className={`w-1 self-stretch rounded-full ${docColor.indicator} mr-1 shrink-0 opacity-70`} title={resDoc?.name}></div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-semibold text-sm text-[#333333] truncate">{r.content}</span>
+                                                            <button onClick={(e) => { e.stopPropagation(); copyToClipboard(r.content); }} className="p-1 text-[#a0a0a0] hover:text-[#d97757] transition-colors">
+                                                                {copiedTag === r.content ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                                                            </button>
+                                                        </div>
+                                                        <div className="text-[10px] text-[#888888] mt-0.5">{r.docName} • P.{r.pageNum}</div>
+                                                    </div>
+                                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-medium ${tagColors[r.tagType].bg} ${tagColors[r.tagType].text}`}>{r.tagType}</span>
+                                                </div>
+                                            </div>
+                                        )
+                                    }) : (
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {searchResults.map((r, i) => (
+                                                <div key={i} onClick={() => handleResultClick(r)} className={`p-2 rounded-lg cursor-pointer text-center border transition-all ${selectedResult === r ? 'bg-[#fff8f0] border-[#d97757] shadow-sm' : 'bg-white border-[#e5e1d8] hover:border-[#d0cdc5] hover:shadow-sm'}`}>
+                                                    <div className={`text-xs font-bold truncate ${tagColors[r.tagType].text}`}>{r.content}</div>
+                                                    <div className="text-[9px] text-[#888888] mt-1">P.{r.pageNum}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center h-full p-6 text-[#a0a0a0]">
+                                        <Search size={32} className="mb-3 opacity-50" />
+                                        <p className="text-xs font-medium">{searchTerm ? 'No results found' : 'Enter search term'}</p>
+                                    </div>
                                 )}
-                            </svg>
-                        )}
-                    </div>
-                ) : (
-                    <div className="text-center p-10 bg-white rounded-2xl shadow-sm border border-[#e5e1d8]">
-                        <div className="bg-[#f4f1ea] p-4 rounded-full inline-block mb-4">
-                            <FileText size={48} className="text-[#d97757]" />
+                            </div>
                         </div>
-                        <h3 className="text-lg font-serif font-bold text-[#333333] mb-2">No Drawing Selected</h3>
-                        <p className="text-[#666666] mb-6 text-sm">Upload a PDF drawing to get started.</p>
-                        <div className="flex gap-3 justify-center">
-                            <button onClick={() => initiateUpload('pdf')} className="px-5 py-2.5 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-2"><Plus size={16} /> 도면 업로드</button>
-                            <button onClick={() => initiateUpload('json')} className="px-5 py-2.5 bg-white border border-[#d97757] text-[#d97757] hover:bg-[#fff0eb] rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-2"><Plus size={16} /> 메타데이터 업로드</button>
-                        </div>
-                    </div>
+                    </>
                 )}
             </div>
 
-            {/* Nav */}
-            {activeDoc && (
-                <div className="h-12 bg-white border-t border-[#e5e1d8] px-6 flex items-center gap-6 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10">
-                    <div className="flex items-center gap-3 flex-1">
-                        <span className="text-xs font-bold text-[#888888] w-4">X</span>
-                        <input type="range" min={panRange.minX} max={panRange.maxX} step="0.5" value={panX} onChange={(e) => setPanX(+e.target.value)} className="flex-1 h-1.5 bg-[#f0ede6] rounded-full cursor-pointer accent-[#d97757]" />
+            {/* Main */}
+            <div className="flex-1 flex flex-col overflow-hidden bg-[#fcfaf7]">
+                {/* Tabs */}
+                <div className="h-12 bg-[#fcfaf7] border-b border-[#e5e1d8] flex items-center px-2 gap-1 overflow-x-auto pt-2">
+                    {documents.map(doc => {
+                        const docColor = DOC_COLORS[(doc.colorIndex || 0) % DOC_COLORS.length];
+                        const isActive = activeDocId === doc.id;
+                        return (
+                            <div key={doc.id} onClick={() => { setActiveDocId(doc.id); setActivePage(1); setSelectedResult(null); setRotation(0); }}
+                                className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg text-xs font-medium cursor-pointer border-t-4 transition-all ${isActive ? `bg-white ${docColor.text} border-x border-[#e5e1d8] shadow-sm -mb-px z-10 ${docColor.activeBorder}` : 'text-[#888888] hover:bg-[#f4f1ea] hover:text-[#555555] border-t-transparent'}`}>
+                                {/* Icon color matches tab color */}
+                                {doc.ocrData ? <FileCheck size={14} className={isActive ? docColor.text : "text-emerald-500"} /> : doc.pdfTextData ? <FileText size={14} className={isActive ? docColor.text : "text-amber-500"} /> : <FileX size={14} className={isActive ? docColor.text : "text-red-500"} />}
+                                <span className="max-w-32 truncate">{doc.name}</span>
+                                {doc.totalPages > 1 && <span className="text-[10px] opacity-70">({doc.totalPages}p)</span>}
+                                <button onClick={(e) => { e.stopPropagation(); closeDocument(doc.id); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#a0a0a0] hover:text-red-500 transition-all"><X size={12} /></button>
+                            </div>
+                        )
+                    })}
+                    <div className="flex gap-2 ml-3">
+                        <button onClick={() => initiateUpload('pdf')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#555555] bg-[#f4f1ea] hover:bg-[#e5e1d8] hover:text-[#333333] rounded-md transition-colors"><Plus size={14} /> 도면 업로드</button>
+                        <button onClick={() => initiateUpload('json')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#d97757] bg-[#fff0eb] hover:bg-[#ffe0d6] hover:text-[#c05535] rounded-md transition-colors"><Plus size={14} /> 메타데이터 업로드</button>
                     </div>
-                    <div className="flex items-center gap-3 flex-1">
-                        <span className="text-xs font-bold text-[#888888] w-4">Y</span>
-                        <input type="range" min={panRange.minY} max={panRange.maxY} step="0.5" value={panY} onChange={(e) => setPanY(+e.target.value)} className="flex-1 h-1.5 bg-[#f0ede6] rounded-full cursor-pointer accent-[#d97757]" />
-                    </div>
-                    <button onClick={() => { setPanX(50); setPanY(50); }} className="px-4 py-1.5 bg-[#f4f1ea] hover:bg-[#e5e1d8] text-[#555555] rounded-md text-xs font-medium transition-colors"><Move size={14} className="inline mr-1.5" />Center</button>
+                    <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFilesUpload(e, 'pdf')} />
+                    <input ref={jsonInputRef} type="file" accept=".json" className="hidden" onChange={(e) => handleFilesUpload(e, 'json')} />
                 </div>
-            )}
 
-            {/* Status */}
-            <div className="h-6 bg-[#fcfaf7] border-t border-[#e5e1d8] px-4 flex items-center justify-between text-[10px] font-medium text-[#888888]">
-                <span>{documents.length} documents • {searchResults.length} matches found</span>
-                <span>v4.1 (Azure Integrated)</span>
-            </div>
-        </div>
-
-        {/* Right Sidebar (Chat) */}
-        {/* Right Sidebar (Chat) */}
-        <div
-            className={`border-l border-[#e5e1d8] bg-white overflow-hidden flex flex-col relative ${!isResizing ? 'transition-[width] duration-300' : ''}`}
-            style={{ width: rightSidebarOpen ? sidebarWidth : 0 }}
-        >
-            {/* Drag Handle */}
-            <div
-                onMouseDown={(e) => { setIsResizing(true); }}
-                className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#d97757] z-50 transition-colors opacity-0 hover:opacity-100"
-                title="Drag to resize"
-            />
-
-            <div style={{ width: sidebarWidth }} className="h-full">
-                <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} onCitationClick={handleCitationClick} />
-            </div>
-        </div>
-
-        {/* Source Selection Modal */}
-        {
-            showSourceModal && (
-                <div className="absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl shadow-2xl p-6 w-96 border border-[#e5e1d8]">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-[#333333]">Upload Source</h3>
-                            <button onClick={() => setShowSourceModal(false)} className="text-[#888888] hover:text-[#333333]"><X size={20} /></button>
+                {/* Toolbar */}
+                <div className="h-12 bg-white border-b border-[#e5e1d8] flex items-center justify-between px-6 shadow-sm z-10">
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1 bg-[#f4f1ea] rounded-lg p-1">
+                            <button onClick={() => setZoom(z => Math.max(z * 0.8, 0.05))} className="p-1.5 hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow"><ZoomOut size={16} /></button>
+                            <span className="text-xs font-medium w-12 text-center text-[#333333]">{(zoom * 100).toFixed(0)}%</span>
+                            <button onClick={() => setZoom(z => Math.min(z * 1.25, 5))} className="p-1.5 hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow"><ZoomIn size={16} /></button>
                         </div>
-                        <div className="space-y-3">
-                            <button onClick={handleLocalUpload} className="w-full flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group">
-                                <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]"><Monitor size={24} className="text-[#555555] group-hover:text-[#d97757]" /></div>
-                                <div className="text-left">
-                                    <div className="font-bold text-[#333333]">Local PC</div>
-                                    <div className="text-xs text-[#888888]">Upload from your computer</div>
+                        <button onClick={fitToScreen} className="px-3 py-1.5 hover:bg-[#f4f1ea] text-[#555555] hover:text-[#333333] rounded-md text-xs font-medium border border-[#e5e1d8] transition-all">Fit</button>
+                        <button onClick={() => setRotation(r => (r + 90) % 360)} className="p-1.5 hover:bg-[#f4f1ea] text-[#555555] hover:text-[#333333] rounded-md transition-all" title="Rotate"><RotateCw size={16} /></button>
+                        <button onClick={() => { setZoom(1); setPanX(50); setPanY(50); setRotation(0); }} className="p-1.5 hover:bg-[#f4f1ea] text-[#555555] hover:text-[#333333] rounded-md transition-all" title="Reset"><RotateCcw size={16} /></button>
+
+                        <div className="h-6 w-px bg-[#e5e1d8] mx-2"></div>
+
+                        {/* Extraction Progress Bar */}
+                        {extractionProgress && (
+                            <div className="flex items-center gap-2 mr-4 bg-[#fff8f0] border border-[#ffecd6] px-2 py-1 rounded-md">
+                                <Loader2 size={14} className="animate-spin text-[#d97757]" />
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] font-medium text-[#d97757] leading-tight">Processing Text</span>
+                                    <div className="w-20 h-1 bg-[#ffecd6] rounded-full mt-0.5 overflow-hidden">
+                                        <div className="h-full bg-[#d97757] transition-all duration-300" style={{ width: `${(extractionProgress.current / extractionProgress.total) * 100}%` }}></div>
+                                    </div>
                                 </div>
-                            </button>
-                            <button onClick={handleAzureUpload} className="w-full flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#0078d4] hover:bg-[#f0f8ff] transition-all group">
-                                <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#e6f2ff]"><Cloud size={24} className="text-[#555555] group-hover:text-[#0078d4]" /></div>
-                                <div className="text-left">
-                                    <div className="font-bold text-[#333333]">Azure Storage</div>
-                                    <div className="text-xs text-[#888888]">Select from Blob Storage</div>
-                                </div>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )
-        }
-
-
-        {/* Azure File Browser Modal */}
-        {
-            showAzureBrowser && (
-                <div className="absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl shadow-2xl w-[600px] h-[500px] flex flex-col border border-[#e5e1d8]">
-                        <div className="p-4 border-b border-[#e5e1d8] flex justify-between items-center bg-[#fcfaf7] rounded-t-xl">
-                            <h3 className="text-lg font-bold text-[#333333] flex items-center gap-2"><Cloud size={20} className="text-[#0078d4]" /> Azure Blob Storage</h3>
-                            <button onClick={() => setShowAzureBrowser(false)} className="text-[#888888] hover:text-[#333333]"><X size={20} /></button>
-                        </div>
-
-                        <div className="p-2 bg-[#f4f1ea] border-b border-[#e5e1d8] flex items-center gap-2 text-sm">
-                            <button onClick={() => fetchAzureItems('')} className="p-1 hover:bg-[#e5e1d8] rounded"><RotateCcw size={14} /></button>
-                            <span className="text-[#666666]">Path:</span>
-                            <span className="font-mono text-[#333333] bg-white px-2 py-0.5 rounded border border-[#dcd8d0] flex-1 truncate">/{azurePath}</span>
-                            {azurePath && <button onClick={() => fetchAzureItems(azurePath.split('/').slice(0, -2).join('/') + (azurePath.split('/').length > 2 ? '/' : ''))} className="px-2 py-0.5 bg-[#e5e1d8] hover:bg-[#dcd8d0] rounded text-xs">Up</button>}
-                        </div>
-
-                        {error && (
-                            <div className="mx-4 mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm flex items-center gap-2">
-                                <X size={16} />
-                                {error}
+                                <span className="text-[9px] text-[#c05535] font-mono ml-1">{extractionProgress.current}/{extractionProgress.total}</span>
                             </div>
                         )}
 
-                        <div className="flex-1 overflow-y-auto p-2">
-                            {azureLoading ? (
-                                <div className="flex flex-col items-center justify-center h-full text-[#888888]">
-                                    <Loader2 size={32} className="animate-spin mb-2" />
-                                    <span>Loading...</span>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-4 gap-2">
-                                    {azureItems.map((item, i) => (
-                                        <div key={i} onClick={() => handleAzureItemClick(item)} className="p-3 rounded-lg border border-[#e5e1d8] hover:border-[#0078d4] hover:bg-[#f0f8ff] cursor-pointer flex flex-col items-center gap-2 text-center transition-all group">
-                                            {item.type === 'folder' ? (
-                                                <Folder size={32} className="text-[#d97757] group-hover:text-[#0078d4]" />
-                                            ) : (
-                                                <File size={32} className="text-[#888888] group-hover:text-[#0078d4]" />
-                                            )}
-                                            <span className="text-xs font-medium text-[#333333] break-all line-clamp-2">{item.name}</span>
-                                        </div>
-                                    ))}
-                                    {azureItems.length === 0 && (
-                                        <div className="col-span-4 text-center py-10 text-[#888888]">Folder is empty</div>
-                                    )}
-                                </div>
-                            )}
+                        {/* Pagination - Always show if doc is loaded, even if 1 page, to be consistent */}
+                        {activeDoc && (
+                            <div className="flex items-center gap-2 bg-[#f4f1ea] rounded-lg p-1 px-2">
+                                <button onClick={() => goToPage(activePage - 1)} disabled={activePage <= 1} className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow" title="Previous Page"><ChevronLeft size={16} /></button>
+                                <span className="text-xs font-semibold w-16 text-center text-[#333333] select-none">{activePage} / {activeDoc.totalPages || 1}</span>
+                                <button onClick={() => goToPage(activePage + 1)} disabled={activePage >= (activeDoc.totalPages || 1)} className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow" title="Next Page"><ChevronRight size={16} /></button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex items-center gap-3 text-xs font-medium">
+                        {/* Chat Scope Toggle */}
+                        <div className="flex items-center gap-1 bg-[#f4f1ea] rounded-lg p-0.5 border border-[#e5e1d8]">
+                            <button
+                                onClick={() => setChatScope('active')}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${chatScope === 'active' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#888888] hover:text-[#555555]'}`}
+                                title="Chat with current document only"
+                            >
+                                Active
+                            </button>
+                            <button
+                                onClick={() => setChatScope('all')}
+                                className={`px-2 py-1 text-[10px] font-bold rounded-md transition-all ${chatScope === 'all' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#888888] hover:text-[#555555]'}`}
+                                title="Chat with all open documents"
+                            >
+                                All
+                            </button>
                         </div>
+                        <div className="w-px h-4 bg-[#e5e1d8]"></div>
+
+                        {isLoading && <span className="text-[#d97757] flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" />Processing...</span>}
+                        {activeDoc && (hasOcr ? <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">OCR Ready</span> : hasPdfText ? <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">PDF Text</span> : <span className="text-red-500 bg-red-50 px-2 py-0.5 rounded-full border border-red-100">No Data</span>)}
+                        <button
+                            onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
+                            className={`p-2 rounded-lg transition-all ${rightSidebarOpen ? 'bg-[#d97757] text-white shadow-sm' : 'text-[#555555] hover:bg-[#f4f1ea]'}`}
+                            title="Toggle AI Chat"
+                        >
+                            <MessageSquare size={18} />
+                        </button>
                     </div>
                 </div>
-            )
-        }
-    </div>
-);
+
+                {/* Canvas */}
+                <div
+                    ref={containerRef}
+                    className={`flex-1 overflow-hidden bg-[#f0ede6] relative flex items-center justify-center ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                    onWheel={handleWheel}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                >
+                    {activeDoc ? (
+                        <div style={{ transform: `scale(${zoom}) translate(${(panX - 50) * 2}%, ${(panY - 50) * 2}%)`, transformOrigin: 'center center' }} className="relative shadow-xl transition-transform duration-75 ease-out">
+                            <canvas ref={canvasRef} className="block bg-white" />
+
+                            {canvasSize.width > 0 && currentPageData?.layout && (
+                                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
+                                    {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
+                                        <polygon key={i} points={getPolygonPoints(r)} fill="rgba(250,204,21,0.2)" stroke="rgba(250,204,21,0.6)" strokeWidth="2" />
+                                    ))}
+                                    {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && selectedResult.polygon && (
+                                        <>
+                                            <polygon points={getPolygonPoints(selectedResult)} fill="rgba(217,119,87,0.2)" stroke="#d97757" strokeWidth="3" />
+                                            <circle cx={selectedCenter.cx} cy={selectedCenter.cy} r="15" fill="none" stroke="#d97757" strokeWidth="2" opacity="0.8" />
+                                            <line x1={selectedCenter.cx - 20} y1={selectedCenter.cy} x2={selectedCenter.cx + 20} y2={selectedCenter.cy} stroke="#d97757" strokeWidth="2" />
+                                            <line x1={selectedCenter.cx} y1={selectedCenter.cy - 20} x2={selectedCenter.cx} y2={selectedCenter.cy + 20} stroke="#d97757" strokeWidth="2" />
+                                        </>
+                                    )}
+                                </svg>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="text-center p-10 bg-white rounded-2xl shadow-sm border border-[#e5e1d8]">
+                            <div className="bg-[#f4f1ea] p-4 rounded-full inline-block mb-4">
+                                <FileText size={48} className="text-[#d97757]" />
+                            </div>
+                            <h3 className="text-lg font-serif font-bold text-[#333333] mb-2">No Drawing Selected</h3>
+                            <p className="text-[#666666] mb-6 text-sm">Upload a PDF drawing to get started.</p>
+                            <div className="flex gap-3 justify-center">
+                                <button onClick={() => initiateUpload('pdf')} className="px-5 py-2.5 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-2"><Plus size={16} /> 도면 업로드</button>
+                                <button onClick={() => initiateUpload('json')} className="px-5 py-2.5 bg-white border border-[#d97757] text-[#d97757] hover:bg-[#fff0eb] rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-2"><Plus size={16} /> 메타데이터 업로드</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Nav */}
+                {activeDoc && (
+                    <div className="h-12 bg-white border-t border-[#e5e1d8] px-6 flex items-center gap-6 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10">
+                        <div className="flex items-center gap-3 flex-1">
+                            <span className="text-xs font-bold text-[#888888] w-4">X</span>
+                            <input type="range" min={panRange.minX} max={panRange.maxX} step="0.5" value={panX} onChange={(e) => setPanX(+e.target.value)} className="flex-1 h-1.5 bg-[#f0ede6] rounded-full cursor-pointer accent-[#d97757]" />
+                        </div>
+                        <div className="flex items-center gap-3 flex-1">
+                            <span className="text-xs font-bold text-[#888888] w-4">Y</span>
+                            <input type="range" min={panRange.minY} max={panRange.maxY} step="0.5" value={panY} onChange={(e) => setPanY(+e.target.value)} className="flex-1 h-1.5 bg-[#f0ede6] rounded-full cursor-pointer accent-[#d97757]" />
+                        </div>
+                        <button onClick={() => { setPanX(50); setPanY(50); }} className="px-4 py-1.5 bg-[#f4f1ea] hover:bg-[#e5e1d8] text-[#555555] rounded-md text-xs font-medium transition-colors"><Move size={14} className="inline mr-1.5" />Center</button>
+                    </div>
+                )}
+
+                {/* Status */}
+                <div className="h-6 bg-[#fcfaf7] border-t border-[#e5e1d8] px-4 flex items-center justify-between text-[10px] font-medium text-[#888888]">
+                    <span>{documents.length} documents • {searchResults.length} matches found</span>
+                    <span>v4.1 (Azure Integrated)</span>
+                </div>
+            </div>
+
+            {/* Right Sidebar (Chat) */}
+            {/* Right Sidebar (Chat) */}
+            <div
+                className={`border-l border-[#e5e1d8] bg-white overflow-hidden flex flex-col relative ${!isResizing ? 'transition-[width] duration-300' : ''}`}
+                style={{ width: rightSidebarOpen ? sidebarWidth : 0 }}
+            >
+                {/* Drag Handle */}
+                <div
+                    onMouseDown={(e) => { setIsResizing(true); }}
+                    className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#d97757] z-50 transition-colors opacity-0 hover:opacity-100"
+                    title="Drag to resize"
+                />
+
+                <div style={{ width: sidebarWidth }} className="h-full">
+                    <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} onCitationClick={handleCitationClick} />
+                </div>
+            </div>
+
+            {/* Source Selection Modal */}
+            {
+                showSourceModal && (
+                    <div className="absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
+                        <div className="bg-white rounded-xl shadow-2xl p-6 w-96 border border-[#e5e1d8]">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-bold text-[#333333]">Upload Source</h3>
+                                <button onClick={() => setShowSourceModal(false)} className="text-[#888888] hover:text-[#333333]"><X size={20} /></button>
+                            </div>
+                            <div className="space-y-3">
+                                <button onClick={handleLocalUpload} className="w-full flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group">
+                                    <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]"><Monitor size={24} className="text-[#555555] group-hover:text-[#d97757]" /></div>
+                                    <div className="text-left">
+                                        <div className="font-bold text-[#333333]">Local PC</div>
+                                        <div className="text-xs text-[#888888]">Upload from your computer</div>
+                                    </div>
+                                </button>
+                                <button onClick={handleAzureUpload} className="w-full flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#0078d4] hover:bg-[#f0f8ff] transition-all group">
+                                    <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#e6f2ff]"><Cloud size={24} className="text-[#555555] group-hover:text-[#0078d4]" /></div>
+                                    <div className="text-left">
+                                        <div className="font-bold text-[#333333]">Azure Storage</div>
+                                        <div className="text-xs text-[#888888]">Select from Blob Storage</div>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+
+            {/* Azure File Browser Modal */}
+            {
+                showAzureBrowser && (
+                    <div className="absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
+                        <div className="bg-white rounded-xl shadow-2xl w-[600px] h-[500px] flex flex-col border border-[#e5e1d8]">
+                            <div className="p-4 border-b border-[#e5e1d8] flex justify-between items-center bg-[#fcfaf7] rounded-t-xl">
+                                <h3 className="text-lg font-bold text-[#333333] flex items-center gap-2"><Cloud size={20} className="text-[#0078d4]" /> Azure Blob Storage</h3>
+                                <button onClick={() => setShowAzureBrowser(false)} className="text-[#888888] hover:text-[#333333]"><X size={20} /></button>
+                            </div>
+
+                            <div className="p-2 bg-[#f4f1ea] border-b border-[#e5e1d8] flex items-center gap-2 text-sm">
+                                <button onClick={() => fetchAzureItems('')} className="p-1 hover:bg-[#e5e1d8] rounded"><RotateCcw size={14} /></button>
+                                <span className="text-[#666666]">Path:</span>
+                                <span className="font-mono text-[#333333] bg-white px-2 py-0.5 rounded border border-[#dcd8d0] flex-1 truncate">/{azurePath}</span>
+                                {azurePath && <button onClick={() => fetchAzureItems(azurePath.split('/').slice(0, -2).join('/') + (azurePath.split('/').length > 2 ? '/' : ''))} className="px-2 py-0.5 bg-[#e5e1d8] hover:bg-[#dcd8d0] rounded text-xs">Up</button>}
+                            </div>
+
+                            {error && (
+                                <div className="mx-4 mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm flex items-center gap-2">
+                                    <X size={16} />
+                                    {error}
+                                </div>
+                            )}
+
+                            <div className="flex-1 overflow-y-auto p-2">
+                                {azureLoading ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-[#888888]">
+                                        <Loader2 size={32} className="animate-spin mb-2" />
+                                        <span>Loading...</span>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {azureItems.map((item, i) => (
+                                            <div key={i} onClick={() => handleAzureItemClick(item)} className="p-3 rounded-lg border border-[#e5e1d8] hover:border-[#0078d4] hover:bg-[#f0f8ff] cursor-pointer flex flex-col items-center gap-2 text-center transition-all group">
+                                                {item.type === 'folder' ? (
+                                                    <Folder size={32} className="text-[#d97757] group-hover:text-[#0078d4]" />
+                                                ) : (
+                                                    <File size={32} className="text-[#888888] group-hover:text-[#0078d4]" />
+                                                )}
+                                                <span className="text-xs font-medium text-[#333333] break-all line-clamp-2">{item.name}</span>
+                                            </div>
+                                        ))}
+                                        {azureItems.length === 0 && (
+                                            <div className="col-span-4 text-center py-10 text-[#888888]">Folder is empty</div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+        </div>
+    );
 };
 
 export default App;
