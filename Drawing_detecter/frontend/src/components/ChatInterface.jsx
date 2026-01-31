@@ -3,7 +3,7 @@ import { Send, Bot, User, Loader2, Sparkles, AlertCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active' }) => {
+const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCitationClick }) => {
     const [messages, setMessages] = useState([
         { role: 'assistant', content: '안녕하세요! 도면에 대해 궁금한 점을 물어보세요.' }
     ]);
@@ -186,10 +186,26 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active' }) => {
                                         strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
                                         code: ({ node, inline, ...props }) => inline
                                             ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
-                                            : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />
+                                            : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
+                                        a: ({ node, href, children, ...props }) => {
+                                            if (href?.startsWith('citation:')) {
+                                                const keyword = decodeURIComponent(href.replace('citation:', ''));
+                                                return (
+                                                    <button
+                                                        onClick={() => onCitationClick && onCitationClick(keyword)}
+                                                        className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
+                                                        title={`Locate "${keyword}" in drawing`}
+                                                    >
+                                                        <Sparkles size={10} />
+                                                        {children}
+                                                    </button>
+                                                );
+                                            }
+                                            return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+                                        }
                                     }}
                                 >
-                                    {msg.content}
+                                    {msg.content.replace(/\[\[(.*?)\]\]/g, (match, p1) => `[${p1}](citation:${encodeURIComponent(p1)})`)}
                                 </ReactMarkdown>
                             )}
                         </div>

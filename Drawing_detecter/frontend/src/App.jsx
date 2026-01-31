@@ -718,8 +718,13 @@ const App = () => {
     const hasOcr = !!activeDoc?.ocrData;
     const hasPdfText = !!activeDoc?.pdfTextData;
 
+    // Citation Handler
+    const handleCitationClick = (keyword) => {
+        setSearchTerm(keyword);
+    };
+
     return (
-        <div className="flex h-screen w-full bg-[#fcfaf7] text-[#333333] font-sans overflow-hidden select-none relative">
+        <div className="flex h-screen w-full bg-[#fcfaf7] text-[#333333] font-sans overflow-hidden relative">
             {/* Sidebar */}
             <div className={`${sidebarCollapsed ? 'w-12' : 'w-72'} border-r border-[#e5e1d8] bg-[#f4f1ea] flex flex-col transition-all duration-300`}>
                 <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#f4f1ea]">
@@ -963,7 +968,7 @@ const App = () => {
             {/* Right Sidebar (Chat) */}
             <div className={`${rightSidebarOpen ? 'w-[350px]' : 'w-0'} border-l border-[#e5e1d8] bg-white transition-all duration-300 overflow-hidden flex flex-col`}>
                 <div className="w-[350px] h-full">
-                    <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} />
+                    <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} onCitationClick={handleCitationClick} />
                 </div>
             </div>
 
