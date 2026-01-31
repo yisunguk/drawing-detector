@@ -297,12 +297,17 @@ const App = () => {
             // Standard PDF.js rotation handling:
             // Passing 'rotation' to getViewport applies it as an ABSOLUTE rotation (0, 90, 180, 270).
             // By default, rotation state is 0. If drawings look upside down, we can adjust here.
-            let viewport = page.getViewport({ scale: 2.0, rotation: rotation });
+            // Respect the PDF's default rotation (page.rotate) and add user's manual rotation
+            const effectiveRotation = (page.rotate + rotation) % 360;
+            let viewport = page.getViewport({ scale: 2.0, rotation: effectiveRotation });
 
-            // If the drawing is naturally portrait (tall), rotate to landscape (wide) for better viewing
-            // but only if it's the initial load (rotation === 0)
+            // If the drawing is naturally portrait (tall) AND it's the initial load (rotation === 0),
+            // we might want to rotate it to landscape for better viewing.
+            // Check dimensions AFTER applying default rotation.
             if (rotation === 0 && viewport.width < viewport.height) {
-                viewport = page.getViewport({ scale: 2.0, rotation: 90 });
+                // Determine layout rotation needed to make it landscape
+                const newRotation = (effectiveRotation + 90) % 360;
+                viewport = page.getViewport({ scale: 2.0, rotation: newRotation });
             }
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
