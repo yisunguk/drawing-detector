@@ -58,6 +58,40 @@ const App = () => {
     const [error, setError] = useState(null);
     const [autoSelectFirstResult, setAutoSelectFirstResult] = useState(false);
 
+    // Sidebar Resize State
+    const [sidebarWidth, setSidebarWidth] = useState(350);
+    const [isResizing, setIsResizing] = useState(false);
+
+    // Sidebar Resize Handler
+    useEffect(() => {
+        const handleMouseMove = (e) => {
+            if (!isResizing) return;
+            const newWidth = window.innerWidth - e.clientX;
+            // Limit width between 300px and 800px (approx 50% of screen)
+            if (newWidth >= 300 && newWidth <= 800) {
+                setSidebarWidth(newWidth);
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsResizing(false);
+            // Re-enable text selection if we disabled it (optional implementation detail)
+            document.body.style.userSelect = '';
+        };
+
+        if (isResizing) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+            document.body.style.userSelect = 'none'; // Prevent selection while dragging
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.userSelect = '';
+        };
+    }, [isResizing]);
+
     const pdfRef = useRef(null);
     const canvasRef = useRef(null);
     const renderTaskRef = useRef(null);
@@ -999,8 +1033,19 @@ const App = () => {
             </div>
 
             {/* Right Sidebar (Chat) */}
-            <div className={`${rightSidebarOpen ? 'w-[350px]' : 'w-0'} border-l border-[#e5e1d8] bg-white transition-all duration-300 overflow-hidden flex flex-col`}>
-                <div className="w-[350px] h-full">
+            {/* Right Sidebar (Chat) */}
+            <div
+                className={`border-l border-[#e5e1d8] bg-white overflow-hidden flex flex-col relative ${!isResizing ? 'transition-[width] duration-300' : ''}`}
+                style={{ width: rightSidebarOpen ? sidebarWidth : 0 }}
+            >
+                {/* Drag Handle */}
+                <div
+                    onMouseDown={(e) => { setIsResizing(true); }}
+                    className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#d97757] z-50 transition-colors opacity-0 hover:opacity-100"
+                    title="Drag to resize"
+                />
+
+                <div style={{ width: sidebarWidth }} className="h-full">
                     <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} onCitationClick={handleCitationClick} />
                 </div>
             </div>
