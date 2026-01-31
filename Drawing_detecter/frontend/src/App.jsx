@@ -413,7 +413,7 @@ const App = () => {
     const handleFilesUpload = async (e, type) => {
         const files = Array.from(e.target.files);
         for (const file of files) {
-            const id = `doc-${Date.now()}`;
+            const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const name = file.name.replace(/\.(pdf|json)$/i, '');
 
             if (type === 'pdf') {
@@ -520,7 +520,7 @@ const App = () => {
                 reader.readAsText(blob);
             } else if (fileName.endsWith('.pdf')) {
                 // PDF Upload
-                const id = `doc-${Date.now()}`;
+                const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const name = file.name.replace(/\.pdf$/i, '');
                 const arrayBuffer = await blob.arrayBuffer();
 
