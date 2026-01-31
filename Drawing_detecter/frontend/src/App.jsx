@@ -16,6 +16,7 @@ const AZURE_CONTAINER_URL = `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.win
 
 const classifyTag = (content) => {
     if (/^(\d{1,2}["']?)[-]([A-Z]{1,4})[-]?(\d{3,5})/.test(content)) return 'line';
+    if (/^([A-Z]{1,3}G)[-_]?(\d{3,4})$/.test(content)) return 'gauge'; // e.g. PG-1234
     if (/^([A-Z]{2,4})[-_]?(\d{3,4}[A-Z]?)$/.test(content)) return 'instrument';
     if (/^([A-Z]{1,3}V)[-_]?(\d{3,4})$/.test(content)) return 'valve';
     if (/^([A-Z])[-_]?(\d{3,4})$/.test(content)) return 'equipment';
@@ -29,7 +30,7 @@ const App = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [searchScope, setSearchScope] = useState('all');
     const [selectedResult, setSelectedResult] = useState(null);
-    const [filters, setFilters] = useState({ line: true, instrument: true, valve: true, equipment: true, other: true });
+    const [filters, setFilters] = useState({ line: true, instrument: true, valve: true, equipment: true, gauge: true, other: true });
     const [zoom, setZoom] = useState(1);
     const [rotation, setRotation] = useState(0);
     const [panX, setPanX] = useState(50);
@@ -290,14 +291,21 @@ const App = () => {
                     setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, totalPages: pdf.numPages } : d));
                 }
 
-                // Auto-extract text if needed
+                // Auto-extract text in background (non-blocking)
                 if (!doc.ocrData && !doc.pdfTextData) {
-                    const textData = [];
-                    for (let i = 1; i <= pdf.numPages; i++) {
-                        const data = await extractPdfText(pdf, i);
-                        if (data) textData.push(data);
-                    }
-                    setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, pdfTextData: textData } : d));
+                    (async () => {
+                        const textData = [];
+                        // Initial chunk size can be small to get *some* search results fast, then larger
+                        // For simplicity, we process all but yield to main thread occasionally if needed
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            const data = await extractPdfText(pdf, i);
+                            if (data) textData.push(data);
+                            // Optional: Update state every 50 pages or so to show progress? 
+                            // For now, simpler to just do all in background then update.
+                            // If 300 pages, this might take 30s, but UI stands responsive.
+                        }
+                        setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, pdfTextData: textData } : d));
+                    })();
                 }
             }
 
@@ -655,6 +663,7 @@ const App = () => {
         instrument: { bg: 'bg-blue-50 border-blue-200', border: 'border-blue-300', text: 'text-blue-700', dot: 'bg-blue-500' },
         valve: { bg: 'bg-amber-50 border-amber-200', border: 'border-amber-300', text: 'text-amber-700', dot: 'bg-amber-500' },
         equipment: { bg: 'bg-purple-50 border-purple-200', border: 'border-purple-300', text: 'text-purple-700', dot: 'bg-purple-500' },
+        gauge: { bg: 'bg-orange-50 border-orange-200', border: 'border-orange-300', text: 'text-orange-700', dot: 'bg-orange-500' },
         other: { bg: 'bg-gray-50 border-gray-200', border: 'border-gray-300', text: 'text-gray-700', dot: 'bg-gray-500' },
     };
 
@@ -820,11 +829,14 @@ const App = () => {
                         <button onClick={() => setRotation(r => (r + 90) % 360)} className="p-1.5 hover:bg-[#f4f1ea] text-[#555555] hover:text-[#333333] rounded-md transition-all" title="Rotate"><RotateCw size={16} /></button>
                         <button onClick={() => { setZoom(1); setPanX(50); setPanY(50); setRotation(0); }} className="p-1.5 hover:bg-[#f4f1ea] text-[#555555] hover:text-[#333333] rounded-md transition-all" title="Reset"><RotateCcw size={16} /></button>
 
-                        {activeDoc?.totalPages > 1 && (
-                            <div className="flex items-center gap-1 ml-4 bg-[#f4f1ea] rounded-lg p-1">
-                                <button onClick={() => goToPage(activePage - 1)} disabled={activePage <= 1} className="p-1.5 disabled:opacity-30 hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow"><ChevronLeft size={16} /></button>
-                                <span className="text-xs font-medium w-16 text-center text-[#333333]">{activePage} / {activeDoc.totalPages}</span>
-                                <button onClick={() => goToPage(activePage + 1)} disabled={activePage >= activeDoc.totalPages} className="p-1.5 disabled:opacity-30 hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow"><ChevronRight size={16} /></button>
+                        <div className="h-6 w-px bg-[#e5e1d8] mx-2"></div>
+
+                        {/* Pagination - Always show if doc is loaded, even if 1 page, to be consistent */}
+                        {activeDoc && (
+                            <div className="flex items-center gap-2 bg-[#f4f1ea] rounded-lg p-1 px-2">
+                                <button onClick={() => goToPage(activePage - 1)} disabled={activePage <= 1} className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow" title="Previous Page"><ChevronLeft size={16} /></button>
+                                <span className="text-xs font-semibold w-16 text-center text-[#333333] select-none">{activePage} / {activeDoc.totalPages || 1}</span>
+                                <button onClick={() => goToPage(activePage + 1)} disabled={activePage >= (activeDoc.totalPages || 1)} className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow" title="Next Page"><ChevronRight size={16} /></button>
                             </div>
                         )}
                     </div>
