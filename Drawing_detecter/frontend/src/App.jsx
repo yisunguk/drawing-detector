@@ -529,7 +529,7 @@ const App = () => {
         }
 
         // Trigger scope selection modal if total documents > 1 (Existing + New)
-        if (type === 'pdf' && (documents.length + files.length > 1)) {
+        if (type === 'pdf' && (documents.length + files.length > 1) && chatScope !== 'all') {
             setShowScopeSelectionModal(true);
         }
 
@@ -688,12 +688,11 @@ const App = () => {
         for (const item of selectedAzureItems) {
             await handleAzureFileSelect(item, true);
         }
-
         setShowAzureBrowser(false);
         setSelectedAzureItems([]);
 
         // Trigger scope selection modal if total documents > 1 (Existing + New)
-        if (documents.length + selectedAzureItems.length > 1) {
+        if (documents.length + selectedAzureItems.length > 1 && chatScope !== 'all') {
             setShowScopeSelectionModal(true);
         }
     };
