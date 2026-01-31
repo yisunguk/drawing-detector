@@ -13,7 +13,10 @@ jobs:
       - name: Install and Build
         run: |
           cd Drawing_detecter/frontend
-          npm ci && npm run build
+          npm install
+          # 리눅스 환경 빌드 시 발생하는 Rollup 에러 방지를 위한 모듈 설치
+          npm install @rollup/rollup-linux-x64-gnu
+          npm run build
 
       # 2. 파이어베이스 배포 (수동 배포 성공한 프로젝트 ID로 변경)
       - uses: FirebaseExtended/action-hosting-deploy@v0
