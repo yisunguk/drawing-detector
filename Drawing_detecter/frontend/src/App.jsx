@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Search, ZoomIn, ZoomOut, RotateCcw, RotateCw, X, Plus, FileText, ChevronRight, ChevronLeft, Download, Grid3X3, List, Loader2, Check, Copy, Move, FileCheck, FileX, Cloud, Monitor, Folder, File, MessageSquare } from 'lucide-react';
 import ChatInterface from './components/ChatInterface';
+import { VERSION } from './version';
 
 import { BlobServiceClient } from '@azure/storage-blob';
 
@@ -679,7 +680,12 @@ const App = () => {
             {/* Sidebar */}
             <div className={`${sidebarCollapsed ? 'w-12' : 'w-72'} border-r border-[#e5e1d8] bg-[#f4f1ea] flex flex-col transition-all duration-300`}>
                 <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#f4f1ea]">
-                    {!sidebarCollapsed && <span className="text-sm font-serif font-bold text-[#5d5d5d]">Drawings Analyzer</span>}
+                    {!sidebarCollapsed && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-serif font-bold text-[#5d5d5d]">Drawings Analyzer</span>
+                            <span className="text-[10px] text-[#a0a0a0] bg-[#e5e1d8] px-1.5 py-0.5 rounded-full">v{VERSION}</span>
+                        </div>
+                    )}
                     <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="p-1.5 hover:bg-[#e5e1d8] rounded-md text-[#5d5d5d] transition-colors">
                         <ChevronRight size={16} className={sidebarCollapsed ? '' : 'rotate-180'} />
                     </button>
