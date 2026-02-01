@@ -30,25 +30,25 @@ class AzureDIService:
         output = []
         
         for page in result.pages:
-            # Extract content (using the full content of the result for now, 
-            # or we could filter by page spans if needed. 
-            # The user example shows "page_number" in JSON, implying one object per page or one object overall?)
-            # The example is a list `[ { ... } ]`. Let's assume one entry per page.
-            
             # Construct layout lines
             lines_data = []
             for line in page.lines:
+                # Polygon is a list of Point(x, y). Convert to [x1, y1, x2, y2, ...]
+                polygon_coords = []
+                for point in line.polygon:
+                    polygon_coords.extend([point.x, point.y])
+                    
                 lines_data.append({
                     "content": line.content,
-                    "polygon": line.polygon  # [x, y, x, y, ...]
+                    "polygon": polygon_coords
                 })
 
             page_data = {
                 "content": self._get_page_content(result.content, page.spans),
                 "page_number": page.page_number,
                 "tables_count": len([t for t in result.tables if any(c.page_number == page.page_number for c in t.cells)]),
-                "도면명(TITLE)": "",  # Placeholder as requested
-                "도면번호(DWG. NO.)": "REV.", # Placeholder as requested
+                "도면명(TITLE)": "",
+                "도면번호(DWG. NO.)": "REV.",
                 "layout": {
                     "width": page.width,
                     "height": page.height,
