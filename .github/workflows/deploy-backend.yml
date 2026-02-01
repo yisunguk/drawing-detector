@@ -39,13 +39,13 @@ jobs:
           region: 'us-central1'
           source: 'backend'
           env_vars: |
-            AZURE_OPENAI_API_VERSION=2023-05-15
-            AZURE_OPENAI_DEPLOYMENT_NAME=gpt-35-turbo
             AZURE_BLOB_CONTAINER_NAME=blob-leesunguk
             BACKEND_CORS_ORIGINS=["https://drawing-detecter.web.app","https://drawing-detecter.firebaseapp.com"]
           secrets: |
             AZURE_OPENAI_ENDPOINT=AZURE_OPENAI_ENDPOINT:latest
             AZURE_OPENAI_KEY=AZURE_OPENAI_KEY:latest
+            AZURE_OPENAI_API_VERSION=AZURE_OPENAI_API_VERSION:latest
+            AZURE_OPENAI_DEPLOYMENT_NAME=AZURE_OPENAI_DEPLOYMENT_NAME:latest
             AZURE_BLOB_CONNECTION_STRING=AZURE_BLOB_CONNECTION_STRING:latest
             AZURE_BLOB_SAS_TOKEN=AZURE_BLOB_SAS_TOKEN:latest
             AZURE_FORM_RECOGNIZER_ENDPOINT=AZURE_FORM_RECOGNIZER_ENDPOINT:latest
