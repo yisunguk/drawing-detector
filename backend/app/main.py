@@ -55,8 +55,14 @@ from pathlib import Path
 app.include_router(upload.router, prefix=f"{settings.API_V1_STR}/upload", tags=["upload"])
 app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
 
-from app.api.endpoints import analysis
-app.include_router(analysis.router, prefix=f"{settings.API_V1_STR}/analyze", tags=["analyze"])
+# Defensive import for analysis router
+analysis_router_error = None
+try:
+    from app.api.endpoints import analysis
+    app.include_router(analysis.router, prefix=f"{settings.API_V1_STR}/analyze", tags=["analyze"])
+except Exception as e:
+    analysis_router_error = str(e)
+    print(f"CRITICAL: Error loading analysis module: {e}")
 
 # Mount uploads directory to serve static files if it exists
 uploads_dir = Path("uploads")
@@ -104,7 +110,11 @@ async def debug_azure():
             "GCP_PROJECT": os.environ.get("GCP_PROJECT", "Unknown"),
             "K_SERVICE": os.environ.get("K_SERVICE", "Unknown")
         },
-        "routes": [route.path for route in app.routes]
+        "routes": [route.path for route in app.routes],
+        "errors": {
+            "azure_routes_error": azure_routes_error,
+            "analysis_router_error": analysis_router_error
+        }
     }
 
 @app.get("/")
