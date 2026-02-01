@@ -74,18 +74,35 @@ async def debug_azure():
     sas = settings.AZURE_BLOB_SAS_TOKEN
     conn = settings.AZURE_BLOB_CONNECTION_STRING
     account = settings.AZURE_STORAGE_ACCOUNT_NAME
+    di_endpoint = settings.AZURE_FORM_RECOGNIZER_ENDPOINT
+    di_key = settings.AZURE_FORM_RECOGNIZER_KEY
     
+    # Check if DI Service is initialized
+    try:
+        from app.services.azure_di import azure_di_service
+        di_initialized = azure_di_service.client is not None
+    except:
+        di_initialized = False
+
     return {
-        "azure_loaded": azure_routes is not None,
-        "error": azure_routes_error,
-        "env_vars_check": {
-            "conn_string_len": len(conn) if conn else 0,
-            "conn_string_valid_prefix": "DefaultEndpointsProtocol" in conn if conn else False,
-            "sas_token_len": len(sas) if sas else 0,
-            "sas_token_start": sas[:5] if sas else None,
-            "sas_token_has_question_mark": sas.startswith("?") if sas else False,
+        "status": "online",
+        "version": "2026-02-01 (Debug Enabled)",
+        "azure_blob": {
+            "loaded": azure_routes is not None,
             "account_name": account,
-            "container_name": settings.AZURE_BLOB_CONTAINER_NAME
+            "container_name": settings.AZURE_BLOB_CONTAINER_NAME,
+            "has_sas": bool(sas),
+            "has_conn_string": bool(conn)
+        },
+        "azure_di": {
+            "initialized": di_initialized,
+            "has_endpoint": bool(di_endpoint),
+            "has_key": bool(di_key),
+            "endpoint_url": di_endpoint if di_endpoint else "MISSING"
+        },
+        "env_check": {
+            "GCP_PROJECT": os.environ.get("GCP_PROJECT", "Unknown"),
+            "K_SERVICE": os.environ.get("K_SERVICE", "Unknown")
         }
     }
 
