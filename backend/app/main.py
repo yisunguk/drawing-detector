@@ -103,7 +103,8 @@ async def debug_azure():
         "env_check": {
             "GCP_PROJECT": os.environ.get("GCP_PROJECT", "Unknown"),
             "K_SERVICE": os.environ.get("K_SERVICE", "Unknown")
-        }
+        },
+        "routes": [route.path for route in app.routes]
     }
 
 @app.get("/")
