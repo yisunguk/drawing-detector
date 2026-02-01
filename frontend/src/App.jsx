@@ -1,0 +1,95 @@
+import React, { useEffect, useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import Dashboard from './pages/Dashboard';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import UserProfile from './pages/UserProfile';
+import { Loader2 } from 'lucide-react';
+
+// Private Route Component
+const PrivateRoute = ({ children }) => {
+    const { currentUser, loading } = useAuth();
+    const location = useLocation();
+
+    if (loading) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
+                <div className="text-center">
+                    <Loader2 className="w-10 h-10 text-emerald-600 animate-spin mx-auto mb-4" />
+                    <p className="text-gray-500 font-medium">Loading...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!currentUser) {
+        return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
+    return children;
+};
+
+// Public Route Component (redirects to dashboard if already logged in)
+const PublicRoute = ({ children }) => {
+    const { currentUser, loading } = useAuth();
+
+    if (loading) {
+        return null; // Or loading spinner
+    }
+
+    if (currentUser) {
+        return <Navigate to="/" replace />;
+    }
+
+    return children;
+};
+
+const App = () => {
+    return (
+        <Router>
+            <AuthProvider>
+                <div className="App font-sans text-gray-900">
+                    <Routes>
+                        <Route
+                            path="/login"
+                            element={
+                                <PublicRoute>
+                                    <Login />
+                                </PublicRoute>
+                            }
+                        />
+                        <Route
+                            path="/register"
+                            element={
+                                <PublicRoute>
+                                    <Register />
+                                </PublicRoute>
+                            }
+                        />
+                        <Route
+                            path="/"
+                            element={
+                                <PrivateRoute>
+                                    <Dashboard />
+                                </PrivateRoute>
+                            }
+                        />
+                        <Route
+                            path="/profile"
+                            element={
+                                <PrivateRoute>
+                                    <UserProfile />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* Fallback route */}
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                </div>
+            </AuthProvider>
+        </Router>
+    );
+};
+
+export default App;

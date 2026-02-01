@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+backend/venv/
+venv/
+__pycache__/
+*.pyc
+
+# Environment Variables (Secrets)
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+*.pem
+
+# Build Artifacts
+dist/
+build/
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+update-secrets.ps1
+
+update-secrets-v2.ps1
+setup-cicd-key.ps1
+fix-permissions.ps1
+gcp-sa-key.json

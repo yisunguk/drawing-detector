@@ -1,0 +1,50 @@
+name: Deploy Backend to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Log in to Google Cloud
+      # Requires 'GCP_SA_KEY' secret in GitHub (JSON format)
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      # Setup gcloud CLI
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+
+      # Deploy to Cloud Run
+      # Maps GitHub Secrets to Environment Variables
+      - name: 'Deploy to Cloud Run'
+        uses: 'google-github-actions/deploy-cloudrun@v2'
+        with:
+          service: 'drawing-detector-backend'
+          region: 'us-central1'
+          source: 'backend'
+          env_vars: |
+            AZURE_OPENAI_ENDPOINT=${{ secrets.AZURE_OPENAI_ENDPOINT }}
+            AZURE_OPENAI_KEY=${{ secrets.AZURE_OPENAI_KEY }}
+            AZURE_OPENAI_API_VERSION=${{ secrets.AZURE_OPENAI_API_VERSION }}
+            AZURE_OPENAI_DEPLOYMENT_NAME=${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
+            AZURE_BLOB_CONNECTION_STRING=${{ secrets.AZURE_BLOB_CONNECTION_STRING }}
+            AZURE_BLOB_SAS_TOKEN=${{ secrets.AZURE_BLOB_SAS_TOKEN }}
+            AZURE_BLOB_CONTAINER_NAME=${{ secrets.AZURE_BLOB_CONTAINER_NAME }}
+            AZURE_FORM_RECOGNIZER_ENDPOINT=${{ secrets.AZURE_FORM_RECOGNIZER_ENDPOINT }}
+            AZURE_FORM_RECOGNIZER_KEY=${{ secrets.AZURE_FORM_RECOGNIZER_KEY }}
+            BACKEND_CORS_ORIGINS=["https://drawing-detecter.web.app","https://drawing-detecter.firebaseapp.com"]
