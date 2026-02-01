@@ -1035,6 +1035,13 @@ const App = () => {
                         )}
 
                         <button
+                            onClick={handleDebugCheck}
+                            className={`p-2 hover:bg-[#ffe0d6] text-[#555555] hover:text-[#c05535] rounded-md transition-colors ${sidebarCollapsed ? 'hidden' : ''}`}
+                            title="Server Connectivity Check"
+                        >
+                            <Monitor size={18} />
+                        </button>
+                        <button
                             onClick={handleLogout}
                             className={`p-2 hover:bg-[#ffe0d6] text-[#555555] hover:text-[#c05535] rounded-md transition-colors ${sidebarCollapsed ? 'w-full flex justify-center' : ''}`}
                             title="Logout"
