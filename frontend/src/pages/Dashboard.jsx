@@ -68,6 +68,21 @@ const App = () => {
     const [chatScope, setChatScope] = useState('active');
     const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
 
+    // --- Debug ---
+    const handleDebugCheck = async () => {
+        try {
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
+            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+            alert(`Connecting to: ${API_URL}/azure-debug`);
+
+            const response = await fetch(`${API_URL}/azure-debug`);
+            const data = await response.json();
+            alert("Server Status:\n" + JSON.stringify(data, null, 2));
+        } catch (e) {
+            alert("Check Failed: " + e.message);
+        }
+    };
+
     // Auth
     const { currentUser, logout } = useAuth();
     const navigate = useNavigate();
