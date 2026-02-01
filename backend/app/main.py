@@ -55,15 +55,28 @@ from pathlib import Path
 app.include_router(upload.router, prefix=f"{settings.API_V1_STR}/upload", tags=["upload"])
 app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
 
-# Defensive import for analysis router
-# Defensive import for analysis router
-analysis_router_error = "DISABLED_FOR_DEBUGGING"
-# try:
-#     from app.api.endpoints import analysis
-#     app.include_router(analysis.router, prefix=f"{settings.API_V1_STR}/analyze", tags=["analyze"])
-# except Exception as e:
-#     analysis_router_error = str(e)
-#     print(f"CRITICAL: Error loading analysis module: {e}")
+# Enable Analysis Router
+try:
+    from app.api.endpoints import analysis
+    app.include_router(analysis.router, prefix=f"{settings.API_V1_STR}/analyze", tags=["analyze"])
+except Exception as e:
+    print(f"CRITICAL: Error loading analysis module: {e}")
+    analysis_router_error = str(e)
+
+# Enable Azure Routes
+try:
+    from app.api.endpoints import azure_routes
+    app.include_router(azure_routes.router, prefix=f"{settings.API_V1_STR}/azure", tags=["azure"])
+except Exception as e:
+    print(f"Error loading azure_routes module: {e}")
+    azure_routes_error = str(e)
+
+# Enable Debug Router
+try:
+    from app.api.endpoints import debug
+    app.include_router(debug.router, prefix=f"{settings.API_V1_STR}/debug", tags=["debug"])
+except Exception as e:
+    print(f"Error loading debug module: {e}")
 
 # Mount uploads directory to serve static files if it exists
 uploads_dir = Path("uploads")
@@ -72,9 +85,6 @@ if not uploads_dir.exists():
     print("Created uploads directory")
 
 app.mount("/static", StaticFiles(directory="uploads"), name="static")
-# if azure_routes:
-#     app.include_router(azure_routes.router, prefix=f"{settings.API_V1_STR}/azure", tags=["azure"])
-# app.include_router(search.router, prefix=f"{settings.API_V1_STR}/search", tags=["search"])
 
 @app.get("/azure-debug")
 async def debug_azure():

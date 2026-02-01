@@ -69,15 +69,23 @@ const App = () => {
     const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
 
     // --- Debug ---
+    // --- Debug ---
     const handleDebugCheck = async () => {
         try {
             const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
             const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
-            alert(`Connecting to: ${API_URL}/azure-debug`);
+            alert(`Connecting to: ${API_URL}/api/v1/debug/status`);
 
-            const response = await fetch(`${API_URL}/azure-debug`);
+            const response = await fetch(`${API_URL}/api/v1/debug/status`);
             const data = await response.json();
-            alert("Server Status:\n" + JSON.stringify(data, null, 2));
+
+            // Also try DI test
+            const diResponse = await fetch(`${API_URL}/api/v1/debug/test-di`);
+            const diData = await diResponse.json();
+
+            const report = "Backend Status:\n" + JSON.stringify(data, null, 2) + "\n\nDI Test:\n" + JSON.stringify(diData, null, 2);
+            alert(report);
+            console.log(report);
         } catch (e) {
             alert("Check Failed: " + e.message);
         }
