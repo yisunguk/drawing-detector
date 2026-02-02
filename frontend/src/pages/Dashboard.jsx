@@ -551,35 +551,71 @@ const App = () => {
         fetchAzureItems('');
     };
 
+    // --- Analysis State ---
+    const [analysisState, setAnalysisState] = useState({ isAnalyzing: false, progress: 0, status: '' });
+    const [showAnalysisConfirmModal, setShowAnalysisConfirmModal] = useState(false);
+    const [pendingFile, setPendingFile] = useState(null);
+    const [pendingDocId, setPendingDocId] = useState(null);
+
     // --- Analysis ---
     const analyzeLocalDocument = async (file, docId) => {
         try {
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
+            setAnalysisState({ isAnalyzing: true, progress: 0, status: '서버에 연결 중...' });
+
+            // Simulate progress for UX (since backend is synchronous)
+            // Move fast to 30%, then slow to 90%
+            const progressInterval = setInterval(() => {
+                setAnalysisState(prev => {
+                    if (prev.progress >= 90) return prev;
+                    const increment = prev.progress < 30 ? 5 : 1;
+                    return { ...prev, progress: prev.progress + increment, status: 'AI가 도면을 정밀 분석 중입니다...' };
+                });
+            }, 500);
+
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
             const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
 
             const formData = new FormData();
             formData.append('file', file);
-
-            // Optional: Show some indication that analysis is happening
-            // For now, we rely on the final state update to show "OCR Ready"
 
             const response = await fetch(`${API_URL}/api/v1/analyze/local`, {
                 method: 'POST',
                 body: formData
             });
 
+            clearInterval(progressInterval);
+            setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
+
             if (response.ok) {
                 const json = await response.json();
                 console.log("Analysis successful for", file.name);
                 setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: json } : d));
-                alert("도면 분석이 완료되었습니다."); // Success popup
+                alert("도면 분석이 완료되었습니다.");
             } else {
                 console.warn("Analysis failed", await response.text());
+                alert("분석에 실패했습니다. (서버 오류)");
             }
 
         } catch (e) {
             console.error("Analysis Error:", e);
+            setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
+            alert("분석 중 오류가 발생했습니다.");
         }
+    };
+
+    const confirmAnalysis = () => {
+        setShowAnalysisConfirmModal(false);
+        if (pendingFile && pendingDocId) {
+            analyzeLocalDocument(pendingFile, pendingDocId);
+            setPendingFile(null);
+            setPendingDocId(null);
+        }
+    };
+
+    const cancelAnalysis = () => {
+        setShowAnalysisConfirmModal(false);
+        setPendingFile(null);
+        setPendingDocId(null);
     };
 
     const handleFilesUpload = async (e, type) => {
@@ -611,17 +647,18 @@ const App = () => {
                     setActivePage(1);
                     setRotation(0);
 
-                    // Trigger Analysis in background
-                    analyzeLocalDocument(file, id);
+                    // Ask for confirmation nicely ONLY if it's a PDF
+                    setPendingFile(file);
+                    setPendingDocId(id);
+                    setShowAnalysisConfirmModal(true);
 
-                    // Small delay to let React process updates if needed (optional but safer for batching)
                     await new Promise(r => setTimeout(r, 50));
-
 
                 } catch (err) {
                     console.error("Error reading file:", file.name, err);
                 }
             } else if (type === 'json' && activeDocId) {
+                // ... logic same ...
                 try {
                     const result = await readFile(file, 'text');
                     const json = JSON.parse(result);
@@ -632,13 +669,16 @@ const App = () => {
             }
         }
 
-        // Trigger scope selection modal if total documents > 1 (Existing + New)
+        // Modal Trigger... 
         if (type === 'pdf' && (documents.length + files.length > 1) && !hasUserSelectedScope) {
-            setShowScopeSelectionModal(true);
+            // setShowScopeSelectionModal(true); // Defer this or keep it? Keep it.
+            // Actually, the Analysis modal will popup first. 
         }
 
         e.target.value = '';
     };
+
+
 
     // --- Azure Integration ---
 
@@ -648,7 +688,7 @@ const App = () => {
             setAzureLoading(true);
             setError(null);
 
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
             const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
             const response = await fetch(`${API_URL}/api/v1/azure/list?path=${encodeURIComponent(path)}`);
 
@@ -684,7 +724,7 @@ const App = () => {
             setAzureLoading(true);
             setError(null);
 
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
             const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
             const response = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`);
 
@@ -1372,6 +1412,74 @@ const App = () => {
                     </div>
                 )
             }
+
+
+            {/* Analysis Confirmation Modal */}
+            {showAnalysisConfirmModal && pendingFile && (
+                <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[70]">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 w-[450px] border border-[#e5e1d8] animate-in fade-in zoom-in duration-200">
+                        <div className="text-center mb-6">
+                            <div className="bg-[#e6f2ff] w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <Monitor size={24} className="text-[#0078d4]" />
+                            </div>
+                            <h3 className="text-lg font-bold text-[#333333] mb-1">AI 도면 분석을 시작할까요?</h3>
+                            <p className="text-sm font-medium text-[#333333] mb-2">{pendingFile.name}</p>
+                            <p className="text-xs text-[#666666] bg-[#f9fafb] p-3 rounded-lg border border-[#e5e7eb]">
+                                <span className="font-bold text-[#d97757]">💡 팁:</span> 분석을 진행하면 도면의 텍스트, 기호, 장비 태그를 자동으로 인식하여 <span className="font-bold">검색 및 하이라이트</span> 기능을 사용할 수 있습니다.<br /><br />
+                                300페이지 이상의 대용량 도면은 분석에 시간이 소요될 수 있습니다.
+                            </p>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button
+                                onClick={cancelAnalysis}
+                                className="flex-1 px-4 py-3 bg-white border border-[#dcd8d0] hover:bg-[#f5f5f5] text-[#555555] rounded-lg text-sm font-medium transition-colors"
+                            >
+                                취소 (뷰어만 실행)
+                            </button>
+                            <button
+                                onClick={confirmAnalysis}
+                                className="flex-1 px-4 py-3 bg-[#0078d4] hover:bg-[#0063b1] text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                            >
+                                AI 분석 시작
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Analysis Progress Modal */}
+            {analysisState.isAnalyzing && (
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[80]">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 w-[400px] text-center border border-[#e5e1d8] animate-in fade-in zoom-in duration-300">
+                        <div className="mb-6 relative">
+                            <div className="w-16 h-16 border-4 border-[#e6f2ff] border-t-[#0078d4] rounded-full animate-spin mx-auto"></div>
+                            <div className="absolute inset-0 flex items-center justify-center font-bold text-[#0078d4] text-xs">AI</div>
+                        </div>
+
+                        <h3 className="text-lg font-bold text-[#333333] mb-2">도면을 분석하고 있습니다</h3>
+                        <p className="text-sm text-[#666666] mb-6 animate-pulse">{analysisState.status}</p>
+
+                        <div className="w-full h-2 bg-[#f0ede6] rounded-full overflow-hidden mb-2 relative">
+                            <div
+                                className="h-full bg-gradient-to-r from-[#0078d4] to-[#00bcf2] transition-all duration-300 ease-out relative"
+                                style={{ width: `${analysisState.progress}%` }}
+                            >
+                                <div className="absolute inset-0 bg-white/30 animate-[shimmer_2s_infinite]"></div>
+                            </div>
+                        </div>
+                        <div className="flex justify-between text-xs text-[#888888] font-mono">
+                            <span>Progress</span>
+                            <span>{analysisState.progress}%</span>
+                        </div>
+
+                        <div className="mt-6 text-xs text-[#a0a0a0] bg-[#fdfdfd] p-3 rounded border border-[#f0f0f0]">
+                            창을 닫지 마세요. 대용량 파일은 1~2분 정도 소요될 수 있습니다.
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Scope Selection Modal */}
             {showScopeSelectionModal && (
                 <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60]">
