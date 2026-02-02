@@ -17,7 +17,7 @@ app = FastAPI(
 )
 
 print(f"Backend '{settings.PROJECT_NAME}' starting up...")
-print(f"🚀 Test deployment verification - Deployed at: 2026-02-01 23:05 (Azure DI Integrated - Final Fix)")
+print(f"🚀 Test deployment verification - Deployed at: 2026-02-02 09:15 (Force Deploy for Secrets)")
 
 @app.middleware("http")
 async def log_requests(request, call_next):
