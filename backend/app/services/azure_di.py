@@ -26,6 +26,16 @@ class AzureDIService:
         
         return self._format_result(result)
 
+    def analyze_document_from_bytes(self, file_content: bytes) -> dict:
+        if not self.client:
+            raise Exception("Azure Document Intelligence client not initialized")
+
+        # Use begin_analyze_document for bytes
+        poller = self.client.begin_analyze_document("prebuilt-layout", document=file_content)
+        result = poller.result()
+        
+        return self._format_result(result)
+
     def _format_result(self, result) -> list:
         output = []
         
