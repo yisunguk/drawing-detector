@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Search, ZoomIn, ZoomOut, RotateCcw, RotateCw, X, Plus, FileText, ChevronRight, ChevronLeft, Download, Grid3X3, List, Loader2, Check, Copy, Move, FileCheck, FileX, Cloud, Monitor, Folder, File, MessageSquare, Files, LogOut, User } from 'lucide-react';
+import { Search, ZoomIn, ZoomOut, RotateCcw, RotateCw, X, Plus, FileText, ChevronRight, ChevronLeft, Download, Grid3X3, List, Loader2, Check, Copy, Move, FileCheck, FileX, Cloud, Monitor, Folder, File, MessageSquare, Files, LogOut, User, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import ChatInterface from '../components/ChatInterface';
@@ -11,6 +11,8 @@ import { BlobServiceClient } from '@azure/storage-blob';
 
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+import { get, set, del } from 'idb-keyval';
 
 // Azure Configuration
 // Azure Configuration
@@ -58,6 +60,85 @@ const App = () => {
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
     const [isLoading, setIsLoading] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+    // Persistence: Load Documents on Mount
+    useEffect(() => {
+        const loadPersistedData = async () => {
+            try {
+                // Load IDs first
+                const savedIds = await get('doc_ids');
+                if (savedIds && Array.isArray(savedIds)) {
+                    // Load each doc
+                    const docsPromises = savedIds.map(id => get(`doc_${id}`));
+                    const docs = await Promise.all(docsPromises);
+                    const validDocs = docs.filter(d => d);
+
+                    if (validDocs.length > 0) {
+                        setDocuments(validDocs);
+                        const savedActiveId = await get('activeDocId');
+                        if (savedActiveId && validDocs.find(d => d.id === savedActiveId)) {
+                            setActiveDocId(savedActiveId);
+                        } else {
+                            setActiveDocId(validDocs[0].id);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load persisted documents:', err);
+            }
+        };
+        loadPersistedData();
+    }, []);
+
+    // Persistence: Save Documents on Change (Itemized)
+    useEffect(() => {
+        const saveDocs = async () => {
+            if (documents.length > 0) {
+                // 1. Save list of IDs
+                const ids = documents.map(d => d.id);
+                try {
+                    await set('doc_ids', ids);
+                    // 2. Save each document
+                    // Optimization: We could track dirty/new docs, but saving all ensures consistency for now.
+                    // Promise.all to maximize throughput
+                    await Promise.all(documents.map(doc => set(`doc_${doc.id}`, doc)));
+                } catch (e) {
+                    console.error("Failed to save documents:", e);
+                }
+            }
+        };
+        saveDocs();
+
+        if (activeDocId) {
+            set('activeDocId', activeDocId).catch(err => console.error('Failed to persist activeDocId:', err));
+        }
+    }, [documents, activeDocId]);
+
+    const handleReset = async () => {
+        if (window.confirm('모든 도면과 채팅 기록을 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
+            try {
+                setIsLoading(true);
+                // 1. Delete Global Keys
+                await del('doc_ids');
+                await del('activeDocId');
+                await del('global_chat_history');
+                await del('documents'); // legacy key
+
+                // 2. Delete Individual Docs
+                if (documents.length > 0) {
+                    await Promise.all(documents.map(d => del(`doc_${d.id}`)));
+                }
+
+                // 3. Reload
+                window.location.reload();
+            } catch (error) {
+                console.error("Reset failed:", error);
+                alert("초기화 중 오류가 발생했습니다.");
+                setIsLoading(false);
+            }
+        }
+    };
+
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
     const [viewMode, setViewMode] = useState('list');
     const [copiedTag, setCopiedTag] = useState(null);
@@ -68,28 +149,7 @@ const App = () => {
     const [chatScope, setChatScope] = useState('active');
     const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
 
-    // --- Debug ---
-    // --- Debug ---
-    const handleDebugCheck = async () => {
-        try {
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
-            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
-            alert(`Connecting to: ${API_URL}/api/v1/debug/status`);
 
-            const response = await fetch(`${API_URL}/api/v1/debug/status`);
-            const data = await response.json();
-
-            // Also try DI test
-            const diResponse = await fetch(`${API_URL}/api/v1/debug/test-di`);
-            const diData = await diResponse.json();
-
-            const report = "Backend Status:\n" + JSON.stringify(data, null, 2) + "\n\nDI Test:\n" + JSON.stringify(diData, null, 2);
-            alert(report);
-            console.log(report);
-        } catch (e) {
-            alert("Check Failed: " + e.message);
-        }
-    };
 
     // Auth
     const { currentUser, logout } = useAuth();
@@ -138,7 +198,9 @@ const App = () => {
     const [autoSelectFirstResult, setAutoSelectFirstResult] = useState(false);
     const [selectedAzureItems, setSelectedAzureItems] = useState([]);
     const [showScopeSelectionModal, setShowScopeSelectionModal] = useState(false);
+
     const [loadingType, setLoadingType] = useState('listing'); // 'listing' or 'downloading'
+    const [uploadCategory, setUploadCategory] = useState('drawings'); // 'drawings' or 'documents'
 
     // Sidebar Resize State
     const [sidebarWidth, setSidebarWidth] = useState(350);
@@ -338,7 +400,37 @@ const App = () => {
 
                     lines.forEach(line => {
                         const cleanContent = line.content.replace(/\s+/g, '').toLowerCase();
-                        if (cleanContent.includes(cleanSearch)) {
+
+                        // 1. Exact Match (existing)
+                        let isMatch = cleanContent.includes(cleanSearch);
+
+                        // 2. Split Token Match (OR condition for citations like "LIC 7240")
+                        if (!isMatch && searchTerm.includes(' ')) {
+                            const tokens = searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 0);
+
+                            // If any significant token matches, we consider it a hit (OR logic)
+                            isMatch = tokens.some(token => {
+                                // For numeric tokens, strict includes is fine
+                                if (/^\d+$/.test(token)) {
+                                    return cleanContent.includes(token);
+                                }
+                                // For text tokens, avoid suffix matches (e.g. "TIC" in "STATIC")
+                                // If token is short (<=3 chars), ensure it's not preceded by a letter
+                                if (token.length <= 3) {
+                                    try {
+                                        // Check against original content to see word boundaries
+                                        const regex = new RegExp(`(^|[^a-zA-Z])${token}`, 'i');
+                                        return regex.test(line.content);
+                                    } catch (e) {
+                                        return cleanContent.includes(token);
+                                    }
+                                }
+                                // For longer tokens, simple includes
+                                return cleanContent.includes(token);
+                            });
+                        }
+
+                        if (isMatch) {
                             const type = classifyTag(line.content);
                             if (filters[type]) {
                                 results.push({
@@ -531,8 +623,9 @@ const App = () => {
 
     // --- Upload Handlers ---
 
-    const initiateUpload = (type) => {
+    const initiateUpload = (type, category = 'drawings') => {
         setUploadType(type);
+        setUploadCategory(category);
         setShowSourceModal(true);
     };
 
@@ -577,6 +670,12 @@ const App = () => {
 
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('category', uploadCategory);
+
+            // Send username to save in user-specific folder
+            if (userProfile && userProfile.name) {
+                formData.append('username', userProfile.name);
+            }
 
             const response = await fetch(`${API_URL}/api/v1/analyze/local`, {
                 method: 'POST',
@@ -708,7 +807,48 @@ const App = () => {
             }
 
             const items = await response.json();
-            setAzureItems(items);
+
+            // --- RBAC Filtering ---
+            let filteredItems = items;
+            const isAdmin = currentUser?.email === 'admin@poscoenc.com';
+            // Use profile name preferably, fallback to display name, sanitize for comparison
+            const userName = (userProfile?.name || currentUser?.displayName || '').trim();
+            const emailPrefix = currentUser?.email?.split('@')[0] || '';
+
+            if (!isAdmin) {
+                const currentPath = path.replace(/\/$/, '').toLowerCase();
+                const lowerUserName = userName.toLowerCase();
+                const lowerEmailPrefix = emailPrefix.toLowerCase();
+
+                console.log(`[RBAC] User: ${userName}, EmailPrefix: ${emailPrefix}, Path: ${currentPath}`);
+
+                filteredItems = items.filter(item => {
+                    const itemName = item.name.toLowerCase();
+                    const isDirectory = item.is_directory !== false;
+
+                    // 1. Root Level: Allow ONLY User's Folder
+                    if (currentPath === '') {
+                        return (itemName === lowerUserName) || (itemName === lowerEmailPrefix);
+                    }
+
+                    // 2. User Folder Level (path == 'username'): Allow only 'drawings' and 'documents'
+                    if (currentPath === lowerUserName || currentPath === lowerEmailPrefix) {
+                        return itemName === 'drawings' || itemName === 'documents';
+                    }
+
+                    // 3. Deeper Levels: Allow everything if we are inside their folder structure
+                    // Check if path starts with allowed prefix (e.g. 'username/drawings' or 'username/documents')
+                    // We simply check if we are strictly under the user folder now.
+                    if (currentPath.startsWith(lowerUserName + '/') || currentPath.startsWith(lowerEmailPrefix + '/')) {
+                        return true;
+                    }
+
+                    return false;
+                });
+                console.log(`[RBAC] Filtered ${items.length} -> ${filteredItems.length} items`);
+            }
+
+            setAzureItems(filteredItems);
             setAzurePath(path);
         } catch (err) {
             console.error('Error fetching Azure files:', err);
@@ -771,29 +911,35 @@ const App = () => {
                 let fetchedJson = null;
                 // Check if path contains 'drawings' (case insensitive)
                 if (file.path.toLowerCase().includes('drawings')) {
-                    const jsonPath = file.path.replace(/drawings/i, 'json') + '.json';
+                    const jsonPath1 = file.path.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json');
+                    const jsonPath2 = file.path.replace(/drawings/i, 'json') + '.json'; // Support old format .pdf.json
+
                     try {
-                        const jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
+                        let jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath1)}`);
+
+                        // Fallback to .pdf.json if .json not found
+                        if (!jsonResponse.ok) {
+                            console.log(`JSON not found at ${jsonPath1}, trying fallback: ${jsonPath2}`);
+                            jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath2)}`);
+                        }
+
                         if (jsonResponse.ok) {
                             const jsonBlob = await jsonResponse.blob();
                             const jsonText = await jsonBlob.text();
                             fetchedJson = JSON.parse(jsonText);
-                            console.log("Auto-fetched JSON metadata:", jsonPath);
+                            console.log("Auto-fetched JSON metadata");
                             // Optional: Notify user
                             // alert("PDF and corresponding JSON metadata loaded automatically!");
                         } else {
-                            console.log("JSON metadata not found at:", jsonPath);
+                            console.log("JSON metadata not found at:", jsonPath1, "or", jsonPath2);
                         }
                     } catch (jsonErr) {
                         console.warn("Failed to auto-fetch JSON:", jsonErr);
                     }
                 }
-
-
                 const colorIndex = documents.length % DOC_COLORS.length;
                 setDocuments(prev => [...prev, { id, name, pdfData: arrayBuffer, ocrData: fetchedJson, pdfTextData: null, totalPages: 1, colorIndex }]);
                 setActiveDocId(id);
-                setActivePage(1);
                 setActivePage(1);
                 setRotation(0);
                 if (!keepBrowserOpen) setShowAzureBrowser(false);
@@ -1097,13 +1243,7 @@ const App = () => {
                             </Link>
                         )}
 
-                        <button
-                            onClick={handleDebugCheck}
-                            className={`p-2 hover:bg-[#ffe0d6] text-[#555555] hover:text-[#c05535] rounded-md transition-colors ${sidebarCollapsed ? 'hidden' : ''}`}
-                            title="Server Connectivity Check"
-                        >
-                            <Monitor size={18} />
-                        </button>
+
                         <button
                             onClick={handleLogout}
                             className={`p-2 hover:bg-[#ffe0d6] text-[#555555] hover:text-[#c05535] rounded-md transition-colors ${sidebarCollapsed ? 'w-full flex justify-center' : ''}`}
@@ -1134,8 +1274,9 @@ const App = () => {
                         )
                     })}
                     <div className="flex gap-2 ml-3">
-                        <button onClick={() => initiateUpload('pdf')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#555555] bg-[#f4f1ea] hover:bg-[#e5e1d8] hover:text-[#333333] rounded-md transition-colors"><Plus size={14} /> 도면 업로드</button>
-                        <button onClick={() => initiateUpload('json')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#d97757] bg-[#fff0eb] hover:bg-[#ffe0d6] hover:text-[#c05535] rounded-md transition-colors"><Plus size={14} /> 메타데이터 업로드</button>
+                        <button onClick={() => initiateUpload('pdf', 'drawings')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#555555] bg-[#f4f1ea] hover:bg-[#e5e1d8] hover:text-[#333333] rounded-md transition-colors"><Plus size={14} /> 도면 업로드</button>
+                        <button onClick={() => initiateUpload('pdf', 'documents')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#d97757] bg-[#fff0eb] hover:bg-[#ffe0d6] hover:text-[#c05535] rounded-md transition-colors"><Plus size={14} /> 설계자료 업로드</button>
+                        <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-100"><Trash2 size={14} /> 초기화</button>
                     </div>
                     <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFilesUpload(e, 'pdf')} />
                     <input ref={jsonInputRef} type="file" accept=".json" multiple className="hidden" onChange={(e) => handleFilesUpload(e, 'json')} />
@@ -1308,15 +1449,15 @@ const App = () => {
                                 <button onClick={handleLocalUpload} className="w-full flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group">
                                     <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]"><Monitor size={24} className="text-[#555555] group-hover:text-[#d97757]" /></div>
                                     <div className="text-left">
-                                        <div className="font-bold text-[#333333]">도면 등록하기</div>
-                                        <div className="text-xs text-[#888888]">업로드 즉시 AI가 도면 데이터를 정밀 판독합니다.</div>
+                                        <div className="font-bold text-[#333333]">{uploadCategory === 'documents' ? '설계 데이터 등록하기' : '도면 등록하기'}</div>
+                                        <div className="text-xs text-[#888888]">업로드 즉시 AI가 {uploadCategory === 'documents' ? '설계 데이터' : '도면 데이터'}를 정밀 판독합니다.</div>
                                     </div>
                                 </button>
                                 <button onClick={handleAzureUpload} className="w-full flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#0078d4] hover:bg-[#f0f8ff] transition-all group">
                                     <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#e6f2ff]"><Cloud size={24} className="text-[#555555] group-hover:text-[#0078d4]" /></div>
                                     <div className="text-left">
-                                        <div className="font-bold text-[#333333]">내가 등록한 도면 찾기</div>
-                                        <div className="text-xs text-[#888888]">분석이 완료된 도면을 즉시 확인하고 활용하세요.</div>
+                                        <div className="font-bold text-[#333333]">{uploadCategory === 'documents' ? '내가 등록한 설계 데이터 찾기' : '내가 등록한 도면 찾기'}</div>
+                                        <div className="text-xs text-[#888888]">분석이 완료된 {uploadCategory === 'documents' ? '설계 데이터' : '도면'}을 즉시 확인하고 활용하세요.</div>
                                     </div>
                                 </button>
                             </div>

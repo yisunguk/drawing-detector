@@ -12,18 +12,22 @@ router = APIRouter()
 @router.post("/local")
 async def analyze_local_file(
     file: UploadFile = File(...),
-    username: str = Form(None)
+    username: str = Form(None),
+    category: str = Form("drawings")
 ):
     try:
         # 1. Upload file to Azure Blob
         container_client = get_container_client()
         
+        # Validate category
+        target_folder = category if category in ["drawings", "documents"] else "drawings"
+        
         # Determine path based on username
         if username:
-            blob_name = f"{username}/drawings/{file.filename}"
+            blob_name = f"{username}/{target_folder}/{file.filename}"
             json_blob_name = f"{username}/json/{os.path.splitext(file.filename)[0]}.json"
         else:
-            blob_name = f"drawings/{file.filename}"
+            blob_name = f"{target_folder}/{file.filename}"
             json_blob_name = f"json/{os.path.splitext(file.filename)[0]}.json"
 
         blob_client = container_client.get_blob_client(blob_name)

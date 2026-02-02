@@ -1,11 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { updateProfile, updatePassword } from 'firebase/auth';
-import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check } from 'lucide-react';
 
 const UserProfile = () => {
     const { currentUser } = useAuth();
@@ -14,6 +16,7 @@ const UserProfile = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [expandedChatId, setExpandedChatId] = useState(null);
+    const [sharingId, setSharingId] = useState(null); // Track which item is being shared
 
     // Profile State
     const [profileData, setProfileData] = useState({
@@ -130,6 +133,36 @@ const UserProfile = () => {
             }
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleShare = async (e, chat) => {
+        e.stopPropagation(); // Prevent toggling accordion
+        setSharingId(chat.id);
+        try {
+            // Create a public shared document
+            // We copy the relevant data to a 'shared_chats' collection
+            const shareData = {
+                query: chat.query,
+                response: chat.response,
+                filename: chat.filename || null,
+                originalUser: profileData.name || currentUser.displayName || 'User',
+                createdAt: serverTimestamp(),
+                sharedAt: serverTimestamp()
+            };
+
+            const docRef = await addDoc(collection(db, 'shared_chats'), shareData);
+
+            // Generate Link
+            const shareUrl = `${window.location.origin}/share/${docRef.id}`;
+            await navigator.clipboard.writeText(shareUrl);
+
+            alert('공유 링크가 클립보드에 복사되었습니다!\n\n' + shareUrl);
+        } catch (error) {
+            console.error("Error sharing chat:", error);
+            alert('공유 중 오류가 발생했습니다.');
+        } finally {
+            setSharingId(null);
         }
     };
 
@@ -300,6 +333,18 @@ const UserProfile = () => {
                                                         </div>
                                                     </div>
 
+                                                    {/* Share Button (Visible on Hover or Expanded) */}
+                                                    <div className="shrink-0 mr-2">
+                                                        <button
+                                                            onClick={(e) => handleShare(e, chat)}
+                                                            disabled={sharingId === chat.id}
+                                                            className="p-1.5 text-[#a0a0a0] hover:text-[#d97757] hover:bg-[#fff0eb] rounded-md transition-colors"
+                                                            title="Share this conversation"
+                                                        >
+                                                            {sharingId === chat.id ? <Loader2 size={16} className="animate-spin" /> : <Share2 size={16} />}
+                                                        </button>
+                                                    </div>
+
                                                     {/* Toggle Icon */}
                                                     <div className="shrink-0 text-[#a0a0a0]">
                                                         {expandedChatId === chat.id ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
@@ -315,8 +360,20 @@ const UserProfile = () => {
                                                                 AI 답변
                                                                 <span className="text-[#a0a0a0] font-normal ml-auto text-[10px]">{chat.timestamp?.toDate ? chat.timestamp.toDate().toLocaleTimeString() : ''}</span>
                                                             </h4>
-                                                            <div className="prose prose-sm max-w-none text-[#333333] leading-relaxed whitespace-pre-wrap">
-                                                                {chat.response.replace(/\[\[(.*?)\]\]/g, '')}
+                                                            <div className="prose prose-sm max-w-none text-[#333333] leading-relaxed">
+                                                                <ReactMarkdown
+                                                                    remarkPlugins={[remarkGfm]}
+                                                                    components={{
+                                                                        table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
+                                                                        thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
+                                                                        th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
+                                                                        td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
+                                                                        ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
+                                                                        ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
+                                                                    }}
+                                                                >
+                                                                    {chat.response.replace(/\[\[(.*?)\]\]/g, ' **📄 $1** ')}
+                                                                </ReactMarkdown>
                                                             </div>
                                                         </div>
                                                     </div>
