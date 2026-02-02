@@ -38,8 +38,7 @@ jobs:
           service: 'drawing-detector-backend'
           region: 'us-central1'
           source: 'backend'
-          env_vars: |
-            BACKEND_CORS_ORIGINS=["https://drawing-detecter.web.app","https://drawing-detecter.firebaseapp.com"]
+          # env_vars removed as BACKEND_CORS_ORIGINS defaults are sufficient and quoting was causing issues
           secrets: |
             AZURE_OPENAI_ENDPOINT=AZURE_OPENAI_ENDPOINT:latest
             AZURE_OPENAI_KEY=AZURE_OPENAI_KEY:latest
