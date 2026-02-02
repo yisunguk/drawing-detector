@@ -56,7 +56,7 @@ class AzureDIService:
             page_data = {
                 "content": self._get_page_content(result.content, page.spans),
                 "page_number": page.page_number,
-                "tables_count": len([t for t in result.tables if any(c.page_number == page.page_number for c in t.cells)]),
+                "tables_count": len([t for t in result.tables if any(r.page_number == page.page_number for c in t.cells for r in c.bounding_regions)]),
                 "도면명(TITLE)": "",
                 "도면번호(DWG. NO.)": "REV.",
                 "layout": {
