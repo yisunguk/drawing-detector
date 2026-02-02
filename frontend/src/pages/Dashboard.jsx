@@ -672,10 +672,11 @@ const App = () => {
             formData.append('file', file);
             formData.append('category', uploadCategory);
 
-            // Send username to save in user-specific folder
-            if (userProfile && userProfile.name) {
-                formData.append('username', userProfile.name);
-            }
+            // NOTE: Not sending username anymore.
+            // Backend is configured to save all files to common 'drawings' or 'documents' folders.
+            // if (userProfile && userProfile.name) {
+            //    formData.append('username', userProfile.name);
+            // }
 
             const response = await fetch(`${API_URL}/api/v1/analyze/local`, {
                 method: 'POST',
@@ -817,33 +818,20 @@ const App = () => {
 
             if (!isAdmin) {
                 const currentPath = path.replace(/\/$/, '').toLowerCase();
-                const lowerUserName = userName.toLowerCase();
-                const lowerEmailPrefix = emailPrefix.toLowerCase();
 
-                console.log(`[RBAC] User: ${userName}, EmailPrefix: ${emailPrefix}, Path: ${currentPath}`);
+                console.log(`[RBAC] Filtering path: ${currentPath}`);
 
                 filteredItems = items.filter(item => {
                     const itemName = item.name.toLowerCase();
-                    const isDirectory = item.is_directory !== false;
 
-                    // 1. Root Level: Allow ONLY User's Folder
+                    // 1. Root Level: Allow ONLY Common Folders
                     if (currentPath === '') {
-                        return (itemName === lowerUserName) || (itemName === lowerEmailPrefix);
+                        return (itemName === 'drawings') || (itemName === 'documents');
                     }
 
-                    // 2. User Folder Level (path == 'username'): Allow only 'drawings' and 'documents'
-                    if (currentPath === lowerUserName || currentPath === lowerEmailPrefix) {
-                        return itemName === 'drawings' || itemName === 'documents';
-                    }
-
-                    // 3. Deeper Levels: Allow everything if we are inside their folder structure
-                    // Check if path starts with allowed prefix (e.g. 'username/drawings' or 'username/documents')
-                    // We simply check if we are strictly under the user folder now.
-                    if (currentPath.startsWith(lowerUserName + '/') || currentPath.startsWith(lowerEmailPrefix + '/')) {
-                        return true;
-                    }
-
-                    return false;
+                    // 2. Deeper Levels: Allow everything inside drawings or documents
+                    // (Since we only allow entering those folders from root, this is generally safe enough for UI)
+                    return true;
                 });
                 console.log(`[RBAC] Filtered ${items.length} -> ${filteredItems.length} items`);
             }

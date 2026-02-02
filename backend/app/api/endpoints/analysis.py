@@ -22,13 +22,13 @@ async def analyze_local_file(
         # Validate category
         target_folder = category if category in ["drawings", "documents"] else "drawings"
         
-        # Determine path based on username
-        if username:
-            blob_name = f"{username}/{target_folder}/{file.filename}"
-            json_blob_name = f"{username}/json/{os.path.splitext(file.filename)[0]}.json"
-        else:
-            blob_name = f"{target_folder}/{file.filename}"
-            json_blob_name = f"json/{os.path.splitext(file.filename)[0]}.json"
+        # Determine path (Force common folders, ignore username for folder structure)
+        # Always save to {target_folder}/{filename}
+        blob_name = f"{target_folder}/{file.filename}"
+        json_blob_name = f"json/{os.path.splitext(file.filename)[0]}.json"
+        
+        # Log for debugging
+        print(f"Uploading file to: {blob_name}")
 
         blob_client = container_client.get_blob_client(blob_name)
         

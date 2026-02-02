@@ -71,6 +71,13 @@ except Exception as e:
     print(f"Error loading azure_routes module: {e}")
     azure_routes_error = str(e)
 
+# Enable Files Router
+try:
+    from app.api.endpoints import files
+    app.include_router(files.router, prefix=f"{settings.API_V1_STR}/files", tags=["files"])
+except Exception as e:
+    print(f"Error loading files module: {e}")
+
 # Enable Debug Router
 try:
     from app.api.endpoints import debug
