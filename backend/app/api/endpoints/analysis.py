@@ -26,7 +26,8 @@ async def analyze_local_file(file: UploadFile = File(...)):
         
         if settings.AZURE_BLOB_SAS_TOKEN:
              # Sanitize and append
-             sas = settings.AZURE_BLOB_SAS_TOKEN
+             # Strip whitespace (crucial for URL) and encode commas (for spr=https,http -> spr=https%2Chttp)
+             sas = settings.AZURE_BLOB_SAS_TOKEN.strip().replace(",", "%2C")
              if sas.startswith('?'): sas = sas[1:]
              full_url = f"{blob_url}?{sas}"
         else:
