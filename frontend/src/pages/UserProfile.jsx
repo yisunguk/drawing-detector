@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { updateProfile, updatePassword } from 'firebase/auth';
-import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check, FolderOpen, Download } from 'lucide-react';
+import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check } from 'lucide-react';
 
 const UserProfile = () => {
     const { currentUser } = useAuth();
@@ -35,10 +35,7 @@ const UserProfile = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
 
-    // Files State
-    const [userFiles, setUserFiles] = useState([]);
-    const [filesLoading, setFilesLoading] = useState(false);
-    const [searchTerm, setSearchTerm] = useState('');
+
 
     useEffect(() => {
         const fetchData = async () => {
@@ -88,52 +85,6 @@ const UserProfile = () => {
         fetchData();
     }, [currentUser]);
 
-    // Fetch Files when tab changes to 'files'
-    useEffect(() => {
-        if (activeTab === 'files') {
-            fetchUserFiles();
-        }
-    }, [activeTab]);
-
-    const fetchUserFiles = async () => {
-        setFilesLoading(true);
-        try {
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
-            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
-
-            const response = await fetch(`${API_URL}/api/v1/files/list`);
-            if (!response.ok) throw new Error('Failed to fetch files');
-
-            const data = await response.json();
-            if (data.success) {
-                setUserFiles(data.files);
-            }
-        } catch (error) {
-            console.error("Error fetching files:", error);
-        } finally {
-            setFilesLoading(false);
-        }
-    };
-
-    const handleDownloadFile = async (file) => {
-        try {
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
-            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
-
-            // Request SAS URL
-            const response = await fetch(`${API_URL}/api/v1/files/download?path=${encodeURIComponent(file.fullPath)}`);
-            if (!response.ok) throw new Error('Failed to get download URL');
-
-            const data = await response.json();
-            if (data.success && data.downloadUrl) {
-                // Open in new tab to download
-                window.open(data.downloadUrl, '_blank');
-            }
-        } catch (error) {
-            console.error("Error downloading file:", error);
-            alert("파일 다운로드 중 오류가 발생했습니다.");
-        }
-    };
 
 
     const handleSaveProfile = async (e) => {
@@ -256,13 +207,7 @@ const UserProfile = () => {
                             <User size={18} />
                             프로필 편집
                         </button>
-                        <button
-                            onClick={() => setActiveTab('files')}
-                            className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'files' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#666666] hover:bg-[#e5e1d8]'}`}
-                        >
-                            <FolderOpen size={18} />
-                            등록된 파일
-                        </button>
+
                     </div>
 
                     {/* Content */}
@@ -486,113 +431,6 @@ const UserProfile = () => {
                             </div>
                         )}
 
-                        {/* Files Tab (Dark Theme) */}
-                        {activeTab === 'files' && (
-                            <div className="min-h-full">
-                                <h2 className="text-2xl font-bold text-[#333333] mb-6">Files</h2>
-
-                                <div className="bg-[#0e1117] text-white rounded-lg overflow-hidden shadow-lg border border-[#262730]">
-                                    {/* Search Bar */}
-                                    <div className="p-4 border-b border-[#262730]">
-                                        <div className="relative">
-                                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                                </svg>
-                                            </div>
-                                            <input
-                                                type="text"
-                                                className="block w-full pl-10 pr-3 py-2 border border-[#262730] rounded-md leading-5 bg-[#262730] text-gray-300 placeholder-gray-500 focus:outline-none focus:bg-[#0e1117] focus:border-gray-500 focus:ring-0 sm:text-sm transition-colors"
-                                                placeholder="Type filename..."
-                                                value={searchTerm}
-                                                onChange={(e) => setSearchTerm(e.target.value)}
-                                            />
-                                        </div>
-                                        <div className="mt-2 text-xs font-mono text-gray-500">
-                                            {filesLoading ? 'Loading files...' : `Files (${userFiles.filter(f => f.filename.toLowerCase().includes(searchTerm.toLowerCase())).length})`}
-                                        </div>
-                                    </div>
-
-                                    {/* File List Table */}
-                                    <div className="overflow-x-auto">
-                                        <table className="min-w-full divide-y divide-[#262730]">
-                                            <thead className="bg-[#0e1117]">
-                                                <tr>
-                                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
-                                                        Select
-                                                    </th>
-                                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        Name
-                                                    </th>
-                                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        Size
-                                                    </th>
-                                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        Last Modified
-                                                    </th>
-                                                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        Action
-                                                    </th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="bg-[#0e1117] divide-y divide-[#262730]">
-                                                {filesLoading ? (
-                                                    <tr>
-                                                        <td colSpan="5" className="px-6 py-10 text-center text-gray-500">
-                                                            <Loader2 className="animate-spin mx-auto mb-2" />
-                                                            Server connecting...
-                                                        </td>
-                                                    </tr>
-                                                ) : userFiles.length === 0 ? (
-                                                    <tr>
-                                                        <td colSpan="5" className="px-6 py-10 text-center text-gray-500">
-                                                            No files found.
-                                                        </td>
-                                                    </tr>
-                                                ) : (
-                                                    userFiles.filter(file => file.filename.toLowerCase().includes(searchTerm.toLowerCase())).map((file, idx) => (
-                                                        <tr key={idx} className="hover:bg-[#262730] transition-colors group">
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <input type="checkbox" className="h-4 w-4 text-[#d97757] focus:ring-[#d97757] border-gray-500 rounded bg-[#262730]" />
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                                <div className="flex items-center">
-                                                                    <div className="flex-shrink-0 h-8 w-8 flex items-center justify-center bg-[#262730] rounded-md text-gray-400">
-                                                                        <FileText size={16} />
-                                                                    </div>
-                                                                    <div className="ml-4">
-                                                                        <div className="text-sm font-medium text-white">{file.filename}</div>
-                                                                        <div className="text-xs text-gray-500">{file.category}</div>
-                                                                    </div>
-                                                                </div>
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">
-                                                                {file.size}
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 font-mono">
-                                                                {file.lastModified ? new Date(file.lastModified).toLocaleString() : '-'}
-                                                            </td>
-                                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                                <button
-                                                                    onClick={() => handleDownloadFile(file)}
-                                                                    className="text-[#d97757] hover:text-[#ff8d6b] flex items-center justify-end gap-1 ml-auto"
-                                                                >
-                                                                    <Download size={16} />
-                                                                    <span className="hidden group-hover:inline">Download</span>
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    ))
-                                                )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <div className="bg-[#0e1117] px-4 py-3 border-t border-[#262730] text-xs text-gray-600 flex justify-between">
-                                        <span>Azure Blob Storage Manager | Built with Drawing Detector</span>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
                         {/* End of Content - activeTab checks end here */}
                     </div>
                 </div>
