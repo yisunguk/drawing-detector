@@ -19,11 +19,12 @@ def get_container_client():
             temp_client = BlobServiceClient(account_url, credential=sas_token)
             
             # Verify authentication immediately to fail fast
-            temp_client.get_account_information(timeout=5)
+            # Note: Removing timeout arg as it caused py-multipart/requests conflict in previous deployment
+            temp_client.get_account_information()
             blob_service_client = temp_client
             print("Successfully authenticated with SAS Token")
         except Exception as e:
-            print(f"Warning: SAS Token auth failed ({e}), trying connection string.")
+            print(f"Warning: SAS Token auth failed ({type(e).__name__}: {e}), trying connection string.")
             blob_service_client = None
 
     # Method 2: Fallback to Connection String
@@ -31,6 +32,8 @@ def get_container_client():
         try:
             # Strip whitespace from connection string too
             conn_str = settings.AZURE_BLOB_CONNECTION_STRING.strip()
+            # Debug log (masked)
+            print(f"DEBUG: Attempting Connection String (Length: {len(conn_str)})")
             blob_service_client = BlobServiceClient.from_connection_string(conn_str)
             print("Successfully authenticated with Connection String")
         except Exception as e:
