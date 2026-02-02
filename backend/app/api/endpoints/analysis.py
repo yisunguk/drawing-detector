@@ -21,19 +21,41 @@ async def analyze_local_file(file: UploadFile = File(...)):
         blob_client.upload_blob(file_content, overwrite=True)
         
         # 2. Construct SAS URL
-        # If we are using a general SAS token from settings, we can just use that.
+        # 2. Construct SAS URL
         blob_url = blob_client.url
+        sas_token = None
         
-        if settings.AZURE_BLOB_SAS_TOKEN:
+        # Priority: Generate a fresh, specific SAS using Connection String (Most Robust)
+        if settings.AZURE_BLOB_CONNECTION_STRING:
+            try:
+                # Parse Connection String to get Key
+                conn_str = settings.AZURE_BLOB_CONNECTION_STRING
+                conn_dict = dict(item.split('=', 1) for item in conn_str.split(';') if '=' in item)
+                
+                if 'AccountName' in conn_dict and 'AccountKey' in conn_dict:
+                    sas_token = generate_blob_sas(
+                        account_name=conn_dict['AccountName'],
+                        container_name=settings.AZURE_BLOB_CONTAINER_NAME,
+                        blob_name=blob_name,
+                        account_key=conn_dict['AccountKey'],
+                        permission=BlobSasPermissions(read=True),
+                        expiry=datetime.utcnow() + timedelta(hours=1)
+                    )
+                    print("Generated fresh SAS token from Connection String")
+            except Exception as e:
+                print(f"Failed to generate dynamic SAS: {e}")
+
+        # Fallback: Use static SAS Token from settings
+        if not sas_token and settings.AZURE_BLOB_SAS_TOKEN:
              # Sanitize and append
-             # Strip whitespace (crucial for URL) and encode commas (for spr=https,http -> spr=https%2Chttp)
-             sas = settings.AZURE_BLOB_SAS_TOKEN.strip().replace(",", "%2C")
-             if sas.startswith('?'): sas = sas[1:]
-             full_url = f"{blob_url}?{sas}"
-        else:
-             # Fallback: Try to generate if we had a key (But we likely don't)
-             # This block will likely fail if no account key is configured
+             # Strip whitespace and encode commas
+             sas_token = settings.AZURE_BLOB_SAS_TOKEN.strip().replace(",", "%2C")
+             if sas_token.startswith('?'): sas_token = sas_token[1:]
+        
+        if not sas_token:
              raise HTTPException(status_code=500, detail="SAS Token configuration missing for Analysis")
+
+        full_url = f"{blob_url}?{sas_token}"
 
         # 3. Trigger DI Analysis
         print(f"Analyzing document: {full_url}")
