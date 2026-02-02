@@ -17,7 +17,7 @@ app = FastAPI(
 )
 
 print(f"Backend '{settings.PROJECT_NAME}' starting up...")
-print(f"🚀 Test deployment verification - Deployed at: 2026-02-02 09:25 (Fresh Start - Service Recreated)")
+print(f"🚀 Test deployment verification - Deployed at: 2026-02-02 09:30 (Permission Fix Retry - Real Commit)")
 
 @app.middleware("http")
 async def log_requests(request, call_next):
