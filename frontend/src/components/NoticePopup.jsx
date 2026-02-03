@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Bell } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { db } from '../firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 const NoticePopup = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -10,41 +10,53 @@ const NoticePopup = () => {
     const [dontShowToday, setDontShowToday] = useState(false);
 
     useEffect(() => {
-        // Listen to real-time updates
-        const docRef = doc(db, 'settings', 'notice');
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-            if (docSnap.exists()) {
+        // Listen to real-time updates for the active notice
+        const q = query(
+            collection(db, 'notices'),
+            where('is_active', '==', true),
+            orderBy('created_at', 'desc'),
+            limit(1)
+        );
+
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            if (!querySnapshot.empty) {
+                const docSnap = querySnapshot.docs[0];
                 const data = docSnap.data();
                 setNotice(data);
 
-                // Check filtering logic whenever data changes or component mounts
-                checkVisibility(data);
+                // Logic to check localStorage
+                checkVisibility(data, docSnap.id);
             } else {
                 setNotice({ content: '', is_active: false });
+                setIsOpen(false);
             }
         });
 
         return () => unsubscribe();
     }, []);
 
-    const checkVisibility = (data) => {
-        if (!data.is_active || !data.content) {
-            setIsOpen(false);
-            return;
-        }
-
+    const checkVisibility = (data, id) => {
         const today = new Date().toISOString().split('T')[0];
-        const hideNoticeDate = localStorage.getItem('hide_notice_date');
+        const hiddenNoticeData = JSON.parse(localStorage.getItem('hide_notice_data') || '{}');
 
-        if (hideNoticeDate !== today) {
+        // If this specific notice ID was hidden today, don't show
+        if (hiddenNoticeData.id === id && hiddenNoticeData.date === today) {
+            setIsOpen(false);
+        } else {
+            // Otherwise show it (since we already filtered for active in the query)
             setIsOpen(true);
+            // Store current ID for handleClose to use
+            setNotice(prev => ({ ...prev, id }));
         }
     };
 
     const handleClose = () => {
-        if (dontShowToday) {
+        if (dontShowToday && notice.id) {
             const today = new Date().toISOString().split('T')[0];
-            localStorage.setItem('hide_notice_date', today);
+            localStorage.setItem('hide_notice_data', JSON.stringify({
+                id: notice.id,
+                date: today
+            }));
         }
         setIsOpen(false);
     };
