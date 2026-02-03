@@ -852,22 +852,82 @@ const App = () => {
             const initData = await initRes.json();
             console.log("Analysis Initialized:", initData);
 
-            setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
-
-            // Fetch updated results
-            if (uploadCategory === 'documents') {
-                fetchAzureItems('documents');
-            } else {
-                fetchAzureItems('drawings');
-            }
-
-            alert("도면/문서 업로드 및 분석 요청이 완료되었습니다.\n(백그라운드에서 분석이 진행됩니다.)");
+            // Step 4: Run Analysis Loop (Chunks)
+            await runAnalysisLoop(file.name, initData.blob_name, documents.find(d => d.id === docId)?.totalPages || 1);
 
         } catch (e) {
             console.error("Analysis Error:", e);
             setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
             alert("전송 실패: " + e.message);
         }
+    };
+
+    const runAnalysisLoop = async (filename, blobName, totalPages) => {
+        const CHUNK_SIZE = 10;
+        const totalChunks = Math.ceil(totalPages / CHUNK_SIZE);
+
+        for (let i = 0; i < totalChunks; i++) {
+            const startPage = i * CHUNK_SIZE + 1;
+            const endPage = Math.min((i + 1) * CHUNK_SIZE, totalPages);
+            const pageRange = `${startPage}-${endPage}`;
+
+            setAnalysisState(prev => ({
+                ...prev,
+                progress: 80 + Math.floor((i / totalChunks) * 15),
+                status: `분석 진행 중... (${pageRange}p)`
+            }));
+
+            try {
+                const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+                const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+
+                // Call Chunk Analysis
+                const res = await fetch(`${API_URL}/api/v1/analyze/chunk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: filename,
+                        blob_name: blobName,
+                        pages: pageRange
+                    })
+                });
+
+                if (!res.ok) throw new Error(`Chunk ${pageRange} failed`);
+
+            } catch (err) {
+                console.error(`Chunk error ${pageRange}: chunk analysis failed`, err);
+                // Should we stop or continue? For now, throw to stop.
+                throw err;
+            }
+        }
+
+        // Step 5: Finalize
+        setAnalysisState({ isAnalyzing: true, progress: 98, status: '결과 병합 중...' });
+
+        const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+        const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+
+        const finalizeRes = await fetch(`${API_URL}/api/v1/analyze/finalize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: filename,
+                category: uploadCategory
+            })
+        });
+
+        if (!finalizeRes.ok) throw new Error("Finalization failed");
+
+        setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
+
+        // Fetch updated results
+        if (uploadCategory === 'documents') {
+            fetchAzureItems('documents');
+        } else {
+            fetchAzureItems('drawings');
+        }
+
+        alert("도면/문서 분석이 완료되었습니다!");
     };
 
     const confirmAnalysis = () => {
