@@ -112,9 +112,9 @@ class AzureDIService:
                 "layout": {
                     "width": page.width,
                     "height": page.height,
-                    "unit": page.unit,
+                    "unit": str(page.unit) if page.unit else "pixel", # Fix Enum serialization
                     "lines": lines_data,
-                    "words": [] # Included to match user snippet structure, though empty for now
+                    "words": [] 
                 },
                 "tables": page_tables
             }
@@ -137,9 +137,6 @@ class AzureDIService:
                 continue
                 
             # Identify page number from the first cell
-            # Checking all cells to find the page number is safer, but typically a table starts on one page.
-            # Azure Tables can span pages, but the bounding_regions will show that.
-            # For simplicity, we assign the table to the page of its first cell.
             first_cell = table.cells[0]
             if not first_cell.bounding_regions:
                 continue
@@ -153,7 +150,7 @@ class AzureDIService:
                     "content": cell.content,
                     "row_index": cell.row_index,
                     "column_index": cell.column_index,
-                    "kind": cell.kind  # columnHeader, rowHeader, content, etc.
+                    "kind": str(cell.kind) if cell.kind else "content" # Fix Enum serialization
                 })
             
             table_data = {
