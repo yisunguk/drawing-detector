@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Save, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { db } from '../firebase';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const AdminNotice = () => {
     const { currentUser } = useAuth();
@@ -12,7 +14,7 @@ const AdminNotice = () => {
     const [message, setMessage] = useState({ type: '', text: '' });
 
     useEffect(() => {
-        // Basic protection - should match backend logic ideally
+        // Basic protection
         if (!currentUser || currentUser.email !== 'admin@poscoenc.com') {
             navigate('/');
             return;
@@ -22,11 +24,12 @@ const AdminNotice = () => {
 
     const fetchNotice = async () => {
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/notice`);
-            if (response.ok) {
-                const data = await response.json();
-                setContent(data.content);
-                setIsActive(data.is_active);
+            const docRef = doc(db, 'settings', 'notice');
+            const docSnap = await getDoc(docRef);
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setContent(data.content || '');
+                setIsActive(data.is_active ?? true);
             }
         } catch (error) {
             console.error('Failed to fetch notice:', error);
@@ -38,20 +41,17 @@ const AdminNotice = () => {
         setMessage({ type: '', text: '' });
 
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/notice`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ content, is_active: isActive }),
+            const docRef = doc(db, 'settings', 'notice');
+            await setDoc(docRef, {
+                content,
+                is_active: isActive,
+                updated_at: serverTimestamp(),
+                updated_by: currentUser.email
             });
 
-            if (response.ok) {
-                setMessage({ type: 'success', text: 'Notice updated successfully!' });
-            } else {
-                throw new Error('Failed to update notice');
-            }
+            setMessage({ type: 'success', text: 'Notice updated successfully!' });
         } catch (error) {
+            console.error("Error saving notice:", error);
             setMessage({ type: 'error', text: 'Failed to update notice. Please try again.' });
         } finally {
             setLoading(false);
