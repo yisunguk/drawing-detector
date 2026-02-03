@@ -302,6 +302,13 @@ const UserProfile = () => {
                         {currentUser && currentUser.email === 'admin@poscoenc.com' && (
                             <>
                                 <button
+                                    onClick={() => navigate('/admin/notice')}
+                                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all text-[#666666] hover:bg-[#e5e1d8]`}
+                                >
+                                    <MessageSquare size={18} />
+                                    공지사항 관리
+                                </button>
+                                <button
                                     onClick={() => setActiveTab('admin-feedback')}
                                     className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'admin-feedback' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#666666] hover:bg-[#e5e1d8]'}`}
                                 >
@@ -721,9 +728,9 @@ const UserProfile = () => {
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap">
                                                                 <span className={`px-2 py-0.5 rounded text-xs font-bold ${log.action === 'LOGIN' ? 'bg-blue-100 text-blue-700' :
-                                                                        log.action === 'CHAT' ? 'bg-green-100 text-green-700' :
-                                                                            log.action === 'FEEDBACK' ? 'bg-purple-100 text-purple-700' :
-                                                                                'bg-gray-100 text-gray-700'
+                                                                    log.action === 'CHAT' ? 'bg-green-100 text-green-700' :
+                                                                        log.action === 'FEEDBACK' ? 'bg-purple-100 text-purple-700' :
+                                                                            'bg-gray-100 text-gray-700'
                                                                     }`}>
                                                                     {log.action}
                                                                 </span>
