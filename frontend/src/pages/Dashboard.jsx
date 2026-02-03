@@ -791,50 +791,66 @@ const App = () => {
             const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
             const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
 
-            setAnalysisState({ isAnalyzing: true, progress: 0, status: '파일 업로드 및 분석 준비 중...' });
+            // Step 1: Request SAS URL
+            setAnalysisState({ isAnalyzing: true, progress: 5, status: '업로드 채널 확보 중...' });
 
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('category', uploadCategory);
+            // Encode filename to handle spaces/special characters safely
+            const sasRes = await fetch(`${API_URL}/api/v1/analyze/upload-sas?filename=${encodeURIComponent(file.name)}`);
+            if (!sasRes.ok) throw new Error("Failed to get upload URL");
+            const { upload_url, blob_name } = await sasRes.json();
 
-            const upload_url = `${API_URL}/api/v1/analyze/local`;
+            // Step 2: Direct Upload to Azure (Bypassing Backend)
+            setAnalysisState({ isAnalyzing: true, progress: 10, status: '클라우드 스토리지로 직접 전송 중...' });
 
             await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
-                xhr.open('POST', upload_url, true);
+                xhr.open('PUT', upload_url, true);
+                xhr.setRequestHeader('x-ms-blob-type', 'BlockBlob'); // Required for Azure Block Blobs
 
                 xhr.upload.onprogress = (e) => {
                     if (e.lengthComputable) {
-                        const percentComplete = (e.loaded / e.total) * 50;
+                        const percentComplete = (e.loaded / e.total) * 80; // Allocate 80% to upload
                         setAnalysisState(prev => ({
                             ...prev,
-                            progress: Math.round(percentComplete),
-                            status: `서버로 파일 전송 중... (${Math.round((e.loaded / e.total) * 100)}%)`
+                            progress: 10 + Math.round(percentComplete),
+                            status: `클라우드로 전송 중... (${Math.round((e.loaded / e.total) * 100)}%)`
                         }));
                     }
                 };
 
                 xhr.onload = () => {
                     if (xhr.status >= 200 && xhr.status < 300) {
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            resolve(response);
-                        } catch (e) {
-                            reject(new Error("Invalid JSON response"));
-                        }
+                        resolve();
                     } else {
-                        try {
-                            const err = JSON.parse(xhr.responseText);
-                            reject(new Error(err.detail || xhr.statusText));
-                        } catch {
-                            reject(new Error(`Error ${xhr.status}: ${xhr.statusText}`));
-                        }
+                        reject(new Error(`Upload failed: ${xhr.statusText}`));
                     }
                 };
 
-                xhr.onerror = () => reject(new Error("Network Error"));
-                xhr.send(formData);
+                xhr.onerror = () => reject(new Error("Network Error during Upload"));
+                xhr.send(file);
             });
+
+            // Step 3: Initialize Analysis
+            setAnalysisState({ isAnalyzing: true, progress: 95, status: '분석 작업 초기화 중...' });
+
+            const formData = new FormData();
+            // file is NOT sent here, only metadata
+            formData.append('filename', file.name);
+            formData.append('total_pages', documents.find(d => d.id === docId)?.totalPages || 1); // Pass page count if available
+            formData.append('category', uploadCategory);
+
+            const initRes = await fetch(`${API_URL}/api/v1/analyze/init`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!initRes.ok) {
+                const err = await initRes.json();
+                throw new Error(err.detail || "Analysis init failed");
+            }
+
+            const initData = await initRes.json();
+            console.log("Analysis Initialized:", initData);
 
             setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
 
@@ -845,12 +861,12 @@ const App = () => {
                 fetchAzureItems('drawings');
             }
 
-            alert("도면 분석이 완료되었습니다.");
+            alert("도면/문서 업로드 및 분석 요청이 완료되었습니다.\n(백그라운드에서 분석이 진행됩니다.)");
 
         } catch (e) {
             console.error("Analysis Error:", e);
             setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
-            alert("분석 실패: " + e.message);
+            alert("전송 실패: " + e.message);
         }
     };
 
