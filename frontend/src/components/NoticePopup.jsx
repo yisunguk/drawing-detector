@@ -11,21 +11,27 @@ const NoticePopup = () => {
 
     useEffect(() => {
         // Listen to real-time updates for the active notice
+        // Removed orderBy and limit to avoid requiring a composite index and handle sorting client-side
         const q = query(
             collection(db, 'notices'),
-            where('is_active', '==', true),
-            orderBy('created_at', 'desc'),
-            limit(1)
+            where('is_active', '==', true)
         );
 
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             if (!querySnapshot.empty) {
-                const docSnap = querySnapshot.docs[0];
-                const data = docSnap.data();
-                setNotice(data);
+                // Sort client-side to find the latest one (avoids Firestore index requirement)
+                const docs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                docs.sort((a, b) => {
+                    const dateA = a.created_at?.toMillis() || 0;
+                    const dateB = b.created_at?.toMillis() || 0;
+                    return dateB - dateA; // Descending
+                });
+
+                const latestNotice = docs[0];
+                setNotice(latestNotice);
 
                 // Logic to check localStorage
-                checkVisibility(data, docSnap.id);
+                checkVisibility(latestNotice, latestNotice.id);
             } else {
                 setNotice({ content: '', is_active: false });
                 setIsOpen(false);
