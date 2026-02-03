@@ -44,36 +44,79 @@ class AzureDIService:
     def _format_result(self, result) -> list:
         output = []
         
+        # --- Global Metadata Extraction (Heuristic) ---
+        global_title = ""
+        global_drawing_no = ""
+        
+        # Attempt to find Title/DrawingNo in global Key-Value pairs
+        if hasattr(result, 'key_value_pairs') and result.key_value_pairs:
+            for kvp in result.key_value_pairs:
+                if kvp.key and kvp.value:
+                    key_text = kvp.key.content.lower()
+                    value_text = kvp.value.content
+                    
+                    if "title" in key_text or "도면명" in key_text:
+                        global_title = value_text
+                    if "dwg" in key_text or "drawing no" in key_text or "도면번호" in key_text:
+                        global_drawing_no = value_text
+
         # Extract tables
         tables_by_page = self._extract_tables(result)
         
         for page in result.pages:
+            page_num = page.page_number
+            
             # Construct layout lines
             lines_data = []
-            for line in page.lines:
-                # Polygon is a list of Point(x, y). Convert to [x1, y1, x2, y2, ...]
-                polygon_coords = []
-                for point in line.polygon:
-                    polygon_coords.extend([point.x, point.y])
-                    
-                lines_data.append({
-                    "content": line.content,
-                    "polygon": polygon_coords
-                })
+            if hasattr(page, 'lines'):
+                for line in page.lines:
+                    # Polygon is a list of Point(x, y). Convert to [x1, y1, x2, y2, ...]
+                    polygon_coords = []
+                    if hasattr(line, 'polygon'):
+                        for point in line.polygon:
+                            polygon_coords.extend([point.x, point.y])
+                        
+                    lines_data.append({
+                        "content": line.content,
+                        "polygon": polygon_coords
+                    })
+            
+            # Get Page Tables
+            page_tables = tables_by_page.get(page_num, [])
+            
+            # Metadata Fallback from Tables
+            page_title = global_title
+            page_drawing_no = global_drawing_no
+            
+            # If global metadata wasn't found, check table cells (common in Title Blocks)
+            if not page_title or not page_drawing_no:
+                for table in page_tables:
+                    cells = table.get("cells", [])
+                    # We need to iterate cells. The structure in _extract_tables returns a list of dicts.
+                    for i, cell in enumerate(cells):
+                        content = cell.get("content", "").lower()
+                        # Simple lookahead for value (assumes value is in next cell)
+                        if i + 1 < len(cells):
+                            next_cell_content = cells[i+1].get("content", "")
+                            if not page_title and ("title" in content or "도면명" in content):
+                                page_title = next_cell_content
+                            if not page_drawing_no and ("dwg" in content or "drawing no" in content or "도면번호" in content):
+                                page_drawing_no = next_cell_content
 
             page_data = {
                 "content": self._get_page_content(result.content, page.spans),
-                "page_number": page.page_number,
-                "tables_count": len([t for t in result.tables if any(r.page_number == page.page_number for c in t.cells for r in c.bounding_regions)]),
-                "tables": tables_by_page.get(page.page_number, []),
-                "도면명(TITLE)": "",
-                "도면번호(DWG. NO.)": "REV.",
+                "page_number": page_num,
+                "tables_count": len(page_tables),
+                "도면명(TITLE)": page_title,
+                "도면번호(DWG. NO.)": page_drawing_no or "REV.", # Default if still empty
                 "layout": {
                     "width": page.width,
                     "height": page.height,
                     "unit": page.unit,
-                    "lines": lines_data
-                }
+                    "lines": lines_data,
+                    "words": [] # Included to match user snippet structure, though empty for now
+                },
+                "tables": page_tables
             }
             output.append(page_data)
             
