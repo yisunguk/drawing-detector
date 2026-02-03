@@ -1,5 +1,6 @@
 import json
-from azure.ai.formrecognizer import DocumentAnalysisClient
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, AnalyzeResult, ContentFormat
 from azure.core.credentials import AzureKeyCredential
 from app.core.config import settings
 
@@ -12,48 +13,60 @@ class AzureDIService:
             print("Warning: Azure Document Intelligence credentials not configured.")
             self.client = None
         else:
-            self.client = DocumentAnalysisClient(
+            self.client = DocumentIntelligenceClient(
                 endpoint=self.endpoint, 
                 credential=AzureKeyCredential(self.key)
             )
 
-    def analyze_document_from_url(self, document_url: str, pages: str = None) -> dict:
+    def analyze_document_from_url(self, document_url: str, pages: str = None) -> list:
         if not self.client:
             raise Exception("Azure Document Intelligence client not initialized")
 
-        # Pass pages parameter if provided (e.g., "1-30")
-        poller = self.client.begin_analyze_document_from_url(
-            "prebuilt-layout", 
-            document_url,
-            pages=pages
+        # New SDK uses AnalyzeDocumentRequest for URL source
+        # Output format markdown is optional but good for RAG, here we rely on standard layout
+        poller = self.client.begin_analyze_document(
+            "prebuilt-layout",
+            AnalyzeDocumentRequest(url_source=document_url),
+            pages=pages,
+            # features=["ocrHighResolution"] # Optional
         )
-        result = poller.result()
+        result: AnalyzeResult = poller.result()
         
         return self._format_result(result)
 
-    def analyze_document_from_bytes(self, file_content: bytes) -> dict:
+    def analyze_document_from_bytes(self, file_content: bytes) -> list:
         if not self.client:
             raise Exception("Azure Document Intelligence client not initialized")
 
-        # Use begin_analyze_document for bytes
-        poller = self.client.begin_analyze_document("prebuilt-layout", document=file_content)
-        result = poller.result()
+        # New SDK supports direct bytes in analyze_document with `body` arg (deprecated?) or `analyze_request`?
+        # Actually in new SDK, for bytes, we pass the bytes directly as the body argument to begin_analyze_document
+        # BUT we must differentiate from JSON body.
+        # The signature is begin_analyze_document(model_id, body, ...)
+        # If body is bytes, it treats as file.
+        
+        poller = self.client.begin_analyze_document(
+            "prebuilt-layout",
+            body=file_content
+        )
+        result: AnalyzeResult = poller.result()
         
         return self._format_result(result)
 
-    def _format_result(self, result) -> list:
+    def _format_result(self, result: AnalyzeResult) -> list:
         output = []
         
         # --- Global Metadata Extraction (Heuristic) ---
         global_title = ""
         global_drawing_no = ""
         
-        # Attempt to find Title/DrawingNo in global Key-Value pairs
-        if hasattr(result, 'key_value_pairs') and result.key_value_pairs:
+        # New SDK: result.key_value_pairs is list of DocumentKeyValuePair
+        # kvp.key -> DocumentKeyValueElement
+        # kvp.key.content -> str
+        if result.key_value_pairs:
             for kvp in result.key_value_pairs:
                 if kvp.key and kvp.value:
                     key_text = kvp.key.content.lower()
-                    value_text = kvp.value.content
+                    value_text = kvp.value.content if kvp.value else ""
                     
                     if "title" in key_text or "도면명" in key_text:
                         global_title = value_text
@@ -63,94 +76,92 @@ class AzureDIService:
         # Extract tables
         tables_by_page = self._extract_tables(result)
         
-        for page in result.pages:
-            page_num = page.page_number
-            
-            # Construct layout lines
-            lines_data = []
-            if hasattr(page, 'lines'):
-                for line in page.lines:
-                    # Polygon is a list of Point(x, y). Convert to [x1, y1, x2, y2, ...]
-                    polygon_coords = []
-                    if hasattr(line, 'polygon'):
-                        for point in line.polygon:
-                            polygon_coords.extend([point.x, point.y])
+        # Start Page Processing
+        # result.pages -> list of DocumentPage
+        if result.pages:
+            for page in result.pages:
+                page_num = page.page_number
+                
+                # Layout Lines
+                lines_data = []
+                if page.lines:
+                    for line in page.lines:
+                        # line.polygon -> list of float [x1, y1, x2, y2...] usually
+                        # In new SDK, polygon is usually a flattened list of floats.
+                        # Check typings: List[float]
                         
-                    lines_data.append({
-                        "content": line.content,
-                        "polygon": polygon_coords
-                    })
-            
-            # Get Page Tables
-            page_tables = tables_by_page.get(page_num, [])
-            
-            # Metadata Fallback from Tables
-            page_title = global_title
-            page_drawing_no = global_drawing_no
-            
-            # If global metadata wasn't found, check table cells (common in Title Blocks)
-            if not page_title or not page_drawing_no:
-                for table in page_tables:
-                    cells = table.get("cells", [])
-                    # We need to iterate cells. The structure in _extract_tables returns a list of dicts.
-                    for i, cell in enumerate(cells):
-                        content = cell.get("content", "").lower()
-                        # Simple lookahead for value (assumes value is in next cell)
-                        if i + 1 < len(cells):
-                            next_cell_content = cells[i+1].get("content", "")
-                            if not page_title and ("title" in content or "도면명" in content):
-                                page_title = next_cell_content
-                            if not page_drawing_no and ("dwg" in content or "drawing no" in content or "도면번호" in content):
-                                page_drawing_no = next_cell_content
+                        lines_data.append({
+                            "content": line.content,
+                            "polygon": line.polygon
+                        })
+                
+                # Page Tables
+                page_tables = tables_by_page.get(page_num, [])
+                
+                # Metadata Fallback
+                page_title = global_title
+                page_drawing_no = global_drawing_no
+                
+                if not page_title or not page_drawing_no:
+                    # Search tables
+                    for table in page_tables:
+                        cells = table.get("cells", [])
+                        for i, cell in enumerate(cells):
+                            content = cell.get("content", "").lower()
+                            if i + 1 < len(cells):
+                                next_cell_content = cells[i+1].get("content", "")
+                                if not page_title and ("title" in content or "도면명" in content):
+                                    page_title = next_cell_content
+                                if not page_drawing_no and ("dwg" in content or "drawing no" in content or "도면번호" in content):
+                                    page_drawing_no = next_cell_content
 
-            page_data = {
-                "content": self._get_page_content(result.content, page.spans),
-                "page_number": page_num,
-                "tables_count": len(page_tables),
-                "도면명(TITLE)": page_title,
-                "도면번호(DWG. NO.)": page_drawing_no or "REV.", # Default if still empty
-                "layout": {
-                    "width": page.width,
-                    "height": page.height,
-                    "unit": str(page.unit) if page.unit else "pixel", # Fix Enum serialization
-                    "lines": lines_data,
-                    "words": [] 
-                },
-                "tables": page_tables
-            }
-            output.append(page_data)
+                page_data = {
+                    "content": self._get_page_content(result.content, page.spans),
+                    "page_number": page_num,
+                    "tables_count": len(page_tables),
+                    "도면명(TITLE)": page_title,
+                    "도면번호(DWG. NO.)": page_drawing_no or "REV.",
+                    "layout": {
+                        "width": page.width,
+                        "height": page.height,
+                        "unit": str(page.unit) if page.unit else "pixel",
+                        "lines": lines_data,
+                        "words": [] 
+                    },
+                    "tables": page_tables
+                }
+                output.append(page_data)
             
         return output
 
-    def _extract_tables(self, result) -> dict:
-        """
-        Extracts tables and groups them by page number.
-        Returns a dict: { page_number: [table_data, ...] }
-        """
+    def _extract_tables(self, result: AnalyzeResult) -> dict:
         tables_by_page = {}
         
-        if not hasattr(result, 'tables') or not result.tables:
+        if not result.tables:
             return tables_by_page
 
         for table in result.tables:
             if not table.cells:
                 continue
                 
-            # Identify page number from the first cell
+            # Identify page number from first cell
             first_cell = table.cells[0]
             if not first_cell.bounding_regions:
                 continue
                 
             page_num = first_cell.bounding_regions[0].page_number
             
-            # Prepare grid structure
             cells_data = []
             for cell in table.cells:
+                # new SDK: cell.kind -> str ("content", "rowHeader"...) usually str already? 
+                # Check typings. DocumentTableCellKind is Enum? 
+                # Safer to cast str() just in case.
+                
                 cells_data.append({
                     "content": cell.content,
                     "row_index": cell.row_index,
                     "column_index": cell.column_index,
-                    "kind": str(cell.kind) if cell.kind else "content" # Fix Enum serialization
+                    "kind": str(cell.kind) if cell.kind else "content"
                 })
             
             table_data = {
@@ -166,8 +177,11 @@ class AzureDIService:
         return tables_by_page
 
     def _get_page_content(self, full_content, spans):
+        if not spans:
+            return ""
         page_text = ""
         for span in spans:
+            # New SDK: span.offset, span.length
             page_text += full_content[span.offset : span.offset + span.length]
         return page_text
 
