@@ -866,6 +866,93 @@ const App = () => {
         }
     };
 
+    // --- Resume Logic ---
+    const [incompleteJobs, setIncompleteJobs] = useState([]);
+
+    useEffect(() => {
+        const checkIncompleteJobs = async () => {
+            try {
+                const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+                const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+                const res = await fetch(`${API_URL}/api/v1/analyze/incomplete`);
+                if (res.ok) {
+                    const jobs = await res.json();
+                    setIncompleteJobs(jobs);
+                }
+            } catch (e) {
+                console.error("Failed to check incomplete jobs", e);
+            }
+        };
+        checkIncompleteJobs();
+    }, []);
+
+    const resumeAnalysis = async (job) => {
+        if (!confirm(`'${job.filename}' 분석을 이어서 진행하시겠습니까?`)) return;
+
+        try {
+            setAnalysisState({ isAnalyzing: true, progress: 0, status: '중단된 작업 재개 중...' });
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+
+            const CHUNK_SIZE = 30;
+            const totalChunks = Math.ceil(job.total_pages / CHUNK_SIZE);
+            const blobName = `temp/${job.filename}`;
+
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE + 1;
+                const end = Math.min((i + 1) * CHUNK_SIZE, job.total_pages);
+                const pages = `${start}-${end}`;
+
+                // Skip if already done
+                if (job.completed_chunks.includes(pages)) {
+                    continue;
+                }
+
+                setAnalysisState({
+                    isAnalyzing: true,
+                    progress: 10 + Math.round((i / totalChunks) * 80),
+                    status: `AI가 도면을 정밀 분석 중입니다... (${i + 1}/${totalChunks} 구역) - 재개됨`
+                });
+
+                const chunkRes = await fetch(`${API_URL}/api/v1/analyze/chunk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: job.filename,
+                        blob_name: blobName,
+                        pages: pages
+                    })
+                });
+
+                if (!chunkRes.ok) throw new Error(`구역 ${pages} 분석 실패`);
+            }
+
+            // Finalize
+            setAnalysisState({ isAnalyzing: true, progress: 95, status: '결과 정리 중...' });
+            const finalRes = await fetch(`${API_URL}/api/v1/analyze/finalize`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename: job.filename,
+                    category: job.category || 'drawings'
+                })
+            });
+
+            if (!finalRes.ok) throw new Error("결과 저장 실패");
+
+            setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
+            setIncompleteJobs(prev => prev.filter(j => j.filename !== job.filename));
+            alert("분석이 완료되었습니다. 결과 파일이 저장되었습니다.");
+            if (job.category === 'documents') fetchAzureItems('documents');
+            else fetchAzureItems('drawings');
+
+        } catch (e) {
+            console.error("Resume Error:", e);
+            setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
+            alert("Resume failed: " + e.message);
+        }
+    };
+
     const confirmAnalysis = () => {
         setShowAnalysisConfirmModal(false);
         if (pendingFile && pendingDocId) {
