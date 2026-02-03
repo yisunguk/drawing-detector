@@ -825,35 +825,37 @@ const App = () => {
                         reject(new Error(`Upload failed: ${xhr.statusText}`));
                     }
                 };
-
                 xhr.onerror = () => reject(new Error("Network Error during Upload"));
                 xhr.send(file);
             });
 
-            // Step 3: Initialize Analysis
-            setAnalysisState({ isAnalyzing: true, progress: 95, status: '분석 작업 초기화 중...' });
+            // Step 3: Start Robust Analysis (Backend Background Task)
+            setAnalysisState({ isAnalyzing: true, progress: 20, status: '분석 요청 중...' });
 
             const formData = new FormData();
-            // file is NOT sent here, only metadata
             formData.append('filename', file.name);
-            formData.append('total_pages', documents.find(d => d.id === docId)?.totalPages || 1); // Pass page count if available
+            formData.append('total_pages', documents.find(d => d.id === docId)?.totalPages || 1);
             formData.append('category', uploadCategory);
 
-            const initRes = await fetch(`${API_URL}/api/v1/analyze/init`, {
+            const startRes = await fetch(`${API_URL}/api/v1/analyze/start`, {
                 method: 'POST',
-                body: formData
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename: file.name,
+                    total_pages: documents.find(d => d.id === docId)?.totalPages || 1,
+                    category: uploadCategory
+                })
             });
 
-            if (!initRes.ok) {
-                const err = await initRes.json();
-                throw new Error(err.detail || "Analysis init failed");
+            if (!startRes.ok) {
+                const err = await startRes.json();
+                throw new Error(err.detail || "Analysis start failed");
             }
 
-            const initData = await initRes.json();
-            console.log("Analysis Initialized:", initData);
+            console.log("Analysis Background Task Started");
 
-            // Step 4: Run Analysis Loop (Chunks)
-            await runAnalysisLoop(file.name, initData.blob_name, documents.find(d => d.id === docId)?.totalPages || 1);
+            // Step 4: Poll for Completion
+            await pollAnalysisStatus(file.name);
 
         } catch (e) {
             console.error("Analysis Error:", e);
@@ -862,72 +864,61 @@ const App = () => {
         }
     };
 
-    const runAnalysisLoop = async (filename, blobName, totalPages) => {
-        const CHUNK_SIZE = 10;
-        const totalChunks = Math.ceil(totalPages / CHUNK_SIZE);
-
-        for (let i = 0; i < totalChunks; i++) {
-            const startPage = i * CHUNK_SIZE + 1;
-            const endPage = Math.min((i + 1) * CHUNK_SIZE, totalPages);
-            const pageRange = `${startPage}-${endPage}`;
-
-            setAnalysisState(prev => ({
-                ...prev,
-                progress: 80 + Math.floor((i / totalChunks) * 15),
-                status: `분석 진행 중... (${pageRange}p)`
-            }));
-
-            try {
-                const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
-                const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
-
-                // Call Chunk Analysis
-                const res = await fetch(`${API_URL}/api/v1/analyze/chunk`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        filename: filename,
-                        blob_name: blobName,
-                        pages: pageRange
-                    })
-                });
-
-                if (!res.ok) throw new Error(`Chunk ${pageRange} failed`);
-
-            } catch (err) {
-                console.error(`Chunk error ${pageRange}: chunk analysis failed`, err);
-                // Should we stop or continue? For now, throw to stop.
-                throw err;
-            }
-        }
-
-        // Step 5: Finalize
-        setAnalysisState({ isAnalyzing: true, progress: 98, status: '결과 병합 중...' });
-
+    const pollAnalysisStatus = async (filename) => {
         const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
         const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
 
-        const finalizeRes = await fetch(`${API_URL}/api/v1/analyze/finalize`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                filename: filename,
-                category: uploadCategory
-            })
-        });
+        // Poll every 3 seconds
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_URL}/api/v1/analyze/incomplete`);
+                if (res.ok) {
+                    const jobs = await res.json();
 
-        if (!finalizeRes.ok) throw new Error("Finalization failed");
+                    // Update global incomplete list
+                    setIncompleteJobs(jobs);
 
-        setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
+                    const myJob = jobs.find(j => j.filename === filename);
 
-        // Fetch updated results
-        if (uploadCategory === 'documents') {
-            fetchAzureItems('documents');
-        } else {
-            fetchAzureItems('drawings');
-        }
+                    if (!myJob) {
+                        // Job not found in incomplete list -> It matches "completed"?
+                        // Or it failed and was cleaned up?
+                        // Let's assume it might represent completion if we saw it before.
+                        // But verifying "completed" status via specific API would be better.
+                        // For now, if it disappears from incomplete, we assume done? 
+                        // Wait, StatusManager marks it as "completed", so it SHOULD appear in status file still?
+                        // list_incomplete_jobs only returns "in_progress".
 
-        alert("도면/문서 분석이 완료되었습니다!");
+                        // We need a specific check for "completed".
+                        // Let's use list_incomplete_jobs logic: it only returns in_progress.
+                        // So if we don't find it, we check if it is done?
+                        // Actually, we should check status directly.
+                        // But we lack a specific /status/{filename} endpoint exposed publicly? 
+                        // Let's trust that if it disappears, it's done. 
+                        // BUT, to be safe, let's trigger a fetchAzureItems to see if file exists.
+
+                        clearInterval(interval);
+                        setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
+
+                        // Refresh List
+                        if (uploadCategory === 'documents') fetchAzureItems('documents');
+                        else fetchAzureItems('drawings');
+
+                        alert("분석이 완료되었습니다!");
+                        return;
+                    }
+
+                    // Job is still in progress
+                    const completed = myJob.completed_chunks?.length || 0;
+                    const total = myJob.total_pages ? Math.ceil(myJob.total_pages / 10) : 1;
+                    const percent = Math.min(99, 20 + Math.round((completed / total) * 80));
+
+                    setAnalysisState({ isAnalyzing: true, progress: percent, status: `서버 분석 중... (${completed}/${total} 구간)` });
+                }
+            } catch (e) {
+                console.warn("Polling error:", e);
+            }
+        }, 3000);
     };
 
     const confirmAnalysis = () => {

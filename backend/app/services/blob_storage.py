@@ -84,3 +84,16 @@ def get_container_client(container_name: str = None):
         raise HTTPException(status_code=500, detail="Container name not configured")
         
     return client.get_container_client(target_container)
+
+def generate_sas_url(blob_name):
+    # Helper to generate a SAS URL for a blob
+    if not settings.AZURE_STORAGE_ACCOUNT_NAME or not settings.AZURE_BLOB_SAS_TOKEN:
+         pass
+
+    # Clean SAS token
+    sas_token = settings.AZURE_BLOB_SAS_TOKEN.replace("%2C", ",").strip()
+    if sas_token.startswith("?"):
+        sas_token = sas_token[1:]
+
+    url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{blob_name}?{sas_token}"
+    return url

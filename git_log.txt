@@ -1,0 +1,10 @@
+dd356fa fix(frontend): Set Content-Type header during direct to blob upload to prevent Azure DI mime-type mismatch
+fa8ab42 chore(frontend): Improve error logging in Dashboard to show backend error details
+27142ab fix(backend): Ensure line.polygon is JSON serializable (convert Point objects to list)
+48b89b9 fix(backend): Fix 500 error in analysis/chunk by handling missing SAS token with dynamic generation from connection string
+cecb737 feat: Enhance Dashboard UI with robust chunk analysis logic, retry mechanism, and status visualization; update backend for direct upload support
+9022b06 fix(backend): Revert to stable azure-ai-formrecognizer to resolve 404s
+a55934c fix(backend): Migrate to azure-ai-documentintelligence to match user code
+0e06d78 fix: Resolve JSON serialization error for Azure SDK Enums
+318d0a4 feat: Add error cleanup logic and update documentation
+a98b78b feat: Enhance DI with heuristic metadata extraction

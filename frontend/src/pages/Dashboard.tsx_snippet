@@ -1,0 +1,33 @@
+
+    // --- Incomplete Jobs State ---
+    const [incompleteJobs, setIncompleteJobs] = useState([]);
+
+    useEffect(() => {
+        // Fetch incomplete jobs on mount
+        const fetchIncomplete = async () => {
+            try {
+                const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+                const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+                const res = await fetch(`${API_URL}/api/v1/analyze/incomplete`);
+                if (res.ok) {
+                    const jobs = await res.json();
+                    setIncompleteJobs(jobs);
+                }
+            } catch (e) {
+                console.warn("Failed to fetch incomplete jobs:", e);
+            }
+        };
+        fetchIncomplete();
+    }, []);
+
+    const resumeAnalysis = async (job) => {
+        // Logic to resume - for now just alert or simple restart
+        // Ideally this should check 'job.next_chunk' and call analyze request
+        const confirmResume = window.confirm(`Resume analysis for ${job.filename}?`);
+        if (confirmResume) {
+             // Basic implementation: Set active and trigger analysis loop if possible
+             // For now, let's just show it's "Working on it" to user
+             alert("Resuming analysis... (Logic to be fully implemented)");
+             // TODO: reconnect to existing status logic
+        }
+    };

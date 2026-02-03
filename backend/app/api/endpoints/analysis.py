@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Body
 from app.services.azure_di import azure_di_service
-from app.services.blob_storage import get_container_client
+from app.services.blob_storage import get_container_client, generate_sas_url
 from app.services.status_manager import status_manager
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from app.core.config import settings
@@ -11,24 +11,6 @@ import asyncio
 
 router = APIRouter()
 
-def generate_sas_url(blob_name):
-    # Helper to generate a SAS URL for a blob
-    if not settings.AZURE_STORAGE_ACCOUNT_NAME or not settings.AZURE_BLOB_SAS_TOKEN:
-         # Fallback or error if using connection string implies we might not have key? 
-         # Used for DI which needs a URL. If using Managed Identity it's easier, but here we assume SAS or Key.
-         # For simplicity, if we have a SAS token in settings, we append it.
-         pass
-
-    # If we have a SAS token in settings (account level), we can validly construct the URL:
-    # URL = https://<account>.blob.core.windows.net/<container>/<blob>?<sas>
-    
-    # Clean SAS token
-    sas_token = settings.AZURE_BLOB_SAS_TOKEN.replace("%2C", ",").strip()
-    if sas_token.startswith("?"):
-        sas_token = sas_token[1:]
-
-    url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{blob_name}?{sas_token}"
-    return url
 
 @router.post("/local")
 async def analyze_local_file(
@@ -154,6 +136,41 @@ async def init_analysis(
         return {"status": "initialized", "blob_name": temp_blob_name, "info": status}
     except Exception as e:
         print(f"Init Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+from app.services.robust_analysis_manager import robust_analysis_manager
+from fastapi import BackgroundTasks
+
+@router.post("/start")
+async def start_robust_analysis(
+    background_tasks: BackgroundTasks,
+    filename: str = Body(...),
+    total_pages: int = Body(...),
+    category: str = Body(...)
+):
+    """
+    Triggers the Robust Analysis Loop in the background.
+    Frontend should poll /status (via list incomplete) to track progress.
+    """
+    try:
+        blob_name = f"temp/{filename}"
+        
+        # Initialize Status if not already
+        if not status_manager.get_status(filename):
+            status_manager.init_status(filename, total_pages, category)
+        
+        # Add Background Task
+        background_tasks.add_task(
+            robust_analysis_manager.run_analysis_loop,
+            filename=filename,
+            blob_name=blob_name,
+            total_pages=total_pages,
+            category=category
+        )
+        
+        return {"status": "started", "message": "Analysis loop started in background"}
+    except Exception as e:
+        print(f"Start Failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/chunk")
