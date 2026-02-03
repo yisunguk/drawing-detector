@@ -84,22 +84,34 @@ async def get_upload_sas(filename: str):
     try:
         blob_name = f"temp/{filename}"
         
-        # We need a writeable SAS. 
-        # If we have Account Key (via connection string), we can sign one.
-        # If we only have a SAS Token in settings, we must reuse it and hope it has Write permissions.
-        
         sas_token = None
         
-        # Try to generate specific SAS if we have the creds (implied by connection string usually having key)
+        # 1. Try to generate specific SAS with WRITE permission if we have the Account Key
         if settings.AZURE_BLOB_CONNECTION_STRING and "AccountKey" in settings.AZURE_BLOB_CONNECTION_STRING:
-             # Use SDK to generate SAS? 
-             # Simpler: just use the generic generate_sas_url helper we have, 
-             # BUT that helper currently just appends the ENV SAS.
-             # We should probably trust the ENV SAS for now to minimize risk of "Key not found" errors
-             pass
-
-        # For this environment, we rely on the helper which uses the Env SAS.
-        # Ideally, we should check if it has 'w' permission, but let's assume the user configured it correctly for the app.
+             try:
+                 # Extract Key and Account Name from Connection String
+                 # Format: DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net
+                 parts = dict(item.split('=', 1) for item in settings.AZURE_BLOB_CONNECTION_STRING.split(';') if '=' in item)
+                 account_name = parts.get("AccountName")
+                 account_key = parts.get("AccountKey")
+                 
+                 if account_name and account_key:
+                     sas_token = generate_blob_sas(
+                        account_name=account_name,
+                        container_name=settings.AZURE_BLOB_CONTAINER_NAME,
+                        blob_name=blob_name,
+                        account_key=account_key,
+                        permission=BlobSasPermissions(create=True, write=True),
+                        expiry=datetime.utcnow() + timedelta(hours=1)
+                     )
+                     # Construct URL
+                     url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{blob_name}?{sas_token}"
+                     return {"upload_url": url, "blob_name": blob_name}
+             except Exception as e:
+                 print(f"Key-based SAS generation failed: {e}, falling back to env SAS.")
+        
+        # 2. Fallback: Use the Env SAS (Must have Write permission pre-configured)
+        print("Using Environment SAS Token (Warning: Ensure it has Write permission)")
         write_url = generate_sas_url(blob_name)
         
         return {"upload_url": write_url, "blob_name": blob_name}
