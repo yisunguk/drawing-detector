@@ -760,6 +760,31 @@ const App = () => {
     const [pendingFile, setPendingFile] = useState(null);
     const [pendingDocId, setPendingDocId] = useState(null);
 
+    // --- Incomplete Jobs (Added to Fix ReferenceError) ---
+    const [incompleteJobs, setIncompleteJobs] = useState([]);
+
+    useEffect(() => {
+        const fetchIncomplete = async () => {
+            try {
+                const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+                const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+                const res = await fetch(`${API_URL}/api/v1/analyze/incomplete`);
+                if (res.ok) {
+                    const jobs = await res.json();
+                    setIncompleteJobs(jobs);
+                }
+            } catch (e) {
+                console.warn("Failed to fetch incomplete jobs:", e);
+            }
+        };
+        fetchIncomplete();
+    }, []);
+
+    const resumeAnalysis = async (job) => {
+        alert("Resuming analysis feature is coming soon.");
+        // TODO: Implement full resume logic using status_manager
+    };
+
     // --- Analysis ---
     const analyzeLocalDocument = async (file, docId) => {
         try {
