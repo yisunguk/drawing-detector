@@ -5,6 +5,8 @@ import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import UserProfile from './pages/UserProfile';
+import AdminNotice from './pages/AdminNotice';
+import NoticePopup from './components/NoticePopup';
 import { Loader2 } from 'lucide-react';
 
 // Private Route Component
@@ -83,12 +85,21 @@ const App = () => {
                                 </PrivateRoute>
                             }
                         />
+                        <Route
+                            path="/admin/notice"
+                            element={
+                                <PrivateRoute>
+                                    <AdminNotice />
+                                </PrivateRoute>
+                            }
+                        />
                         {/* Fallback route */}
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
+                    <NoticePopup />
                 </div>
             </AuthProvider>
-        </Router>
+        </Router >
     );
 };
 

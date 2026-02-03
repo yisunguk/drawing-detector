@@ -80,6 +80,13 @@ try:
 except Exception as e:
     print(f"Error loading debug module: {e}")
 
+# Enable Notice Router
+try:
+    from app.api.endpoints import notice
+    app.include_router(notice.router, prefix=f"{settings.API_V1_STR}/notice", tags=["notice"])
+except Exception as e:
+    print(f"Error loading notice module: {e}")
+
 # Mount uploads directory to serve static files if it exists
 uploads_dir = Path("uploads")
 if not uploads_dir.exists():
