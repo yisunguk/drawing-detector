@@ -7,5 +7,4 @@ azure-storage-blob==12.19.0
 openai>=1.0.0
 pdfplumber==0.10.4
 shapely==2.0.3
-azure-ai-documentintelligence>=1.0.0b1
-azure-core>=1.30.0
+azure-ai-formrecognizer==3.3.3

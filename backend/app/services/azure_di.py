@@ -1,6 +1,5 @@
 import json
-from azure.ai.documentintelligence import DocumentIntelligenceClient
-from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, AnalyzeResult, ContentFormat
+from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 from app.core.config import settings
 
@@ -13,7 +12,7 @@ class AzureDIService:
             print("Warning: Azure Document Intelligence credentials not configured.")
             self.client = None
         else:
-            self.client = DocumentIntelligenceClient(
+            self.client = DocumentAnalysisClient(
                 endpoint=self.endpoint, 
                 credential=AzureKeyCredential(self.key)
             )
@@ -22,15 +21,13 @@ class AzureDIService:
         if not self.client:
             raise Exception("Azure Document Intelligence client not initialized")
 
-        # New SDK uses AnalyzeDocumentRequest for URL source
-        # Output format markdown is optional but good for RAG, here we rely on standard layout
-        poller = self.client.begin_analyze_document(
-            "prebuilt-layout",
-            AnalyzeDocumentRequest(url_source=document_url),
-            pages=pages,
-            # features=["ocrHighResolution"] # Optional
+        # Stable SDK v3.3 uses begin_analyze_document_from_url
+        poller = self.client.begin_analyze_document_from_url(
+            "prebuilt-layout", 
+            document_url,
+            pages=pages
         )
-        result: AnalyzeResult = poller.result()
+        result = poller.result()
         
         return self._format_result(result)
 
@@ -38,21 +35,13 @@ class AzureDIService:
         if not self.client:
             raise Exception("Azure Document Intelligence client not initialized")
 
-        # New SDK supports direct bytes in analyze_document with `body` arg (deprecated?) or `analyze_request`?
-        # Actually in new SDK, for bytes, we pass the bytes directly as the body argument to begin_analyze_document
-        # BUT we must differentiate from JSON body.
-        # The signature is begin_analyze_document(model_id, body, ...)
-        # If body is bytes, it treats as file.
-        
-        poller = self.client.begin_analyze_document(
-            "prebuilt-layout",
-            body=file_content
-        )
-        result: AnalyzeResult = poller.result()
+        # Stable SDK v3.3 uses begin_analyze_document with document=bytes
+        poller = self.client.begin_analyze_document("prebuilt-layout", document=file_content)
+        result = poller.result()
         
         return self._format_result(result)
 
-    def _format_result(self, result: AnalyzeResult) -> list:
+    def _format_result(self, result) -> list:
         output = []
         
         # --- Global Metadata Extraction (Heuristic) ---
@@ -134,7 +123,7 @@ class AzureDIService:
             
         return output
 
-    def _extract_tables(self, result: AnalyzeResult) -> dict:
+    def _extract_tables(self, result) -> dict:
         tables_by_page = {}
         
         if not result.tables:
