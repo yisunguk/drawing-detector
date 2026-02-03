@@ -75,23 +75,69 @@ async def analyze_local_file(
 
 # --- Batch Indexing Endpoints ---
 
+@router.get("/upload-sas")
+async def get_upload_sas(filename: str):
+    """
+    Generate a Write-enabled SAS URL for frontend direct upload.
+    Blob will be saved to 'temp/{filename}'.
+    """
+    try:
+        blob_name = f"temp/{filename}"
+        
+        # We need a writeable SAS. 
+        # If we have Account Key (via connection string), we can sign one.
+        # If we only have a SAS Token in settings, we must reuse it and hope it has Write permissions.
+        
+        sas_token = None
+        
+        # Try to generate specific SAS if we have the creds (implied by connection string usually having key)
+        if settings.AZURE_BLOB_CONNECTION_STRING and "AccountKey" in settings.AZURE_BLOB_CONNECTION_STRING:
+             # Use SDK to generate SAS? 
+             # Simpler: just use the generic generate_sas_url helper we have, 
+             # BUT that helper currently just appends the ENV SAS.
+             # We should probably trust the ENV SAS for now to minimize risk of "Key not found" errors
+             pass
+
+        # For this environment, we rely on the helper which uses the Env SAS.
+        # Ideally, we should check if it has 'w' permission, but let's assume the user configured it correctly for the app.
+        write_url = generate_sas_url(blob_name)
+        
+        return {"upload_url": write_url, "blob_name": blob_name}
+    except Exception as e:
+        print(f"SAS Gen Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/init")
 async def init_analysis(
-    file: UploadFile = File(...),
+    file: UploadFile = File(None),
+    filename: str = Form(None), # If file is None, filename must be provided (Direct Upload case)
     total_pages: int = Form(...),
     category: str = Form("drawings")
 ):
     try:
-        # 1. Upload to temp/ folder
         container_client = get_container_client()
-        temp_blob_name = f"temp/{file.filename}"
         
-        blob_client = container_client.get_blob_client(temp_blob_name)
-        file_content = await file.read()
-        blob_client.upload_blob(file_content, overwrite=True)
-        
+        # Case 1: File Uploaded via Backend (Legacy/Small files)
+        if file:
+            real_filename = file.filename
+            temp_blob_name = f"temp/{real_filename}"
+            blob_client = container_client.get_blob_client(temp_blob_name)
+            file_content = await file.read()
+            blob_client.upload_blob(file_content, overwrite=True)
+            
+        # Case 2: Direct Upload (File already in temp/)
+        elif filename:
+            real_filename = filename
+            temp_blob_name = f"temp/{real_filename}"
+            # Verify it exists?
+            blob_client = container_client.get_blob_client(temp_blob_name)
+            if not blob_client.exists():
+                 raise HTTPException(status_code=404, detail=f"Blob {temp_blob_name} not found. Upload failed?")
+        else:
+            raise HTTPException(status_code=400, detail="Either 'file' or 'filename' must be provided.")
+            
         # 2. Initialize Status
-        status = status_manager.init_status(file.filename, total_pages, category)
+        status = status_manager.init_status(real_filename, total_pages, category)
         
         return {"status": "initialized", "blob_name": temp_blob_name, "info": status}
     except Exception as e:

@@ -763,20 +763,18 @@ const App = () => {
     // --- Analysis ---
     const analyzeLocalDocument = async (file, docId) => {
         try {
-            setAnalysisState({ isAnalyzing: true, progress: 0, status: '분석 준비 중...' });
-
             const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
             const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
 
-            // 1. Get Page Count
+            setAnalysisState({ isAnalyzing: true, progress: 0, status: '분석 준비 중...' });
+
+            // 1. Get Page Count (Local)
             let totalPages = 1;
             try {
-                // Try to get from state first
                 const doc = documents.find(d => d.id === docId);
                 if (doc && doc.totalPages > 1) {
                     totalPages = doc.totalPages;
                 } else {
-                    // Fallback: Parse locally
                     const arrayBuffer = await file.arrayBuffer();
                     const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                     totalPages = pdf.numPages;
@@ -785,13 +783,44 @@ const App = () => {
                 console.warn("Failed to get page count, assuming 1 page", err);
             }
 
-            // 2. Init Analysis (Upload to temp)
-            setAnalysisState({ isAnalyzing: true, progress: 5, status: '파일 업로드 중...' });
+            // 2. Direct Upload to Azure (Avoid 413 Error)
+            setAnalysisState({ isAnalyzing: true, progress: 1, status: '대용량 파일 업로드 중...' });
 
-            // 2.1 Check if we are resuming (checking if status exists) - Optional enhancement
-            // For now, simple standard flow:
+            // 2.1 Get SAS URL
+            const sasRes = await fetch(`${API_URL}/api/v1/analyze/upload-sas?filename=${encodeURIComponent(file.name)}`);
+            if (!sasRes.ok) throw new Error("업로드 권한 요청 실패");
+            const { upload_url, blob_name } = await sasRes.json();
+
+            // 2.2 Upload directly to Azure
+            // Use XMLHttpRequest for progress tracking
+            await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('PUT', upload_url, true);
+                xhr.setRequestHeader('x-ms-blob-type', 'BlockBlob'); // Required for Azure Block Blobs
+
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const percentComplete = (e.loaded / e.total) * 20; // Upload assumes first 20%
+                        setAnalysisState({
+                            isAnalyzing: true,
+                            progress: Math.round(percentComplete),
+                            status: `클라우드 스토리지로 전송 중... (${Math.round((e.loaded / e.total) * 100)}%)`
+                        });
+                    }
+                };
+
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) resolve();
+                    else reject(new Error(`Upload failed: ${xhr.statusText}`));
+                };
+
+                xhr.onerror = () => reject(new Error("Network Error during Upload"));
+                xhr.send(file);
+            });
+
+            // 3. Init Analysis (Backend Status)
             const initFormData = new FormData();
-            initFormData.append('file', file);
+            initFormData.append('filename', file.name); // Send filename only, file is already there
             initFormData.append('total_pages', totalPages);
             initFormData.append('category', uploadCategory);
 
@@ -800,11 +829,9 @@ const App = () => {
                 body: initFormData
             });
 
-            if (!initRes.ok) throw new Error("파일 업로드 실패");
-            const initData = await initRes.json();
-            const blobName = initData.blob_name; // "temp/filename.pdf"
+            if (!initRes.ok) throw new Error("분석 작업 초기화 실패");
 
-            // 3. Batch Process
+            // 4. Batch Process
             const CHUNK_SIZE = 30;
             const totalChunks = Math.ceil(totalPages / CHUNK_SIZE);
 
@@ -815,8 +842,8 @@ const App = () => {
 
                 setAnalysisState({
                     isAnalyzing: true,
-                    progress: 10 + Math.round((i / totalChunks) * 80),
-                    status: `AI가 도면을 정밀 분석 중입니다... (${i + 1}/${totalChunks} 구역)`
+                    progress: 20 + Math.round((i / totalChunks) * 75), // 20% -> 95%
+                    status: `AI 분석 진행 중: ${start}~${end}페이지 (${i + 1}/${totalChunks} 구역)`
                 });
 
                 const chunkRes = await fetch(`${API_URL}/api/v1/analyze/chunk`, {
@@ -824,7 +851,7 @@ const App = () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         filename: file.name,
-                        blob_name: blobName,
+                        blob_name: blob_name,
                         pages: pages
                     })
                 });
@@ -832,8 +859,8 @@ const App = () => {
                 if (!chunkRes.ok) throw new Error(`구역 ${pages} 분석 실패`);
             }
 
-            // 4. Finalize
-            setAnalysisState({ isAnalyzing: true, progress: 95, status: '결과 정리 중...' });
+            // 5. Finalize
+            setAnalysisState({ isAnalyzing: true, progress: 95, status: '결과 데이터를 통합/저장 중...' });
             const finalRes = await fetch(`${API_URL}/api/v1/analyze/finalize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -843,13 +870,13 @@ const App = () => {
                 })
             });
 
-            if (!finalRes.ok) throw new Error("결과 저장 실패");
+            if (!finalRes.ok) throw new Error("최종 결과 저장 실패");
 
-            // 5. Fetch Result JSON
+            // 6. Fetch Result JSON
             const jsonPath = `json/${file.name.replace(/\.pdf$/i, '')}.json`;
             const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
 
-            if (!jsonRes.ok) throw new Error("결과 파일 로드 실패");
+            if (!jsonRes.ok) throw new Error("결과 파일 다운로드 실패");
 
             const resultJson = await jsonRes.json();
 
@@ -862,7 +889,8 @@ const App = () => {
             console.error("Analysis Error:", e);
             console.error("Resume Error:", e);
             setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
-            alert("Resume failed: " + e.message);
+            alert("분석 작업이 중단되었습니다: " + e.message);
+            // Optional: Request cleanup (Although backend might handle temp file expiration)
         }
     };
 
