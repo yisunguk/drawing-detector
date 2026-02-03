@@ -880,6 +880,13 @@ const App = () => {
 
                     const myJob = jobs.find(j => j.filename === filename);
 
+                    if (myJob && myJob.status === 'error') {
+                        clearInterval(interval);
+                        setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
+                        alert(`분석 실패: ${myJob.error_message || "알 수 없는 오류"}`);
+                        return;
+                    }
+
                     if (!myJob) {
                         // Job not found in incomplete list -> It matches "completed"?
                         // Or it failed and was cleaned up?

@@ -49,16 +49,16 @@ class RobustAnalysisManager:
             for retry in range(max_retries):
                 try:
                     # A. Generate SAS URL (Read-Only) for DI
-                    # We can use the logic from specific endpoint or helper
                     from app.services.blob_storage import generate_sas_url
                     blob_url = generate_sas_url(blob_name) 
                     
-                    # B. Analyze
-                    # Note: analyze_document_from_url is blocking (sync) in SDK?
-                    # The service uses poller.result() so it blocks. 
-                    # We are in async method, so this blocks the thread.
-                    # Should run in executor if high concurrency, but for now ok.
-                    partial_result = azure_di_service.analyze_document_from_url(blob_url, pages=page_range)
+                    # B. Analyze (Run in Executor to avoid blocking async loop)
+                    # analyze_document_from_url is blocking.
+                    loop = asyncio.get_running_loop()
+                    partial_result = await loop.run_in_executor(
+                        None, 
+                        lambda: azure_di_service.analyze_document_from_url(blob_url, pages=page_range)
+                    )
                     
                     # C. Save Partial Result
                     container_client = get_container_client()
@@ -80,20 +80,15 @@ class RobustAnalysisManager:
             
             if not success:
                 print(f"[RobustAnalysis] Failed to process chunk {page_range} after {max_retries} retries.")
-                # We stop here. Status remains "in_progress".
-                # User can Resume later.
+                # Mark status as error so frontend stops polling
+                self._mark_error(filename, f"Failed to process chunk {page_range}")
                 return
 
         # 3. Finalize if all chunks done
-        # Re-check status
+        # ... (rest of the logic) ...
+        # logic for checking completeness
         status = status_manager.get_status(filename)
         current_completed = set(status.get("completed_chunks", []))
-        
-        # Simple check: do we have all chunks?
-        # We know total_chunks.
-        # Ideally we check sets equality, but let's assume if we reached here without return, we are good?
-        # No, because we might have skipped some if existing.
-        # Proper check:
         all_ranges = {f"{i*chunk_size+1}-{min((i+1)*chunk_size, total_pages)}" for i in range(total_chunks)}
         
         if all_ranges.issubset(current_completed):
@@ -101,6 +96,17 @@ class RobustAnalysisManager:
             await self.finalize_analysis(filename, category)
         else:
             print(f"[RobustAnalysis] Loop finished but some chunks missing? {all_ranges - current_completed}")
+            self._mark_error(filename, "Loop finished but chunks missing")
+
+    def _mark_error(self, filename, message):
+        try:
+            status = status_manager.get_status(filename)
+            if status:
+                status["status"] = "error"
+                status["error_message"] = message
+                status_manager._get_blob_client(filename).upload_blob(json.dumps(status), overwrite=True)
+        except Exception as e:
+            print(f"Failed to mark error: {e}")
 
     async def finalize_analysis(self, filename: str, category: str):
         """

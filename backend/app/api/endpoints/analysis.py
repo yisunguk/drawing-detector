@@ -299,7 +299,7 @@ async def list_incomplete_jobs():
             data = blob_client.download_blob().readall()
             status = json.loads(data)
             
-            if status.get("status") == "in_progress":
+            if status.get("status") in ["in_progress", "error"]:
                 incomplete_jobs.append(status)
                 
         return incomplete_jobs
