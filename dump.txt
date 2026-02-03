@@ -1,0 +1,97 @@
+Listing: 이근배/drawings/
+NAME: TBE Result for HRSG.pdf
+HEX : 54424520526573756c7420666f7220485253472e706466
+LEN : 23
+--------------------
+NAME: 기계도면 리비전_10-24000-OM-171-200_GENERAL ASSEMBLY DRAWING FOR LAST CHANCE FILTER AB WITH FOUNDATION LOADING (FUEL GAS)_REV.A.pdf
+HEX : eab8b0eab384eb8f84eba9b420eba6acebb984eca0845f31302d32343030302d4f4d2d3137312d3230305f47454e4552414c20415353454d424c592044524157494e4720464f52204c415354204348414e43452046494c544552204142205749544820464f554e444154494f4e204c4f4144494e4720284655454c20474153295f5245562e412e706466
+LEN : 124
+--------------------
+NAME: 기계도면 상세스펙_Fuel Gas High.pdf
+HEX : eab8b0eab384eb8f84eba9b420ec8381ec84b8ec8aa4ed8e995f4675656c2047617320486967682e706466
+LEN : 27
+--------------------
+NAME: 기계도면_Fuel Gas Coalescing Filter for Gas Turbine(filter).pdf
+HEX : eab8b0eab384eb8f84eba9b45f4675656c2047617320436f616c657363696e672046696c74657220666f72204761732054757262696e652866696c746572292e706466
+LEN : 59
+--------------------
+NAME: 김미숙_DATASHEET_TOTAL(42p).pdf
+HEX : eab980ebafb8ec88995f4441544153484545545f544f54414c28343270292e706466
+LEN : 28
+--------------------
+NAME: 김미숙_DRAWINGS(47p).pdf
+HEX : eab980ebafb8ec88995f44524157494e475328343770292e706466
+LEN : 21
+--------------------
+NAME: 김미숙_GMTP-0100-PR-DWG-005-R1(69p).pdf
+HEX : eab980ebafb8ec88995f474d54502d303130302d50522d4457472d3030352d523128363970292e706466
+LEN : 36
+--------------------
+NAME: 김미숙_GMTP_P&ID(1p).pdf
+HEX : eab980ebafb8ec88995f474d54505f50264944283170292e706466
+LEN : 21
+--------------------
+NAME: 김미숙_V-7102-YD-001 Rev 0(3p).pdf
+HEX : eab980ebafb8ec88995f562d373130322d59442d303031205265762030283370292e706466
+LEN : 31
+--------------------
+NAME: 김의진_Purchase Specification for CWP.pdf
+HEX : eab980ec9d98eca7845f50757263686173652053706563696669636174696f6e20666f72204357502e706466
+LEN : 38
+--------------------
+NAME: 김의진_Technical data sheet.pdf
+HEX : eab980ec9d98eca7845f546563686e6963616c20646174612073686565742e706466
+LEN : 28
+--------------------
+NAME: 김현태_보일러 P&ID_1장.pdf
+HEX : eab980ed9884ed839c5febb3b4ec9dbceb9fac20502649445f31ec9ea52e706466
+LEN : 19
+--------------------
+NAME: 김현태_폴란드 소각로_BIM Execution Plan.pdf
+HEX : eab980ed9884ed839c5fed8fb4eb9e80eb939c20ec868ceab081eba19c5f42494d20457865637574696f6e20506c616e2e706466
+LEN : 34
+--------------------
+NAME: 김현태_폴란드 소각로_BIM 요구사항.pdf
+HEX : eab980ed9884ed839c5fed8fb4eb9e80eb939c20ec868ceab081eba19c5f42494d20ec9a94eab5acec82aced95ad2e706466
+LEN : 24
+--------------------
+NAME: 김현태_폴란드 소각로_ITB.pdf
+HEX : eab980ed9884ed839c5fed8fb4eb9e80eb939c20ec868ceab081eba19c5f4954422e706466
+LEN : 19
+--------------------
+NAME: 박종익 1  하부기초구조물 분야 설계도면 GCOWF-YF-NA05031S-DW-1000-FA0A .pdf
+HEX : ebb095eca285ec9db520312020ed9598ebb680eab8b0ecb488eab5aceca1b0ebacbc20ebb684ec95bc20ec84a4eab384eb8f84eba9b42047434f57462d59462d4e413035303331532d44572d313030302d46413041202e706466
+LEN : 58
+--------------------
+NAME: 박종익 2 WTG 하부기초 구조물 도면.pdf
+HEX : ebb095eca285ec9db520322057544720ed9598ebb680eab8b0ecb48820eab5aceca1b0ebacbc20eb8f84eba9b42e706466
+LEN : 25
+--------------------
+NAME: 양산 열병합발전소_제1권 일반사항_2018.10.22.pdf
+HEX : ec9691ec82b020ec97b4ebb391ed95a9ebb09ceca084ec868c5feca09c31eab68c20ec9dbcebb098ec82aced95ad5f323031382e31302e32322e706466
+LEN : 33
+--------------------
+NAME: 양산 열병합발전소_제2권 입찰제의서_2018.10.22.pdf
+HEX : ec9691ec82b020ec97b4ebb391ed95a9ebb09ceca084ec868c5feca09c32eab68c20ec9e85ecb0b0eca09cec9d98ec849c5f323031382e31302e32322e706466
+LEN : 34
+--------------------
+NAME: 양산 열병합발전소_제3권 제2-2편 기술규격서_2018.10.22.pdf
+HEX : ec9691ec82b020ec97b4ebb391ed95a9ebb09ceca084ec868c5feca09c33eab68c20eca09c322d32ed8eb820eab8b0ec88a0eab79ceab2a9ec849c5f323031382e31302e32322e706466
+LEN : 40
+--------------------
+NAME: 양산 열병합발전소_제3권 제2-3편 기술규격서_2018.10.22.pdf
+HEX : ec9691ec82b020ec97b4ebb391ed95a9ebb09ceca084ec868c5feca09c33eab68c20eca09c322d33ed8eb820eab8b0ec88a0eab79ceab2a9ec849c5f323031382e31302e32322e706466
+LEN : 40
+--------------------
+NAME: 양산 열병합발전소_제3권 제3편 열수송관규격서_2018.10.22.pdf
+HEX : ec9691ec82b020ec97b4ebb391ed95a9ebb09ceca084ec868c5feca09c33eab68c20eca09c33ed8eb820ec97b4ec8898ec86a1eab480eab79ceab2a9ec849c5f323031382e31302e32322e706466
+LEN : 40
+--------------------
+NAME: 양산 열병합발전소_제4권 도면_2018.10.22.pdf
+HEX : ec9691ec82b020ec97b4ebb391ed95a9ebb09ceca084ec868c5feca09c34eab68c20eb8f84eba9b45f323031382e31302e32322e706466
+LEN : 31
+--------------------
+NAME: 양산 열병합발전소_제5권 물량내역서_2018.10.22.pdf
+HEX : ec9691ec82b020ec97b4ebb391ed95a9ebb09ceca084ec868c5feca09c35eab68c20ebacbceb9f89eb82b4ec97adec849c5f323031382e31302e32322e706466
+LEN : 34
+--------------------

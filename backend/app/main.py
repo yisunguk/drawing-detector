@@ -19,11 +19,11 @@ app = FastAPI(
 print(f"Backend '{settings.PROJECT_NAME}' starting up...")
 print(f"🚀 Test deployment verification - Deployed at: 2026-02-02 09:30 (Permission Fix Retry - Real Commit)")
 
-@app.middleware("http")
-async def log_requests(request, call_next):
-    print(f"Incoming request: {request.method} {request.url.path}")
-    response = await call_next(request)
-    return response
+# @app.middleware("http")
+# async def log_requests(request, call_next):
+#     print(f"Incoming request: {request.method} {request.url.path}")
+#     response = await call_next(request)
+#     return response
 
 # Set all CORS enabled origins
 # Always enable CORS with explicit origins

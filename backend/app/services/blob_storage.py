@@ -1,6 +1,7 @@
 from fastapi import HTTPException
 from app.core.config import settings
 from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient
 
 def get_container_client():
     if not settings.AZURE_BLOB_CONNECTION_STRING and not (settings.AZURE_STORAGE_ACCOUNT_NAME and settings.AZURE_BLOB_SAS_TOKEN):
@@ -43,4 +44,6 @@ def get_container_client():
     if not blob_service_client:
         raise HTTPException(status_code=500, detail="Could not create Azure Blob Client (Auth Failed)")
         
+    return blob_service_client.get_container_client(settings.AZURE_BLOB_CONTAINER_NAME)
+
     return blob_service_client.get_container_client(settings.AZURE_BLOB_CONTAINER_NAME)

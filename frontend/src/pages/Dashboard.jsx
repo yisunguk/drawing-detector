@@ -59,7 +59,13 @@ const App = () => {
     const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
     const [isLoading, setIsLoading] = useState(false);
+    const [loadingProgress, setLoadingProgress] = useState(null);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const [inputPage, setInputPage] = useState(1);
+
+    useEffect(() => {
+        setInputPage(activePage);
+    }, [activePage]);
 
     // Persistence: Load Documents on Mount
     useEffect(() => {
@@ -480,12 +486,37 @@ const App = () => {
         return results;
     }, [searchTerm, documents, activeDocId, searchScope, filters, parseInstrumentBubbles]);
 
+    const handlePageInputChange = (e) => {
+        setInputPage(e.target.value);
+    };
+
+    const handlePageInputKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            const page = parseInt(inputPage);
+            if (activeDoc && !isNaN(page) && page >= 1 && page <= (activeDoc.totalPages || 1)) {
+                goToPage(page);
+                e.currentTarget.blur();
+            } else {
+                setInputPage(activePage);
+            }
+        }
+    };
+
+    const handlePageInputBlur = () => {
+        const page = parseInt(inputPage);
+        if (activeDoc && !isNaN(page) && page >= 1 && page <= (activeDoc.totalPages || 1)) {
+            if (page !== activePage) goToPage(page);
+        } else {
+            setInputPage(activePage);
+        }
+    };
+
     // PDF 로드 및 페이지 렌더링
     const pdfCache = useRef({}); // Cache for parsed PDF documents: { [docId]: pdfProxy }
 
     // PDF 로드 및 페이지 렌더링
     const loadAndRenderPage = useCallback(async (doc, pageNum) => {
-        if (!window.pdfjsLib || !canvasRef.current || !doc?.pdfData) return;
+        if (!window.pdfjsLib || !canvasRef.current || (!doc?.pdfData && !doc?.pdfUrl)) return;
         setIsLoading(true);
 
         try {
@@ -493,9 +524,57 @@ const App = () => {
 
             // If not in cache, load it and cache it
             if (!pdf) {
-                // We use the raw ArrayBuffer. pdfjsLib handles it.
-                // We do NOT attach docId to the object itself rely on the cache key
-                pdf = await window.pdfjsLib.getDocument({ data: doc.pdfData }).promise;
+                if (doc.pdfUrl) {
+                    // Try URL for Azure files first (Range Requests)
+                    try {
+                        console.log('Loading PDF from URL with Range Requests:', doc.pdfUrl);
+                        const loadingTask = window.pdfjsLib.getDocument({
+                            url: doc.pdfUrl,
+                            rangeChunkSize: 65536,
+                            disableAutoFetch: true,
+                            disableStream: false,
+                        });
+
+                        loadingTask.onProgress = (progress) => {
+                            if (progress.total > 0) {
+                                setLoadingProgress({ current: progress.loaded, total: progress.total, type: 'download' });
+                            }
+                        };
+
+                        // Add Timeout to prevent infinite loading (30 seconds)
+                        const timeoutPromise = new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Timeout loading PDF via URL')), 30000)
+                        );
+
+                        pdf = await Promise.race([loadingTask.promise, timeoutPromise]);
+                        setLoadingProgress(null);
+                        console.log('✅ PDF loaded successfully via URL');
+                    } catch (urlError) {
+                        console.warn('⚠️ URL loading failed/timed out, falling back to full download:', urlError);
+                        setLoadingProgress(null); // Reset progress on error
+
+                        // Fallback: Download entire file as ArrayBuffer with Timeout
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout for full download
+
+                        try {
+                            const response = await fetch(doc.pdfUrl, { signal: controller.signal });
+                            clearTimeout(timeoutId);
+                            if (!response.ok) throw new Error(`Failed to download PDF: ${response.status}`);
+                            const arrayBuffer = await response.arrayBuffer();
+                            pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                            console.log('✅ PDF loaded via fallback ArrayBuffer');
+                        } catch (fallbackError) {
+                            clearTimeout(timeoutId);
+                            throw fallbackError;
+                        }
+                    }
+                } else {
+                    // Use ArrayBuffer for local files
+                    // Clone ArrayBuffer to avoid detachment (DataCloneError) during IDB save
+                    const bufferClone = doc.pdfData.slice(0);
+                    pdf = await window.pdfjsLib.getDocument({ data: bufferClone }).promise;
+                }
                 pdfCache.current[doc.id] = pdf;
 
                 // Update total pages in state only if it's new (to avoid infinite loops or unnecessary updates)
@@ -541,16 +620,15 @@ const App = () => {
                 const newRotation = (effectiveRotation + 90) % 360;
                 viewport = page.getViewport({ scale: 2.0, rotation: newRotation });
             }
-            const canvas = canvasRef.current;
-            const ctx = canvas.getContext('2d');
+            // Double Buffering: Render to offscreen canvas first to prevent flickering
+            const offscreenCanvas = document.createElement('canvas');
+            offscreenCanvas.width = viewport.width;
+            offscreenCanvas.height = viewport.height;
+            const offscreenCtx = offscreenCanvas.getContext('2d');
 
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-            ctx.clearRect(0, 0, viewport.width, viewport.height);
+            const renderContext = { canvasContext: offscreenCtx, viewport };
 
-            setCanvasSize({ width: viewport.width, height: viewport.height });
-
-            // Cancel any existing render task to prevent "same canvas" error
+            // Cancel any existing render task
             if (renderTaskRef.current) {
                 try {
                     renderTaskRef.current.cancel();
@@ -559,13 +637,29 @@ const App = () => {
                 }
             }
 
-            const renderContext = { canvasContext: ctx, viewport };
             const renderTask = page.render(renderContext);
             renderTaskRef.current = renderTask;
 
             try {
                 await renderTask.promise;
+
                 if (renderTaskRef.current === renderTask) {
+                    // Rendering complete, copy to main canvas
+                    const mainCanvas = canvasRef.current;
+                    if (mainCanvas) {
+                        // Only resize and draw when ready
+                        if (mainCanvas.width !== viewport.width || mainCanvas.height !== viewport.height) {
+                            mainCanvas.width = viewport.width;
+                            mainCanvas.height = viewport.height;
+                        }
+
+                        const mainCtx = mainCanvas.getContext('2d');
+                        if (mainCtx) {
+                            // Clear not strictly needed if we fill the whole canvas, but safe
+                            mainCtx.drawImage(offscreenCanvas, 0, 0);
+                        }
+                    }
+                    setCanvasSize({ width: viewport.width, height: viewport.height });
                     renderTaskRef.current = null;
                 }
             } catch (err) {
@@ -592,11 +686,17 @@ const App = () => {
                 }
             }, 100);
 
+            // Mark document as loaded after successful render
+            setDocuments(prev => prev.map(d => d.id === doc.id && !d.isLoaded ? { ...d, isLoaded: true } : d));
+
+
         } catch (err) {
             console.error('PDF error:', err);
+        } finally {
+            setIsLoading(false);
+            setLoadingProgress(null); // Ensure progress is cleared
         }
-        setIsLoading(false);
-    }, [extractPdfText, rotation]);
+    }, [extractPdfText, rotation]); // Removed inputPage dependency
 
     useEffect(() => {
         if (activeDoc) {
@@ -641,7 +741,17 @@ const App = () => {
     const handleAzureUpload = () => {
         setShowSourceModal(false);
         setShowAzureBrowser(true);
-        fetchAzureItems('');
+
+        const userName = (userProfile?.name || currentUser?.displayName || '').trim();
+        const categoryFolder = uploadCategory === 'documents' ? 'documents' : 'drawings';
+
+        // Strict Navigation: Go to [User]/[Category]
+        let initialPath = '';
+        if (userName) {
+            initialPath = `${userName}/${categoryFolder}`;
+        }
+        console.log(`[Azure] Auto-navigating to locked path: ${initialPath}`);
+        fetchAzureItems(initialPath);
     };
 
     // --- Analysis State ---
@@ -653,53 +763,106 @@ const App = () => {
     // --- Analysis ---
     const analyzeLocalDocument = async (file, docId) => {
         try {
-            setAnalysisState({ isAnalyzing: true, progress: 0, status: '서버에 연결 중...' });
-
-            // Simulate progress for UX (since backend is synchronous)
-            // Move fast to 30%, then slow to 90%
-            const progressInterval = setInterval(() => {
-                setAnalysisState(prev => {
-                    if (prev.progress >= 90) return prev;
-                    const increment = prev.progress < 30 ? 5 : 1;
-                    return { ...prev, progress: prev.progress + increment, status: 'AI가 도면을 정밀 분석 중입니다...' };
-                });
-            }, 500);
+            setAnalysisState({ isAnalyzing: true, progress: 0, status: '분석 준비 중...' });
 
             const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
             const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
 
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('category', uploadCategory);
+            // 1. Get Page Count
+            let totalPages = 1;
+            try {
+                // Try to get from state first
+                const doc = documents.find(d => d.id === docId);
+                if (doc && doc.totalPages > 1) {
+                    totalPages = doc.totalPages;
+                } else {
+                    // Fallback: Parse locally
+                    const arrayBuffer = await file.arrayBuffer();
+                    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                    totalPages = pdf.numPages;
+                }
+            } catch (err) {
+                console.warn("Failed to get page count, assuming 1 page", err);
+            }
 
-            // NOTE: Not sending username anymore.
-            // Backend is configured to save all files to common 'drawings' or 'documents' folders.
-            // if (userProfile && userProfile.name) {
-            //    formData.append('username', userProfile.name);
-            // }
+            // 2. Init Analysis (Upload to temp)
+            setAnalysisState({ isAnalyzing: true, progress: 5, status: '파일 업로드 중...' });
 
-            const response = await fetch(`${API_URL}/api/v1/analyze/local`, {
+            // 2.1 Check if we are resuming (checking if status exists) - Optional enhancement
+            // For now, simple standard flow:
+            const initFormData = new FormData();
+            initFormData.append('file', file);
+            initFormData.append('total_pages', totalPages);
+            initFormData.append('category', uploadCategory);
+
+            const initRes = await fetch(`${API_URL}/api/v1/analyze/init`, {
                 method: 'POST',
-                body: formData
+                body: initFormData
             });
 
-            clearInterval(progressInterval);
+            if (!initRes.ok) throw new Error("파일 업로드 실패");
+            const initData = await initRes.json();
+            const blobName = initData.blob_name; // "temp/filename.pdf"
+
+            // 3. Batch Process
+            const CHUNK_SIZE = 30;
+            const totalChunks = Math.ceil(totalPages / CHUNK_SIZE);
+
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE + 1;
+                const end = Math.min((i + 1) * CHUNK_SIZE, totalPages);
+                const pages = `${start}-${end}`;
+
+                setAnalysisState({
+                    isAnalyzing: true,
+                    progress: 10 + Math.round((i / totalChunks) * 80),
+                    status: `AI가 도면을 정밀 분석 중입니다... (${i + 1}/${totalChunks} 구역)`
+                });
+
+                const chunkRes = await fetch(`${API_URL}/api/v1/analyze/chunk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: file.name,
+                        blob_name: blobName,
+                        pages: pages
+                    })
+                });
+
+                if (!chunkRes.ok) throw new Error(`구역 ${pages} 분석 실패`);
+            }
+
+            // 4. Finalize
+            setAnalysisState({ isAnalyzing: true, progress: 95, status: '결과 정리 중...' });
+            const finalRes = await fetch(`${API_URL}/api/v1/analyze/finalize`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename: file.name,
+                    category: uploadCategory
+                })
+            });
+
+            if (!finalRes.ok) throw new Error("결과 저장 실패");
+
+            // 5. Fetch Result JSON
+            const jsonPath = `json/${file.name.replace(/\.pdf$/i, '')}.json`;
+            const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
+
+            if (!jsonRes.ok) throw new Error("결과 파일 로드 실패");
+
+            const resultJson = await jsonRes.json();
+
             setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
 
-            if (response.ok) {
-                const json = await response.json();
-                console.log("Analysis successful for", file.name);
-                setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: json } : d));
-                alert("도면 분석이 완료되었습니다.");
-            } else {
-                console.warn("Analysis failed", await response.text());
-                alert("분석에 실패했습니다. (서버 오류)");
-            }
+            setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: resultJson } : d));
+            alert("도면 분석이 완료되었습니다.");
 
         } catch (e) {
             console.error("Analysis Error:", e);
+            console.error("Resume Error:", e);
             setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
-            alert("분석 중 오류가 발생했습니다.");
+            alert("Resume failed: " + e.message);
         }
     };
 
@@ -707,7 +870,6 @@ const App = () => {
         setShowAnalysisConfirmModal(false);
         if (pendingFile && pendingDocId) {
             analyzeLocalDocument(pendingFile, pendingDocId);
-            setPendingFile(null);
             setPendingDocId(null);
         }
     };
@@ -740,9 +902,12 @@ const App = () => {
                     // Calculate color index based on current documents + index in loop
                     const colorIndex = (documents.length + files.indexOf(file)) % DOC_COLORS.length;
 
+                    // Clone ArrayBuffer to prevent detached buffer error
+                    const clonedBuffer = result.slice(0);
+
                     // Sequential update guarantees no race condition
                     // Initialize with ocrData: null. Analysis will update it later.
-                    setDocuments(prev => [...prev, { id, name, pdfData: result, ocrData: null, pdfTextData: null, totalPages: 1, colorIndex }]);
+                    setDocuments(prev => [...prev, { id, name, pdfData: clonedBuffer, ocrData: null, pdfTextData: null, totalPages: 1, colorIndex, isLoaded: false }]);
                     setActiveDocId(id);
                     setActivePage(1);
                     setRotation(0);
@@ -809,34 +974,9 @@ const App = () => {
 
             const items = await response.json();
 
-            // --- RBAC Filtering ---
-            let filteredItems = items;
-            const isAdmin = currentUser?.email === 'admin@poscoenc.com';
-            // Use profile name preferably, fallback to display name, sanitize for comparison
-            const userName = (userProfile?.name || currentUser?.displayName || '').trim();
-            const emailPrefix = currentUser?.email?.split('@')[0] || '';
-
-            if (!isAdmin) {
-                const currentPath = path.replace(/\/$/, '').toLowerCase();
-
-                console.log(`[RBAC] Filtering path: ${currentPath}`);
-
-                filteredItems = items.filter(item => {
-                    const itemName = item.name.toLowerCase();
-
-                    // 1. Root Level: Allow ONLY Common Folders
-                    if (currentPath === '') {
-                        return (itemName === 'drawings') || (itemName === 'documents');
-                    }
-
-                    // 2. Deeper Levels: Allow everything inside drawings or documents
-                    // (Since we only allow entering those folders from root, this is generally safe enough for UI)
-                    return true;
-                });
-                console.log(`[RBAC] Filtered ${items.length} -> ${filteredItems.length} items`);
-            }
-
-            setAzureItems(filteredItems);
+            // --- RBAC replaced by Strict Navigation Locking ---
+            // We trust the path locking mechanism to keep users in their folder.
+            setAzureItems(items);
             setAzurePath(path);
         } catch (err) {
             console.error('Error fetching Azure files:', err);
@@ -890,22 +1030,22 @@ const App = () => {
                 };
                 reader.readAsText(blob);
             } else if (fileName.endsWith('.pdf')) {
-                // PDF Upload
+                // PDF Upload - Use URL for Range Requests (Fast Web View)
                 const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const name = file.name.replace(/\.pdf$/i, '');
-                const arrayBuffer = await blob.arrayBuffer();
+
+                // Construct URL for PDF.js Range Requests - DO NOT download the blob
+                const pdfUrl = `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`;
 
                 // Auto-fetch JSON logic
                 let fetchedJson = null;
-                // Check if path contains 'drawings' (case insensitive)
                 if (file.path.toLowerCase().includes('drawings')) {
                     const jsonPath1 = file.path.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json');
-                    const jsonPath2 = file.path.replace(/drawings/i, 'json') + '.json'; // Support old format .pdf.json
+                    const jsonPath2 = file.path.replace(/drawings/i, 'json') + '.json';
 
                     try {
                         let jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath1)}`);
 
-                        // Fallback to .pdf.json if .json not found
                         if (!jsonResponse.ok) {
                             console.log(`JSON not found at ${jsonPath1}, trying fallback: ${jsonPath2}`);
                             jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath2)}`);
@@ -916,8 +1056,6 @@ const App = () => {
                             const jsonText = await jsonBlob.text();
                             fetchedJson = JSON.parse(jsonText);
                             console.log("Auto-fetched JSON metadata");
-                            // Optional: Notify user
-                            // alert("PDF and corresponding JSON metadata loaded automatically!");
                         } else {
                             console.log("JSON metadata not found at:", jsonPath1, "or", jsonPath2);
                         }
@@ -926,7 +1064,20 @@ const App = () => {
                     }
                 }
                 const colorIndex = documents.length % DOC_COLORS.length;
-                setDocuments(prev => [...prev, { id, name, pdfData: arrayBuffer, ocrData: fetchedJson, pdfTextData: null, totalPages: 1, colorIndex }]);
+
+                // Store URL instead of pdfData for Azure files (enables Range Requests)
+                setDocuments(prev => [...prev, {
+                    id,
+                    name,
+                    pdfData: null,
+                    pdfUrl: pdfUrl,
+                    ocrData: fetchedJson,
+                    pdfTextData: null,
+                    totalPages: 1,
+                    colorIndex,
+                    isLoaded: false
+                }]);
+
                 setActiveDocId(id);
                 setActivePage(1);
                 setRotation(0);
@@ -1264,6 +1415,15 @@ const App = () => {
                     <div className="flex gap-2 ml-3">
                         <button onClick={() => initiateUpload('pdf', 'drawings')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#555555] bg-[#f4f1ea] hover:bg-[#e5e1d8] hover:text-[#333333] rounded-md transition-colors"><Plus size={14} /> 도면 업로드</button>
                         <button onClick={() => initiateUpload('pdf', 'documents')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#d97757] bg-[#fff0eb] hover:bg-[#ffe0d6] hover:text-[#c05535] rounded-md transition-colors"><Plus size={14} /> 설계자료 업로드</button>
+                        {incompleteJobs.length > 0 && (
+                            <div className="flex gap-2">
+                                {incompleteJobs.map((job, i) => (
+                                    <button key={i} onClick={() => resumeAnalysis(job)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors border border-amber-200 animate-pulse">
+                                        <RotateCw size={14} /> {job.filename} 이어서 분석
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                         <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors border border-red-100"><Trash2 size={14} /> 초기화</button>
                     </div>
                     <input ref={fileInputRef} type="file" accept=".pdf" multiple className="hidden" onChange={(e) => handleFilesUpload(e, 'pdf')} />
@@ -1302,7 +1462,17 @@ const App = () => {
                         {activeDoc && (
                             <div className="flex items-center gap-2 bg-[#f4f1ea] rounded-lg p-1 px-2">
                                 <button onClick={() => goToPage(activePage - 1)} disabled={activePage <= 1} className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow" title="Previous Page"><ChevronLeft size={16} /></button>
-                                <span className="text-xs font-semibold w-16 text-center text-[#333333] select-none">{activePage} / {activeDoc.totalPages || 1}</span>
+                                <div className="flex items-center text-xs font-semibold text-[#333333]">
+                                    <input
+                                        type="number"
+                                        className="w-10 text-center bg-transparent focus:bg-white border-b border-transparent focus:border-[#d97757] outline-none transition-all p-0.5 appearance-none"
+                                        value={inputPage}
+                                        onChange={handlePageInputChange}
+                                        onKeyDown={handlePageInputKeyDown}
+                                        onBlur={handlePageInputBlur}
+                                    />
+                                    <span className="select-none text-[#888888] ml-1">/ {activeDoc.totalPages || 1}</span>
+                                </div>
                                 <button onClick={() => goToPage(activePage + 1)} disabled={activePage >= (activeDoc.totalPages || 1)} className="p-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white rounded-md text-[#555555] transition-all shadow-sm hover:shadow" title="Next Page"><ChevronRight size={16} /></button>
                             </div>
                         )}
@@ -1328,7 +1498,36 @@ const App = () => {
                         </div>
                         <div className="w-px h-4 bg-[#e5e1d8]"></div>
 
-                        {isLoading && <span className="text-[#d97757] flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" />Processing...</span>}
+                        {/* Unified Progress Indicator */}
+                        {(loadingProgress || extractionProgress || isLoading) && (
+                            <div className="flex items-center gap-2 bg-[#f4f1ea] px-3 py-1.5 rounded-full border border-[#e5e1d8]">
+                                {loadingProgress ? (
+                                    <>
+                                        <div className="w-4 h-4 rounded-full border-2 border-[#d97757]/30 border-t-[#d97757] animate-spin" />
+                                        <span className="text-[10px] font-medium text-[#d97757]">
+                                            Downloading {Math.round((loadingProgress.current / loadingProgress.total) * 100)}%
+                                        </span>
+                                    </>
+                                ) : extractionProgress ? (
+                                    <>
+                                        <div className="relative w-4 h-4 flex items-center justify-center">
+                                            <svg className="w-full h-full transform -rotate-90">
+                                                <circle cx="8" cy="8" r="7" fill="none" stroke="#e5e1d8" strokeWidth="2" />
+                                                <circle cx="8" cy="8" r="7" fill="none" stroke="#d97757" strokeWidth="2" strokeDasharray="44" strokeDashoffset={44 - (44 * (extractionProgress.current / extractionProgress.total))} className="transition-all duration-300" />
+                                            </svg>
+                                        </div>
+                                        <span className="text-[10px] font-medium text-[#d97757]">
+                                            Analyzing {Math.round((extractionProgress.current / extractionProgress.total) * 100)}%
+                                        </span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Loader2 size={14} className="animate-spin text-[#d97757]" />
+                                        <span className="text-[10px] font-medium text-[#d97757]">Rendering...</span>
+                                    </>
+                                )}
+                            </div>
+                        )}
                         {activeDoc && (hasOcr ? <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">OCR Ready</span> : hasPdfText ? <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">PDF Text</span> : <span className="text-red-500 bg-red-50 px-2 py-0.5 rounded-full border border-red-100">No Data</span>)}
                         <button
                             onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
@@ -1339,6 +1538,8 @@ const App = () => {
                         </button>
                     </div>
                 </div>
+
+
 
                 {/* Canvas */}
                 <div
@@ -1351,25 +1552,34 @@ const App = () => {
                     onMouseLeave={handleMouseUp}
                 >
                     {activeDoc ? (
-                        <div style={{ transform: `scale(${zoom}) translate(${(panX - 50) * 2}%, ${(panY - 50) * 2}%)`, transformOrigin: 'center center' }} className="relative shadow-xl transition-transform duration-75 ease-out">
-                            <canvas ref={canvasRef} className="block bg-white" />
-
-                            {canvasSize.width > 0 && currentPageData?.layout && (
-                                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
-                                    {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
-                                        <polygon key={i} points={getPolygonPoints(r)} fill="rgba(250,204,21,0.2)" stroke="rgba(250,204,21,0.6)" strokeWidth="2" />
-                                    ))}
-                                    {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && selectedResult.polygon && (
-                                        <>
-                                            <polygon points={getPolygonPoints(selectedResult)} fill="rgba(217,119,87,0.2)" stroke="#d97757" strokeWidth="3" />
-                                            <circle cx={selectedCenter.cx} cy={selectedCenter.cy} r="15" fill="none" stroke="#d97757" strokeWidth="2" opacity="0.8" />
-                                            <line x1={selectedCenter.cx - 20} y1={selectedCenter.cy} x2={selectedCenter.cx + 20} y2={selectedCenter.cy} stroke="#d97757" strokeWidth="2" />
-                                            <line x1={selectedCenter.cx} y1={selectedCenter.cy - 20} x2={selectedCenter.cx} y2={selectedCenter.cy + 20} stroke="#d97757" strokeWidth="2" />
-                                        </>
-                                    )}
-                                </svg>
+                        <>
+                            {isLoading && (
+                                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#f0ede6]/90 backdrop-blur-sm">
+                                    <Loader2 size={48} className="animate-spin text-[#d97757] mb-4" />
+                                    <h3 className="text-lg font-medium text-[#333333] mb-2">도면을 렌더링 중입니다</h3>
+                                    <p className="text-sm text-[#888888]">잠시만 기다려 주세요...</p>
+                                </div>
                             )}
-                        </div>
+                            <div style={{ transform: `scale(${zoom}) translate(${(panX - 50) * 2}%, ${(panY - 50) * 2}%)`, transformOrigin: 'center center' }} className="relative shadow-xl transition-transform duration-75 ease-out">
+                                <canvas ref={canvasRef} className="block bg-white" />
+
+                                {canvasSize.width > 0 && currentPageData?.layout && (
+                                    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
+                                        {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
+                                            <polygon key={i} points={getPolygonPoints(r)} fill="rgba(250,204,21,0.2)" stroke="rgba(250,204,21,0.6)" strokeWidth="2" />
+                                        ))}
+                                        {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && selectedResult.polygon && (
+                                            <>
+                                                <polygon points={getPolygonPoints(selectedResult)} fill="rgba(217,119,87,0.2)" stroke="#d97757" strokeWidth="3" />
+                                                <circle cx={selectedCenter.cx} cy={selectedCenter.cy} r="15" fill="none" stroke="#d97757" strokeWidth="2" opacity="0.8" />
+                                                <line x1={selectedCenter.cx - 20} y1={selectedCenter.cy} x2={selectedCenter.cx + 20} y2={selectedCenter.cy} stroke="#d97757" strokeWidth="2" />
+                                                <line x1={selectedCenter.cx} y1={selectedCenter.cy - 20} x2={selectedCenter.cx} y2={selectedCenter.cy + 20} stroke="#d97757" strokeWidth="2" />
+                                            </>
+                                        )}
+                                    </svg>
+                                )}
+                            </div>
+                        </>
                     ) : (
                         <div className="text-center p-10 bg-white rounded-2xl shadow-sm border border-[#e5e1d8]">
                             <div className="bg-[#f4f1ea] p-4 rounded-full inline-block mb-4">
@@ -1466,10 +1676,34 @@ const App = () => {
                             </div>
 
                             <div className="p-2 bg-[#f4f1ea] border-b border-[#e5e1d8] flex items-center gap-2 text-sm">
-                                <button onClick={() => fetchAzureItems('')} className="p-1 hover:bg-[#e5e1d8] rounded"><RotateCcw size={14} /></button>
+                                <button onClick={() => {
+                                    // Calculate locked root again for Home button
+                                    const userName = (userProfile?.name || currentUser?.displayName || '').trim();
+                                    const categoryFolder = uploadCategory === 'documents' ? 'documents' : 'drawings';
+                                    const lockedRootPath = userName ? `${userName}/${categoryFolder}` : '';
+                                    fetchAzureItems(lockedRootPath);
+                                }} className="p-1 hover:bg-[#e5e1d8] rounded" title="Home"><RotateCcw size={14} /></button>
                                 <span className="text-[#666666]">Path:</span>
                                 <span className="font-mono text-[#333333] bg-white px-2 py-0.5 rounded border border-[#dcd8d0] flex-1 truncate">/{azurePath}</span>
-                                {azurePath && <button onClick={() => fetchAzureItems(azurePath.split('/').slice(0, -2).join('/') + (azurePath.split('/').length > 2 ? '/' : ''))} className="px-2 py-0.5 bg-[#e5e1d8] hover:bg-[#dcd8d0] rounded text-xs">Up</button>}
+                                {(() => {
+                                    // Calculate strict root to decide if "Up" is allowed
+                                    const userName = (userProfile?.name || currentUser?.displayName || '').trim();
+                                    const categoryFolder = uploadCategory === 'documents' ? 'documents' : 'drawings';
+                                    const lockedRootPath = userName ? `${userName}/${categoryFolder}` : '';
+
+                                    // Check if current path depends on locked path
+                                    const normalize = (p) => p.replace(/\/$/, '');
+                                    const current = normalize(azurePath);
+                                    const root = normalize(lockedRootPath);
+
+                                    // allow going up only if deeper than root
+                                    // Ensure simple string comparison works by handling slashes
+                                    const canGoUp = current.length > root.length && current.startsWith(root);
+
+                                    return canGoUp ? (
+                                        <button onClick={() => fetchAzureItems(azurePath.split('/').slice(0, -2).join('/') + (azurePath.split('/').length > 2 ? '/' : ''))} className="px-2 py-0.5 bg-[#e5e1d8] hover:bg-[#dcd8d0] rounded text-xs">Up</button>
+                                    ) : null;
+                                })()}
                             </div>
 
                             {error && (
@@ -1544,114 +1778,120 @@ const App = () => {
 
 
             {/* Analysis Confirmation Modal */}
-            {showAnalysisConfirmModal && pendingFile && (
-                <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[70]">
-                    <div className="bg-white rounded-xl shadow-2xl p-6 w-[450px] border border-[#e5e1d8] animate-in fade-in zoom-in duration-200">
-                        <div className="text-center mb-6">
-                            <div className="bg-[#e6f2ff] w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-                                <Monitor size={24} className="text-[#0078d4]" />
+            {
+                showAnalysisConfirmModal && pendingFile && (
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[70]">
+                        <div className="bg-white rounded-xl shadow-2xl p-6 w-[450px] border border-[#e5e1d8] animate-in fade-in zoom-in duration-200">
+                            <div className="text-center mb-6">
+                                <div className="bg-[#e6f2ff] w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <Monitor size={24} className="text-[#0078d4]" />
+                                </div>
+                                <h3 className="text-lg font-bold text-[#333333] mb-1">AI 도면 분석을 시작할까요?</h3>
+                                <p className="text-sm font-medium text-[#333333] mb-2">{pendingFile.name}</p>
+                                <p className="text-xs text-[#666666] bg-[#f9fafb] p-3 rounded-lg border border-[#e5e7eb]">
+                                    <span className="font-bold text-[#d97757]">💡 팁:</span> 분석을 진행하면 도면의 텍스트, 기호, 장비 태그를 자동으로 인식하여 <span className="font-bold">검색 및 하이라이트</span> 기능을 사용할 수 있습니다.<br /><br />
+                                    300페이지 이상의 대용량 도면은 분석에 시간이 소요될 수 있습니다.
+                                </p>
                             </div>
-                            <h3 className="text-lg font-bold text-[#333333] mb-1">AI 도면 분석을 시작할까요?</h3>
-                            <p className="text-sm font-medium text-[#333333] mb-2">{pendingFile.name}</p>
-                            <p className="text-xs text-[#666666] bg-[#f9fafb] p-3 rounded-lg border border-[#e5e7eb]">
-                                <span className="font-bold text-[#d97757]">💡 팁:</span> 분석을 진행하면 도면의 텍스트, 기호, 장비 태그를 자동으로 인식하여 <span className="font-bold">검색 및 하이라이트</span> 기능을 사용할 수 있습니다.<br /><br />
-                                300페이지 이상의 대용량 도면은 분석에 시간이 소요될 수 있습니다.
-                            </p>
-                        </div>
 
-                        <div className="flex gap-3">
-                            <button
-                                onClick={cancelAnalysis}
-                                className="flex-1 px-4 py-3 bg-white border border-[#dcd8d0] hover:bg-[#f5f5f5] text-[#555555] rounded-lg text-sm font-medium transition-colors"
-                            >
-                                취소 (뷰어만 실행)
-                            </button>
-                            <button
-                                onClick={confirmAnalysis}
-                                className="flex-1 px-4 py-3 bg-[#0078d4] hover:bg-[#0063b1] text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
-                            >
-                                AI 분석 시작
-                            </button>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={cancelAnalysis}
+                                    className="flex-1 px-4 py-3 bg-white border border-[#dcd8d0] hover:bg-[#f5f5f5] text-[#555555] rounded-lg text-sm font-medium transition-colors"
+                                >
+                                    취소 (뷰어만 실행)
+                                </button>
+                                <button
+                                    onClick={confirmAnalysis}
+                                    className="flex-1 px-4 py-3 bg-[#0078d4] hover:bg-[#0063b1] text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                                >
+                                    AI 분석 시작
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Analysis Progress Modal */}
-            {analysisState.isAnalyzing && (
-                <div className="absolute inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[80]">
-                    <div className="bg-white rounded-xl shadow-2xl p-8 w-[400px] text-center border border-[#e5e1d8] animate-in fade-in zoom-in duration-300">
-                        <div className="mb-6 relative">
-                            <div className="w-16 h-16 border-4 border-[#e6f2ff] border-t-[#0078d4] rounded-full animate-spin mx-auto"></div>
-                            <div className="absolute inset-0 flex items-center justify-center font-bold text-[#0078d4] text-xs">AI</div>
-                        </div>
+            {
+                analysisState.isAnalyzing && (
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[80]">
+                        <div className="bg-white rounded-xl shadow-2xl p-8 w-[400px] text-center border border-[#e5e1d8] animate-in fade-in zoom-in duration-300">
+                            <div className="mb-6 relative">
+                                <div className="w-16 h-16 border-4 border-[#e6f2ff] border-t-[#0078d4] rounded-full animate-spin mx-auto"></div>
+                                <div className="absolute inset-0 flex items-center justify-center font-bold text-[#0078d4] text-xs">AI</div>
+                            </div>
 
-                        <h3 className="text-lg font-bold text-[#333333] mb-2">도면을 분석하고 있습니다</h3>
-                        <p className="text-sm text-[#666666] mb-6 animate-pulse">{analysisState.status}</p>
+                            <h3 className="text-lg font-bold text-[#333333] mb-2">도면을 분석하고 있습니다</h3>
+                            <p className="text-sm text-[#666666] mb-6 animate-pulse">{analysisState.status}</p>
 
-                        <div className="w-full h-2 bg-[#f0ede6] rounded-full overflow-hidden mb-2 relative">
-                            <div
-                                className="h-full bg-gradient-to-r from-[#0078d4] to-[#00bcf2] transition-all duration-300 ease-out relative"
-                                style={{ width: `${analysisState.progress}%` }}
-                            >
-                                <div className="absolute inset-0 bg-white/30 animate-[shimmer_2s_infinite]"></div>
+                            <div className="w-full h-2 bg-[#f0ede6] rounded-full overflow-hidden mb-2 relative">
+                                <div
+                                    className="h-full bg-gradient-to-r from-[#0078d4] to-[#00bcf2] transition-all duration-300 ease-out relative"
+                                    style={{ width: `${analysisState.progress}%` }}
+                                >
+                                    <div className="absolute inset-0 bg-white/30 animate-[shimmer_2s_infinite]"></div>
+                                </div>
+                            </div>
+                            <div className="flex justify-between text-xs text-[#888888] font-mono">
+                                <span>Progress</span>
+                                <span>{analysisState.progress}%</span>
+                            </div>
+
+                            <div className="mt-6 text-xs text-[#a0a0a0] bg-[#fdfdfd] p-3 rounded border border-[#f0f0f0]">
+                                창을 닫지 마세요. 대용량 파일은 1~2분 정도 소요될 수 있습니다.
                             </div>
                         </div>
-                        <div className="flex justify-between text-xs text-[#888888] font-mono">
-                            <span>Progress</span>
-                            <span>{analysisState.progress}%</span>
-                        </div>
-
-                        <div className="mt-6 text-xs text-[#a0a0a0] bg-[#fdfdfd] p-3 rounded border border-[#f0f0f0]">
-                            창을 닫지 마세요. 대용량 파일은 1~2분 정도 소요될 수 있습니다.
-                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Scope Selection Modal */}
-            {showScopeSelectionModal && (
-                <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60]">
-                    <div className="bg-white rounded-xl shadow-2xl p-6 w-[400px] border border-[#e5e1d8] animate-in fade-in zoom-in duration-200">
-                        <div className="text-center mb-6">
-                            <div className="bg-[#fff8f0] w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-                                <MessageSquare size={24} className="text-[#d97757]" />
+            {
+                showScopeSelectionModal && (
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60]">
+                        <div className="bg-white rounded-xl shadow-2xl p-6 w-[400px] border border-[#e5e1d8] animate-in fade-in zoom-in duration-200">
+                            <div className="text-center mb-6">
+                                <div className="bg-[#fff8f0] w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <MessageSquare size={24} className="text-[#d97757]" />
+                                </div>
+                                <h3 className="text-lg font-bold text-[#333333] mb-1">업로드 완료!</h3>
+                                <p className="text-sm text-[#666666]">채팅 범위를 어떻게 설정하시겠습니까?</p>
                             </div>
-                            <h3 className="text-lg font-bold text-[#333333] mb-1">업로드 완료!</h3>
-                            <p className="text-sm text-[#666666]">채팅 범위를 어떻게 설정하시겠습니까?</p>
-                        </div>
 
-                        <div className="flex flex-col gap-3">
-                            <button
-                                onClick={() => { setChatScope('active'); setShowScopeSelectionModal(false); setHasUserSelectedScope(true); }}
-                                className="flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group text-left"
-                            >
-                                <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]">
-                                    <FileText size={20} className="text-[#555555] group-hover:text-[#d97757]" />
-                                </div>
-                                <div>
-                                    <div className="font-bold text-[#333333] text-sm">현재 도면만 채팅</div>
-                                    <div className="text-xs text-[#888888]">지금 보고 있는 도면에 대해서만 질문합니다.</div>
-                                </div>
-                            </button>
+                            <div className="flex flex-col gap-3">
+                                <button
+                                    onClick={() => { setChatScope('active'); setShowScopeSelectionModal(false); setHasUserSelectedScope(true); }}
+                                    className="flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group text-left"
+                                >
+                                    <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]">
+                                        <FileText size={20} className="text-[#555555] group-hover:text-[#d97757]" />
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-[#333333] text-sm">현재 도면만 채팅</div>
+                                        <div className="text-xs text-[#888888]">지금 보고 있는 도면에 대해서만 질문합니다.</div>
+                                    </div>
+                                </button>
 
-                            <button
-                                onClick={() => { setChatScope('all'); setShowScopeSelectionModal(false); setHasUserSelectedScope(true); }}
-                                className="flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group text-left"
-                            >
-                                <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]">
-                                    <Files size={20} className="text-[#555555] group-hover:text-[#d97757]" />
-                                </div>
-                                <div>
-                                    <div className="font-bold text-[#333333] text-sm">전체 도면 채팅</div>
-                                    <div className="text-xs text-[#888888]">업로드된 모든 도면을 대상으로 질문합니다.</div>
-                                </div>
-                            </button>
+                                <button
+                                    onClick={() => { setChatScope('all'); setShowScopeSelectionModal(false); setHasUserSelectedScope(true); }}
+                                    className="flex items-center gap-3 p-4 rounded-lg border border-[#e5e1d8] hover:border-[#d97757] hover:bg-[#fff8f0] transition-all group text-left"
+                                >
+                                    <div className="bg-[#f4f1ea] p-2 rounded-full group-hover:bg-[#fff0eb]">
+                                        <Files size={20} className="text-[#555555] group-hover:text-[#d97757]" />
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-[#333333] text-sm">전체 도면 채팅</div>
+                                        <div className="text-xs text-[#888888]">업로드된 모든 도면을 대상으로 질문합니다.</div>
+                                    </div>
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 

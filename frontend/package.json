@@ -12,6 +12,7 @@
     "dependencies": {
         "@azure/storage-blob": "^12.17.0",
         "firebase": "^12.8.0",
+        "html2canvas": "^1.4.1",
         "idb-keyval": "^6.2.2",
         "lucide-react": "^0.344.0",
         "react": "^18.2.0",

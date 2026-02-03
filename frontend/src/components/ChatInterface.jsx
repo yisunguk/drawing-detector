@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, Loader2, Sparkles, AlertCircle } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, AlertCircle, RefreshCcw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
+import { logActivity } from '../services/logging';
 
 const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCitationClick }) => {
     const [messages, setMessages] = useState([
@@ -24,22 +25,46 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
     }, [messages]);
 
     // Reset chat when document changes or scope changes
-    // Reset chat when document changes or scope changes
+    // Load messages from LocalStorage when doc changes
     useEffect(() => {
-        // Prevent clearing history if the user has already started a conversation
-        const hasUserMessages = messages.some(msg => msg.role === 'user');
-        if (hasUserMessages) return;
+        const loadMessages = () => {
+            const contextKey = chatScope === 'active' ? activeDoc?.id : 'all_docs';
+            if (!contextKey) return;
 
-        if (chatScope === 'active') {
-            setMessages([
-                { role: 'assistant', content: `안녕하세요! "${activeDoc?.name || '도면'}"에 대해 궁금한 점을 물어보세요.` }
-            ]);
-        } else {
-            setMessages([
-                { role: 'assistant', content: `안녕하세요! 현재 열려있는 ${documents.length}개의 모든 문서에 대해 물어보세요.` }
-            ]);
-        }
+            const savedKey = `chat_history_${contextKey}`;
+            const savedMessages = localStorage.getItem(savedKey);
+
+            if (savedMessages) {
+                try {
+                    setMessages(JSON.parse(savedMessages));
+                } catch (e) {
+                    console.error("Failed to parse chat history", e);
+                }
+            } else {
+                // Initialize default greeting if no history
+                if (chatScope === 'active') {
+                    setMessages([
+                        { role: 'assistant', content: `안녕하세요! "${activeDoc?.name || '도면'}"에 대해 궁금한 점을 물어보세요.` }
+                    ]);
+                } else {
+                    setMessages([
+                        { role: 'assistant', content: `안녕하세요! 현재 열려있는 ${documents.length}개의 모든 문서에 대해 물어보세요.` }
+                    ]);
+                }
+            }
+        };
+
+        loadMessages();
     }, [activeDoc?.id, chatScope, documents.length]);
+
+    // Save messages to LocalStorage
+    useEffect(() => {
+        const contextKey = chatScope === 'active' ? activeDoc?.id : 'all_docs';
+        if (contextKey && messages.length > 0) {
+            // Avoid saving just the instruction message if we want, but saving everything is safer for state consistency
+            localStorage.setItem(`chat_history_${contextKey}`, JSON.stringify(messages));
+        }
+    }, [messages, activeDoc?.id, chatScope]);
 
     const formatContext = () => {
         // Decide which docs to include
@@ -63,9 +88,45 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                     // Use OCR data if available
                     pages.forEach((page, idx) => {
                         context += `\n[Page ${page.page_number || idx + 1}]\n`;
+
+                        // Add line-based content first
                         if (page.layout?.lines) {
                             page.layout.lines.forEach(line => {
                                 context += `${line.content}\n`;
+                            });
+                        }
+
+                        // Add structured table content if available
+                        if (page.tables && page.tables.length > 0) {
+                            context += `\n[Structured Tables from Page ${page.page_number || idx + 1}]\n`;
+                            page.tables.forEach((table, tIdx) => {
+                                context += `\nTable ${tIdx + 1}:\n`;
+
+                                // Initialize grid
+                                const grid = [];
+                                for (let r = 0; r < table.row_count; r++) {
+                                    grid[r] = new Array(table.column_count).fill("");
+                                }
+
+                                // Fill grid
+                                table.cells.forEach(cell => {
+                                    if (cell.row_index < table.row_count && cell.column_index < table.column_count) {
+                                        grid[cell.row_index][cell.column_index] = (cell.content || "").replace(/\n/g, " ");
+                                    }
+                                });
+
+                                // Render Markdown Table
+                                if (grid.length > 0) {
+                                    // Header
+                                    context += "| " + grid[0].join(" | ") + " |\n";
+                                    context += "| " + grid[0].map(() => "---").join(" | ") + " |\n";
+
+                                    // Body
+                                    for (let r = 1; r < grid.length; r++) {
+                                        context += "| " + grid[r].join(" | ") + " |\n";
+                                    }
+                                }
+                                context += "\n";
                             });
                         }
                     });
@@ -97,6 +158,11 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
         setInput('');
         setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
         setIsLoading(true);
+
+        // Log Chat Activity
+        if (currentUser) {
+            logActivity(currentUser.uid, currentUser.email, 'CHAT', `Query: ${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}`);
+        }
 
         try {
             const context = formatContext();
@@ -167,6 +233,25 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
         }
     };
 
+    const handleReset = () => {
+        if (confirm('대화 내용을 초기화 하시겠습니까?')) {
+            const contextKey = chatScope === 'active' ? activeDoc?.id : 'all_docs';
+            if (contextKey) {
+                localStorage.removeItem(`chat_history_${contextKey}`);
+            }
+
+            if (chatScope === 'active') {
+                setMessages([
+                    { role: 'assistant', content: `안녕하세요! "${activeDoc?.name || '도면'}"에 대해 궁금한 점을 물어보세요.` }
+                ]);
+            } else {
+                setMessages([
+                    { role: 'assistant', content: `안녕하세요! 현재 열려있는 ${documents.length}개의 모든 문서에 대해 물어보세요.` }
+                ]);
+            }
+        }
+    };
+
     return (
         <div className="flex flex-col h-full bg-white">
             {/* Chat Header */}
@@ -178,6 +263,13 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                     <h3 className="font-bold text-[#333333] text-sm">AI Assistant</h3>
                     <p className="text-[10px] text-[#888888]">Ask about the drawing</p>
                 </div>
+                <button
+                    onClick={handleReset}
+                    className="ml-auto p-1.5 hover:bg-gray-100 rounded-md text-gray-500 hover:text-[#d97757] transition-colors"
+                    title="대화 초기화"
+                >
+                    <RefreshCcw size={16} />
+                </button>
             </div>
 
             {/* Messages Area */}

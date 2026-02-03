@@ -61,15 +61,22 @@ if (Test-Path $envPath) {
         if ($envVars.ContainsKey($secretName)) {
             $secretValue = $envVars[$secretName]
             
+            # Create temp file for secret to avoid PowerShell encoding issues (BOM/UTF-16)
+            $tempSecret = [System.IO.Path]::GetTempFileName()
+            $secretValue | Out-File -FilePath $tempSecret -Encoding ASCII -NoNewline
+
             # Check if secret already exists
             $existingSecret = gcloud secrets describe $secretName 2>&1
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  Updating existing secret: $secretName" -ForegroundColor Cyan
-                echo $secretValue | gcloud secrets versions add $secretName --data-file=-
+                gcloud secrets versions add $secretName --data-file=$tempSecret
             } else {
                 Write-Host "  Creating new secret: $secretName" -ForegroundColor Green
-                echo $secretValue | gcloud secrets create $secretName --data-file=-
+                gcloud secrets create $secretName --data-file=$tempSecret
             }
+            
+            # Clean up
+            Remove-Item $tempSecret
         } else {
             Write-Host "  Warning: $secretName not found in .env file" -ForegroundColor Yellow
         }
@@ -93,7 +100,7 @@ gcloud run deploy drawing-detector-backend `
     --allow-unauthenticated `
     --set-secrets="AZURE_OPENAI_ENDPOINT=AZURE_OPENAI_ENDPOINT:latest,AZURE_OPENAI_KEY=AZURE_OPENAI_KEY:latest,AZURE_OPENAI_API_VERSION=AZURE_OPENAI_API_VERSION:latest,AZURE_OPENAI_DEPLOYMENT_NAME=AZURE_OPENAI_DEPLOYMENT_NAME:latest,AZURE_BLOB_CONNECTION_STRING=AZURE_BLOB_CONNECTION_STRING:latest,AZURE_BLOB_SAS_TOKEN=AZURE_BLOB_SAS_TOKEN:latest,AZURE_BLOB_CONTAINER_NAME=AZURE_BLOB_CONTAINER_NAME:latest,AZURE_FORM_RECOGNIZER_ENDPOINT=AZURE_FORM_RECOGNIZER_ENDPOINT:latest,AZURE_FORM_RECOGNIZER_KEY=AZURE_FORM_RECOGNIZER_KEY:latest" `
     --max-instances 10 `
-    --memory 512Mi `
+    --memory 1024Mi `
     --cpu 1 `
     --timeout 300
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { User, Lock, Loader2, AlertCircle } from 'lucide-react';
+import { logActivity } from '../services/logging';
 
 const Login = () => {
     const [email, setEmail] = useState('');
@@ -16,7 +17,11 @@ const Login = () => {
         try {
             setError('');
             setLoading(true);
-            await login(email, password);
+            setLoading(true);
+            const userCred = await login(email, password);
+            if (userCred && userCred.user) {
+                logActivity(userCred.user.uid, userCred.user.email, 'LOGIN', 'User logged in');
+            }
             navigate('/');
         } catch (err) {
             console.error(err);

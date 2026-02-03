@@ -1,0 +1,12 @@
+Listing ROOT files with repr()...
+ROOT: 'gulflng' path='gulflng/'
+ROOT: 'input' path='input/'
+ROOT: 'output' path='output/'
+ROOT: '이근배' path='이근배/'
+Listing specific subfolder: 이근배/drawings/
+EXPECTED HEX (부산 프로젝트A_공사동 도면_2018.10.22.pdf): ebb680ec82b020ed9484eba19ceca09ded8ab8415feab3b5ec82aceb8f9920eb8f84eba9b45f323031382e31302e32322e706466
+>>> NO EXACT MATCH FOUND.
+ROOT: '이성욱' path='이성욱/'
+ROOT: '이지은' path='이지은/'
+ROOT: '최유나' path='최유나/'
+ROOT: 'verify_test.json' path='verify_test.json'

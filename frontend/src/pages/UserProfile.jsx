@@ -7,7 +7,9 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { updateProfile, updatePassword } from 'firebase/auth';
-import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check } from 'lucide-react';
+import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check, Send, X, List } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { logActivity } from '../services/logging';
 
 const UserProfile = () => {
     const { currentUser } = useAuth();
@@ -36,6 +38,85 @@ const UserProfile = () => {
     const itemsPerPage = 10;
 
 
+
+    const [feedbackContent, setFeedbackContent] = useState('');
+    const [feedbackStatus, setFeedbackStatus] = useState('idle');
+    const [adminFeedbacks, setAdminFeedbacks] = useState([]);
+    const [selectedFeedback, setSelectedFeedback] = useState(null); // For Admin Modal
+    const [activityLogs, setActivityLogs] = useState([]); // For Admin Logs Tab
+
+    // Fetch Admin Feedback
+    useEffect(() => {
+        if (activeTab === 'admin-feedback' && currentUser?.email === 'admin@poscoenc.com') {
+            const fetchFeedback = async () => {
+                try {
+                    const q = query(collection(db, 'feedback'), orderBy('timestamp', 'desc'));
+                    const snapshot = await getDocs(q);
+                    setAdminFeedbacks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                } catch (error) {
+                    console.error("Error fetching feedback:", error);
+                }
+            };
+            fetchFeedback();
+        }
+    }, [activeTab, currentUser]);
+
+    // Fetch Admin Logs
+    useEffect(() => {
+        if (activeTab === 'admin-logs' && currentUser?.email === 'admin@poscoenc.com') {
+            const fetchLogs = async () => {
+                try {
+                    const q = query(collection(db, 'activity_logs'), orderBy('timestamp', 'desc'));
+                    const snapshot = await getDocs(q);
+                    setActivityLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                } catch (error) {
+                    console.error("Error fetching logs:", error);
+                }
+            };
+            fetchLogs();
+        }
+    }, [activeTab, currentUser]);
+
+    const handleSubmitFeedback = async (e) => {
+        e.preventDefault();
+        if (!feedbackContent.trim()) return;
+
+        setFeedbackStatus('submitting');
+        try {
+            // Capture Screenshot
+            let screenshot = null;
+            try {
+                const canvas = await html2canvas(document.body, {
+                    scale: 1, // Default scale
+                    logging: false,
+                    useCORS: true // Attempt to capture cross-origin images if any
+                });
+                // Compress to JPEG with 0.5 quality to reduce size
+                screenshot = canvas.toDataURL('image/jpeg', 0.5);
+            } catch (captureError) {
+                console.error("Screenshot capture failed:", captureError);
+            }
+
+            await addDoc(collection(db, 'feedback'), {
+                content: feedbackContent,
+                userId: currentUser.uid,
+                userEmail: currentUser.email,
+                timestamp: serverTimestamp(),
+                status: 'unread',
+                screenshot: screenshot // Save base64 string
+            });
+
+            // Log Feedback Activity
+            logActivity(currentUser.uid, currentUser.email, 'FEEDBACK', 'Submitted feedback');
+
+            setFeedbackStatus('success');
+            setFeedbackContent('');
+            setTimeout(() => setFeedbackStatus('idle'), 3000);
+        } catch (error) {
+            console.error("Error submitting feedback:", error);
+            setFeedbackStatus('error');
+        }
+    };
 
     useEffect(() => {
         const fetchData = async () => {
@@ -207,6 +288,35 @@ const UserProfile = () => {
                             <User size={18} />
                             프로필 편집
                         </button>
+
+                        <div className="h-px bg-[#e5e1d8] my-2 mx-4"></div>
+
+                        <button
+                            onClick={() => setActiveTab('feedback')}
+                            className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'feedback' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#666666] hover:bg-[#e5e1d8]'}`}
+                        >
+                            <Send size={18} />
+                            피드백 보내기
+                        </button>
+
+                        {currentUser && currentUser.email === 'admin@poscoenc.com' && (
+                            <>
+                                <button
+                                    onClick={() => setActiveTab('admin-feedback')}
+                                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'admin-feedback' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#666666] hover:bg-[#e5e1d8]'}`}
+                                >
+                                    <Lock size={18} />
+                                    피드백 관리
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('admin-logs')}
+                                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'admin-logs' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#666666] hover:bg-[#e5e1d8]'}`}
+                                >
+                                    <List size={18} />
+                                    사용자 로그
+                                </button>
+                            </>
+                        )}
 
                     </div>
 
@@ -428,6 +538,206 @@ const UserProfile = () => {
                                         )}
                                     </div>
                                 )}
+                            </div>
+                        )}
+
+                        {/* Feedback Tab (User) */}
+                        {activeTab === 'feedback' && (
+                            <div className="max-w-lg">
+                                <h2 className="text-2xl font-bold text-[#333333] mb-6">피드백 보내기</h2>
+                                <p className="text-[#666666] mb-6 text-sm">
+                                    서비스 이용 중 불편한 점이나 건의사항이 있으시면 자유롭게 남겨주세요.<br />
+                                    여러분의 소중한 의견은 서비스 개선에 큰 도움이 됩니다.
+                                </p>
+
+                                <form onSubmit={handleSubmitFeedback} className="space-y-4">
+                                    <div>
+                                        <textarea
+                                            value={feedbackContent}
+                                            onChange={(e) => setFeedbackContent(e.target.value)}
+                                            placeholder="피드백 내용을 입력해주세요..."
+                                            className="w-full h-40 p-4 bg-white border border-[#dcd8d0] rounded-lg text-[#333333] focus:ring-2 focus:ring-[#d97757]/20 focus:border-[#d97757] transition-all resize-none text-sm placeholder:text-[#a0a0a0]"
+                                            required
+                                        />
+                                    </div>
+
+                                    <button
+                                        type="submit"
+                                        disabled={feedbackStatus === 'submitting' || !feedbackContent.trim()}
+                                        className="flex items-center justify-center gap-2 w-full py-2.5 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg font-medium transition-colors disabled:opacity-70"
+                                    >
+                                        {feedbackStatus === 'submitting' ? (
+                                            <Loader2 size={18} className="animate-spin" />
+                                        ) : feedbackStatus === 'success' ? (
+                                            <>
+                                                <Check size={18} /> 제출 완료
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Send size={18} /> 피드백 제출하기
+                                            </>
+                                        )}
+                                    </button>
+                                </form>
+
+                                {feedbackStatus === 'success' && (
+                                    <div className="mt-4 p-3 bg-green-50 text-green-700 text-sm rounded-lg border border-green-200 flex items-center gap-2">
+                                        <Check size={16} />
+                                        소중한 의견 감사합니다. 성공적으로 전달되었습니다.
+                                    </div>
+                                )}
+                                {feedbackStatus === 'error' && (
+                                    <div className="mt-4 p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200">
+                                        오류가 발생했습니다. 잠시 후 다시 시도해주세요.
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Admin Feedback Dashboard */}
+                        {activeTab === 'admin-feedback' && currentUser?.email === 'admin@poscoenc.com' && (
+                            <div className="min-h-full">
+                                <h2 className="text-2xl font-bold text-[#333333] mb-6">사용자 피드백 관리</h2>
+
+                                <div className="bg-white rounded-lg border border-[#e5e1d8] overflow-hidden shadow-sm">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm text-left text-[#555555]">
+                                            <thead className="text-xs text-[#888888] uppercase bg-[#f9f8f6] border-b border-[#e5e1d8]">
+                                                <tr>
+                                                    <th className="px-6 py-3 font-medium">Date</th>
+                                                    <th className="px-6 py-3 font-medium">User</th>
+                                                    <th className="px-6 py-3 font-medium">Feedback</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-[#f0ede6]">
+                                                {adminFeedbacks.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan="3" className="px-6 py-10 text-center text-[#888888]">
+                                                            등록된 피드백이 없습니다.
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    adminFeedbacks.map((fb) => (
+                                                        <tr
+                                                            key={fb.id}
+                                                            className="hover:bg-[#fcfaf7] cursor-pointer"
+                                                            onClick={() => setSelectedFeedback(fb)}
+                                                        >
+                                                            <td className="px-6 py-4 whitespace-nowrap font-mono text-xs text-[#888888]">
+                                                                {fb.timestamp?.toDate ? fb.timestamp.toDate().toLocaleString() : '-'}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap font-medium text-[#333333]">
+                                                                {fb.userEmail}
+                                                            </td>
+                                                            <td className="px-6 py-4">
+                                                                <p className="whitespace-pre-wrap max-w-xl truncate line-clamp-2">{fb.content}</p>
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                {/* Feedback Details Modal */}
+                                {selectedFeedback && (
+                                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelectedFeedback(null)}>
+                                        <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                                            <div className="p-4 border-b border-[#e5e1d8] flex items-center justify-between bg-[#f9f8f6]">
+                                                <div className="flex flex-col">
+                                                    <h3 className="font-bold text-[#333333]">피드백 상세</h3>
+                                                    <span className="text-xs text-[#888888]">{selectedFeedback.userEmail} • {selectedFeedback.timestamp?.toDate ? selectedFeedback.timestamp.toDate().toLocaleString() : '-'}</span>
+                                                </div>
+                                                <button onClick={() => setSelectedFeedback(null)} className="p-2 hover:bg-[#e5e1d8] rounded-full text-[#666666] transition-colors">
+                                                    <X size={20} />
+                                                </button>
+                                            </div>
+
+                                            <div className="p-6 overflow-y-auto bg-[#fcfaf7]">
+                                                {/* Screenshot */}
+                                                {selectedFeedback.screenshot && (
+                                                    <div className="mb-6">
+                                                        <h4 className="text-sm font-bold text-[#555555] mb-2 flex items-center gap-2">
+                                                            <FileText size={16} /> Attached Screen
+                                                        </h4>
+                                                        <div className="border border-[#e5e1d8] rounded-lg overflow-hidden bg-white shadow-sm">
+                                                            <img
+                                                                src={selectedFeedback.screenshot}
+                                                                alt="User Screenshot"
+                                                                className="w-full h-auto object-contain max-h-[500px]"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Content */}
+                                                <div>
+                                                    <h4 className="text-sm font-bold text-[#555555] mb-2 flex items-center gap-2">
+                                                        <MessageSquare size={16} /> Content
+                                                    </h4>
+                                                    <div className="bg-white p-4 rounded-lg border border-[#e5e1d8] text-[#333333] whitespace-pre-wrap leading-relaxed shadow-sm">
+                                                        {selectedFeedback.content}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Admin Logs Dashboard */}
+                        {activeTab === 'admin-logs' && currentUser?.email === 'admin@poscoenc.com' && (
+                            <div className="min-h-full">
+                                <h2 className="text-2xl font-bold text-[#333333] mb-6">사용자 로그 기록</h2>
+
+                                <div className="bg-white rounded-lg border border-[#e5e1d8] overflow-hidden shadow-sm">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm text-left text-[#555555]">
+                                            <thead className="text-xs text-[#888888] uppercase bg-[#f9f8f6] border-b border-[#e5e1d8]">
+                                                <tr>
+                                                    <th className="px-6 py-3 font-medium">Time</th>
+                                                    <th className="px-6 py-3 font-medium">User</th>
+                                                    <th className="px-6 py-3 font-medium">Action</th>
+                                                    <th className="px-6 py-3 font-medium max-w-xs">Details</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-[#f0ede6]">
+                                                {activityLogs.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan="4" className="px-6 py-10 text-center text-[#888888]">
+                                                            기록된 로그가 없습니다.
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    activityLogs.map((log) => (
+                                                        <tr key={log.id} className="hover:bg-[#fcfaf7]">
+                                                            <td className="px-6 py-4 whitespace-nowrap font-mono text-xs text-[#888888]">
+                                                                {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : '-'}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap font-medium text-[#333333]">
+                                                                {log.userEmail}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${log.action === 'LOGIN' ? 'bg-blue-100 text-blue-700' :
+                                                                        log.action === 'CHAT' ? 'bg-green-100 text-green-700' :
+                                                                            log.action === 'FEEDBACK' ? 'bg-purple-100 text-purple-700' :
+                                                                                'bg-gray-100 text-gray-700'
+                                                                    }`}>
+                                                                    {log.action}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-xs text-[#666666] truncate max-w-xs" title={log.details}>
+                                                                {log.details}
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         )}
 
