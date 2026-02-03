@@ -890,7 +890,16 @@ const App = () => {
             console.error("Resume Error:", e);
             setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
             alert("분석 작업이 중단되었습니다: " + e.message);
-            // Optional: Request cleanup (Although backend might handle temp file expiration)
+
+            // Cleanup on failure
+            try {
+                const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+                const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+                console.log("Attempting cleanup for", file.name);
+                await fetch(`${API_URL}/api/v1/analyze/cleanup?filename=${encodeURIComponent(file.name)}`, { method: 'DELETE' });
+            } catch (cleanupErr) {
+                console.warn("Cleanup failed:", cleanupErr);
+            }
         }
     };
 

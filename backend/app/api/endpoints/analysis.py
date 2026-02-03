@@ -277,3 +277,39 @@ async def list_incomplete_jobs():
     except Exception as e:
         print(f"List Incomplete Failed: {e}")
         return [] # Return empty list on error
+
+@router.delete("/cleanup")
+async def cleanup_analysis(filename: str):
+    """
+    Clean up temporary files (blob and status) if analysis fails or is aborted.
+    """
+    try:
+        print(f"Cleaning up analysis for {filename}...")
+        container_client = get_container_client()
+        
+        # 1. Delete temp file
+        temp_blob_name = f"temp/{filename}"
+        blob_client = container_client.get_blob_client(temp_blob_name)
+        if blob_client.exists():
+            blob_client.delete_blob()
+            
+        # 2. Delete status file
+        status_blob_name = f"temp/status/{filename}.status.json"
+        status_client = container_client.get_blob_client(status_blob_name)
+        if status_client.exists():
+            status_client.delete_blob()
+            
+        # 3. Delete partial json chunks?
+        # Listing and deleting might be expensive if many, but let's try to be clean
+        # Uses detailed listing which might be slow, so maybe skip or do it async?
+        # For now, let's leave partials or rely on a lifecycle policy for temp/ folder.
+        # But we will try to delete the main partials if we can guess their names?
+        # Without knowing how many chunks, we can't easily guess. 
+        # So we just delete the main file and status, allowing Resume to restart fresh or User to retry.
+        
+        return {"status": "cleaned_up", "filename": filename}
+        
+    except Exception as e:
+        print(f"Cleanup Failed: {e}")
+        # Don't raise 500, just return error status, as this is best-effort
+        return {"status": "error", "detail": str(e)}
