@@ -346,15 +346,30 @@ const App = () => {
     }, []);
 
     useEffect(() => {
+        if (!containerRef.current) return;
+
         const updateSize = () => {
             if (containerRef.current) {
-                setContainerSize({ width: containerRef.current.clientWidth, height: containerRef.current.clientHeight });
+                setContainerSize({
+                    width: containerRef.current.clientWidth,
+                    height: containerRef.current.clientHeight
+                });
             }
         };
+
+        // Use ResizeObserver for more robust size tracking (handles sidebar toggles)
+        const observer = new ResizeObserver(() => {
+            updateSize();
+        });
+
+        observer.observe(containerRef.current);
+
+        // Final fallback/initial check
         updateSize();
-        setTimeout(updateSize, 100);
-        window.addEventListener('resize', updateSize);
-        return () => window.removeEventListener('resize', updateSize);
+
+        return () => {
+            if (observer) observer.disconnect();
+        };
     }, []);
 
     const activeDoc = useMemo(() => documents.find(d => d.id === activeDocId), [documents, activeDocId]);
@@ -835,10 +850,12 @@ const App = () => {
 
     useEffect(() => {
         // Only auto-fit if it's NOT the initial load (which restores saved zoom)
+        // or if we explicitly want to re-fit (e.g. on new doc upload/switch)
         if (canvasSize.width && containerSize.width && activeDoc && !isInitialLoad) {
-            setTimeout(fitToScreen, 200);
+            console.log("Auto-fitting document:", activeDoc.name);
+            setTimeout(fitToScreen, 150);
         }
-    }, [canvasSize.width, containerSize.width, activeDoc, fitToScreen, isInitialLoad]);
+    }, [canvasSize.width, containerSize.width, activeDocId, fitToScreen, isInitialLoad]);
 
     // --- Upload Handlers ---
 
@@ -1645,7 +1662,16 @@ const App = () => {
                         const docColor = DOC_COLORS[(doc.colorIndex || 0) % DOC_COLORS.length];
                         const isActive = activeDocId === doc.id;
                         return (
-                            <div key={doc.id} onClick={() => { setActiveDocId(doc.id); setActivePage(1); setSelectedResult(null); setRotation(0); }}
+                            <div key={doc.id} onClick={() => {
+                                setActiveDocId(doc.id);
+                                setActivePage(1);
+                                setSelectedResult(null);
+                                // Reset view state when switching docs to prevent zoom inheritance
+                                setRotation(0);
+                                setPanX(50);
+                                setPanY(50);
+                                // Note: Zoom will be handled by the fitToScreen useEffect
+                            }}
                                 className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg text-xs font-medium cursor-pointer border-t-4 transition-all ${isActive ? `bg-white ${docColor.text} border-x border-[#e5e1d8] shadow-sm -mb-px z-10 ${docColor.activeBorder}` : 'text-[#888888] hover:bg-[#f4f1ea] hover:text-[#555555] border-t-transparent'}`}>
                                 {/* Icon color matches tab color */}
                                 {doc.ocrData ? <FileCheck size={14} className={isActive ? docColor.text : "text-emerald-500"} /> : doc.pdfTextData ? <FileText size={14} className={isActive ? docColor.text : "text-amber-500"} /> : <FileX size={14} className={isActive ? docColor.text : "text-red-500"} />}
