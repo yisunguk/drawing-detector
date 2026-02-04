@@ -1014,6 +1014,7 @@ const UserProfile = () => {
                 }}
                 shareData={sharingId ? chatHistory.find(c => c.id === sharingId) : null}
                 initialRecipientId={replyRecipientId}
+                senderName={profileData?.name}
             />
         </div>
     );

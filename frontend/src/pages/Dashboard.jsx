@@ -2191,6 +2191,7 @@ const App = () => {
                     setShareMessageData(null);
                 }}
                 shareData={shareMessageData}
+                senderName={userProfile?.name}
             />
         </div>
     );
