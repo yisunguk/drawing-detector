@@ -25,7 +25,13 @@ class Settings(BaseSettings):
     
     # Azure Document Intelligence Settings
     AZURE_FORM_RECOGNIZER_ENDPOINT: str = ""
+    AZURE_FORM_RECOGNIZER_ENDPOINT: str = ""
     AZURE_FORM_RECOGNIZER_KEY: str = ""
+
+    # Azure AI Search Settings
+    AZURE_SEARCH_ENDPOINT: str = ""
+    AZURE_SEARCH_KEY: str = ""
+    AZURE_SEARCH_INDEX_NAME: str = "pdf-search-index" # Default index name
 
     class Config:
         env_file = ".env"

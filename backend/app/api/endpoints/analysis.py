@@ -49,6 +49,14 @@ async def analyze_local_file(
         json_content = json.dumps(analysis_result, ensure_ascii=False, indent=2)
         json_blob_client.upload_blob(json_content, overwrite=True)
         
+        # 4. Index to Azure Search
+        try:
+            from app.services.azure_search import azure_search_service
+            print(f"Indexing to Azure Search...")
+            azure_search_service.index_documents(file.filename, category, analysis_result)
+        except Exception as e:
+            print(f"Indexing Failed: {e}")
+
         return analysis_result
 
     except Exception as e:

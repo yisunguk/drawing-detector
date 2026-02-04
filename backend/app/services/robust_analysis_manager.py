@@ -171,7 +171,15 @@ class RobustAnalysisManager:
             final_json_content = json.dumps(final_pages, ensure_ascii=False, indent=2)
             json_client.upload_blob(final_json_content, overwrite=True)
             
-            # 5. Cleanup Status
+            # 5. Index to Azure Search
+            try:
+                from app.services.azure_search import azure_search_service
+                print(f"[RobustAnalysis] Indexing {len(final_pages)} pages to Azure Search...")
+                azure_search_service.index_documents(filename, category, final_pages)
+            except Exception as e:
+                print(f"[RobustAnalysis] Indexing Failed (Non-blocking): {e}")
+
+            # 6. Cleanup Status
             status_manager.mark_completed(filename)
             print(f"[RobustAnalysis] Finalization Complete: {final_blob_name}")
             
