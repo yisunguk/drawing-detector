@@ -83,28 +83,30 @@ const UserProfile = () => {
         }
     }, [activeTab, currentUser]);
 
+    const [messageView, setMessageView] = useState('inbox'); // 'inbox' or 'outbox'
+
     // Fetch Messages
     useEffect(() => {
         if (!currentUser) return;
 
-        const fetchMessages = async () => {
-            try {
-                const q = query(
-                    collection(db, 'messages'),
-                    where('receiverId', '==', currentUser.uid),
-                    orderBy('timestamp', 'desc')
-                );
-                const snapshot = await getDocs(q);
-                const msgList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                setMessages(msgList);
-                setUnreadCount(msgList.filter(m => !m.read).length);
-            } catch (error) {
-                console.error("Error fetching messages:", error);
-            }
-        };
+        const q = query(
+            collection(db, 'messages'),
+            where(messageView === 'inbox' ? 'receiverId' : 'senderId', '==', currentUser.uid),
+            orderBy('timestamp', 'desc')
+        );
 
-        fetchMessages();
-    }, [currentUser, activeTab]);
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const msgList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setMessages(msgList);
+            if (messageView === 'inbox') {
+                setUnreadCount(msgList.filter(m => !m.read).length);
+            }
+        }, (error) => {
+            console.error(`Error fetching ${messageView} messages:`, error);
+        });
+
+        return () => unsubscribe();
+    }, [currentUser, messageView]);
 
     const markAsRead = async (messageId) => {
         try {
@@ -645,13 +647,31 @@ const UserProfile = () => {
                         {activeTab === 'messages' && (
                             <div className="flex flex-col h-full">
                                 <div className="flex items-center justify-between mb-6">
-                                    <h2 className="text-2xl font-bold text-[#333333]">받은 메시지</h2>
-                                    {unreadCount > 0 && (
+                                    <div className="flex items-center gap-4">
+                                        <h2 className="text-2xl font-bold text-[#333333]">
+                                            {messageView === 'inbox' ? '받은 메시지' : '보낸 메시지'}
+                                        </h2>
+                                        <div className="flex items-center p-1 bg-[#f0ede6] rounded-xl">
+                                            <button
+                                                onClick={() => setMessageView('inbox')}
+                                                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${messageView === 'inbox' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#888888] hover:text-[#555555]'}`}
+                                            >
+                                                받은함 {unreadCount > 0 && <span className="ml-1 px-1.5 py-0.5 bg-[#d97757] text-white text-[8px] rounded-full">{unreadCount}</span>}
+                                            </button>
+                                            <button
+                                                onClick={() => setMessageView('outbox')}
+                                                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${messageView === 'outbox' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#888888] hover:text-[#555555]'}`}
+                                            >
+                                                보낸함
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {messageView === 'inbox' && unreadCount > 0 && (
                                         <button
                                             onClick={markAllAsRead}
-                                            className="text-xs text-[#d97757] font-medium hover:underline flex items-center gap-1"
+                                            className="px-3 py-1.5 text-[10px] font-bold text-[#d97757] bg-[#fff0eb] hover:bg-[#ffe0d6] rounded-lg transition-all"
                                         >
-                                            <Check size={14} /> 모두 읽음 처리
+                                            모두 읽음 처리
                                         </button>
                                     )}
                                 </div>
@@ -659,7 +679,9 @@ const UserProfile = () => {
                                 {messages.length === 0 ? (
                                     <div className="text-center py-20 bg-[#f9f8f6] rounded-xl border border-dashed border-[#dcd8d0]">
                                         <MessageSquare size={48} className="text-[#dcd8d0] mx-auto mb-4" />
-                                        <p className="text-[#888888] font-medium">받은 메시지가 없습니다.</p>
+                                        <p className="text-[#888888] font-medium">
+                                            {messageView === 'inbox' ? '받은 메시지가 없습니다.' : '보낸 메시지가 없습니다.'}
+                                        </p>
                                     </div>
                                 ) : (
                                     <div className="space-y-4">
@@ -676,13 +698,13 @@ const UserProfile = () => {
                                                     }}
                                                 >
                                                     <div className="flex items-start gap-4">
-                                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white shrink-0 ${msg.read ? 'bg-gray-300' : 'bg-[#d97757]'}`}>
-                                                            {(msg.senderName || 'U')[0].toUpperCase()}
+                                                        <div className="w-10 h-10 rounded-full bg-[#f4f1ea] flex items-center justify-center text-[#555555] font-bold text-sm shrink-0">
+                                                            {((messageView === 'inbox' ? msg.senderName : msg.receiverName) || 'U')[0].toUpperCase()}
                                                         </div>
                                                         <div className="flex-1 min-w-0">
                                                             <div className="flex items-center justify-between mb-0.5">
                                                                 <h4 className={`text-sm font-bold truncate ${msg.read ? 'text-[#333333]' : 'text-[#d97757]'}`}>
-                                                                    {msg.senderName}
+                                                                    {messageView === 'inbox' ? msg.senderName : `To: ${msg.receiverName}`}
                                                                 </h4>
                                                                 <span className="text-[10px] text-[#a0a0a0] font-mono shrink-0">
                                                                     {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleString() : '-'}
@@ -692,15 +714,17 @@ const UserProfile = () => {
                                                                 {msg.content || (msg.shareData ? '도면 검토 내용을 공유했습니다.' : '새 메시지가 있습니다.')}
                                                             </p>
                                                         </div>
-                                                        <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); handleReply(msg.senderId); }}
-                                                                className="p-1.5 text-[#d97757] hover:bg-[#fff0eb] rounded-md transition-colors"
-                                                                title="Reply"
-                                                            >
-                                                                <Send size={16} />
-                                                            </button>
-                                                        </div>
+                                                        {messageView === 'inbox' && (
+                                                            <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); handleReply(msg.senderId); }}
+                                                                    className="p-1.5 text-[#d97757] hover:bg-[#fff0eb] rounded-md transition-colors"
+                                                                    title="Reply"
+                                                                >
+                                                                    <Send size={16} />
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                     </div>
 
                                                     {/* Expanded Message Content */}
@@ -749,14 +773,16 @@ const UserProfile = () => {
                                                                 </div>
                                                             )}
 
-                                                            <div className="flex justify-end">
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); handleReply(msg.senderId); }}
-                                                                    className="flex items-center gap-2 px-4 py-2 bg-[#d97757] text-white rounded-lg text-xs font-bold hover:bg-[#c05535] transition-all shadow-sm shadow-[#d97757]/20"
-                                                                >
-                                                                    <Send size={14} /> 답장 보내기
-                                                                </button>
-                                                            </div>
+                                                            {messageView === 'inbox' && (
+                                                                <div className="flex justify-end">
+                                                                    <button
+                                                                        onClick={(e) => { e.stopPropagation(); handleReply(msg.senderId); }}
+                                                                        className="flex items-center gap-2 px-4 py-2 bg-[#d97757] text-white rounded-lg text-xs font-bold hover:bg-[#c05535] transition-all shadow-sm shadow-[#d97757]/20"
+                                                                    >
+                                                                        <Send size={14} /> 답장 보내기
+                                                                    </button>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>

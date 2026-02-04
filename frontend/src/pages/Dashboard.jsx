@@ -233,25 +233,30 @@ const App = () => {
     };
 
     useEffect(() => {
-        const fetchUserProfile = async () => {
-            if (currentUser && !currentUser.displayName) {
-                try {
-                    const userDocRef = doc(db, "users", currentUser.uid);
-                    const userDocSnap = await getDoc(userDocRef);
+        const syncUserProfile = async () => {
+            if (!currentUser) return;
+            try {
+                const userDocRef = doc(db, "users", currentUser.uid);
+                const userDocSnap = await getDoc(userDocRef);
 
-                    if (userDocSnap.exists()) {
-                        setUserProfile(userDocSnap.data());
-                    }
-                } catch (err) {
-                    console.error("Error fetching user profile:", err);
+                if (userDocSnap.exists()) {
+                    setUserProfile(userDocSnap.data());
+                } else {
+                    // Create basic profile if missing - this ensures the user appears in recipient lists
+                    const newProfile = {
+                        name: currentUser.displayName || currentUser.email.split('@')[0],
+                        email: currentUser.email,
+                        createdAt: serverTimestamp()
+                    };
+                    await setDoc(userDocRef, newProfile);
+                    setUserProfile(newProfile);
                 }
-            } else if (currentUser) {
-                // If displayName exists on auth object, use it directly (or still wrap it)
-                setUserProfile({ name: currentUser.displayName, email: currentUser.email });
+            } catch (err) {
+                console.error("Error syncing user profile:", err);
             }
         };
 
-        fetchUserProfile();
+        syncUserProfile();
     }, [currentUser]);
 
     const handleLogout = async () => {
