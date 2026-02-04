@@ -200,15 +200,22 @@ async def analyze_document_sync(
         account_name = container_client.account_name
         
         # Get account key from credential
+        account_key = None
+        
         if hasattr(container_client.credential, 'account_key'):
             account_key = container_client.credential.account_key
         else:
             # ConnectionString case
             conn_str = settings.AZURE_BLOB_CONNECTION_STRING
-            for part in conn_str.split(';'):
-                if 'AccountKey=' in part:
-                    account_key = part.split('AccountKey=')[1]
-                    break
+            if conn_str:
+                for part in conn_str.split(';'):
+                    if 'AccountKey=' in part:
+                        account_key = part.split('AccountKey=')[1]
+                        break
+        
+        if not account_key:
+            print("[AnalyzeSync] Error: Could not extract account_key from credentials or connection string")
+            raise HTTPException(status_code=500, detail="Azure Storage account key could not be retrieved.")
         
         sas_token = generate_blob_sas(
             account_name=account_name,
