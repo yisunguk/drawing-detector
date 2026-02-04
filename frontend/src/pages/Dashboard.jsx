@@ -127,11 +127,14 @@ const App = () => {
                         if (savedRotation) setRotation(Number(savedRotation));
 
                         // Small delay to allow canvas render before disabling protection
-                        setTimeout(() => setIsInitialLoad(false), 1000);
                     }
                 }
             } catch (err) {
                 console.error('Failed to load persisted documents:', err);
+            } finally {
+                // Always mark initial load process as complete, even if no docs found
+                // This enables auto-fit logic for the first upload ever.
+                setTimeout(() => setIsInitialLoad(false), 500);
             }
         };
         loadPersistedData();
