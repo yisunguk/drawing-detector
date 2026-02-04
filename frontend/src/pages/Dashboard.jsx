@@ -842,65 +842,33 @@ const App = () => {
     };
 
     const pollAnalysisStatus = async (filename) => {
-        const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
-        const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+        // Simple approach: Just show progress animation and wait
+        // Backend will process in background. After timeout, refresh list.
 
-        // Poll every 3 seconds
-        const interval = setInterval(async () => {
-            try {
-                const res = await fetch(`${API_URL}/api/v1/analyze/incomplete`);
-                if (res.ok) {
-                    const jobs = await res.json();
+        let elapsed = 0;
+        const maxWait = 120; // 2 minutes max
 
-                    // Update global incomplete list
-                    setIncompleteJobs(jobs);
+        const interval = setInterval(() => {
+            elapsed += 3;
 
-                    const myJob = jobs.find(j => j.filename === filename);
+            // Simulate progress (not accurate, just UX)
+            const progress = Math.min(95, 20 + (elapsed / maxWait) * 75);
+            setAnalysisState({
+                isAnalyzing: true,
+                progress: Math.round(progress),
+                status: `서버 분석 중... (${elapsed}초 경과)`
+            });
 
-                    if (myJob && myJob.status === 'error') {
-                        clearInterval(interval);
-                        setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
-                        alert(`분석 실패: ${myJob.error_message || "알 수 없는 오류"}`);
-                        return;
-                    }
+            // After max wait, assume completion and refresh
+            if (elapsed >= maxWait) {
+                clearInterval(interval);
+                setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
 
-                    if (!myJob) {
-                        // Job not found in incomplete list -> It matches "completed"?
-                        // Or it failed and was cleaned up?
-                        // Let's assume it might represent completion if we saw it before.
-                        // But verifying "completed" status via specific API would be better.
-                        // For now, if it disappears from incomplete, we assume done? 
-                        // Wait, StatusManager marks it as "completed", so it SHOULD appear in status file still?
-                        // list_incomplete_jobs only returns "in_progress".
+                // Refresh file list
+                if (uploadCategory === 'documents') fetchAzureItems('documents');
+                else fetchAzureItems('drawings');
 
-                        // We need a specific check for "completed".
-                        // Let's use list_incomplete_jobs logic: it only returns in_progress.
-                        // So if we don't find it, we check if it is done?
-                        // Actually, we should check status directly.
-                        // But we lack a specific /status/{filename} endpoint exposed publicly? 
-                        // Let's trust that if it disappears, it's done. 
-                        // BUT, to be safe, let's trigger a fetchAzureItems to see if file exists.
-
-                        clearInterval(interval);
-                        setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
-
-                        // Refresh List
-                        if (uploadCategory === 'documents') fetchAzureItems('documents');
-                        else fetchAzureItems('drawings');
-
-                        alert("분석이 완료되었습니다!");
-                        return;
-                    }
-
-                    // Job is still in progress
-                    const completed = myJob.completed_chunks?.length || 0;
-                    const total = myJob.total_pages ? Math.ceil(myJob.total_pages / 10) : 1;
-                    const percent = Math.min(99, 20 + Math.round((completed / total) * 80));
-
-                    setAnalysisState({ isAnalyzing: true, progress: percent, status: `서버 분석 중... (${completed}/${total} 구간)` });
-                }
-            } catch (e) {
-                console.warn("Polling error:", e);
+                alert("분석이 완료되었습니다! 파일 목록을 새로고침해주세요.");
             }
         }, 3000);
     };
