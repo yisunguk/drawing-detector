@@ -480,6 +480,22 @@ const App = () => {
         };
 
         docsToSearch.forEach(doc => {
+            // 0. Check if document name matches search term (Virtual Match)
+            const cleanDocName = doc.name.toLowerCase().replace(/\s+/g, '');
+            if (cleanDocName.includes(cleanSearch)) {
+                results.push({
+                    content: doc.name,
+                    polygon: null,
+                    docId: doc.id,
+                    docName: doc.name,
+                    pageNum: 1,
+                    tagType: 'other',
+                    layoutWidth: 0,
+                    layoutHeight: 0,
+                    isDocumentMatch: true
+                });
+            }
+
             const dataSource = doc.ocrData || doc.pdfTextData;
             if (!dataSource) return;
             const pages = Array.isArray(dataSource) ? dataSource : [dataSource];
@@ -494,8 +510,6 @@ const App = () => {
                     // 1. Standard: pageData.layout.lines
                     // 2. Azure: pageData.lines
                     const lines = pageData.layout?.lines || pageData.lines || [];
-
-
 
                     if (lines.length === 0) return;
 
@@ -514,28 +528,17 @@ const App = () => {
 
                         const cleanContent = lineContent.replace(/\s+/g, '').toLowerCase();
 
-                        // 1. Exact Match (existing)
-                        let isMatch = cleanContent.includes(cleanSearch);
+                        // 1. Partial Text Match
+                        let isMatch = cleanContent.includes(cleanSearch) || cleanSearch.includes(cleanContent);
 
-                        // 2. Split Token Match (OR condition for citations like "LIC 7240")
+                        // 2. Split Token Match (for citations like "LIC 7240")
                         if (!isMatch && searchTerm.includes(' ')) {
                             const tokens = searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 0);
 
                             // If any significant token matches, we consider it a hit (OR logic)
+                            // Narrowed down to tokens with length > 2 to avoid too many noisy matches
                             isMatch = tokens.some(token => {
                                 if (token.length < 2) return false;
-
-                                // For short tokens (like "H20"), check for whole-word matches if possible
-                                if (token.length < 4) {
-                                    try {
-                                        // Check against original content to see word boundaries
-                                        const regex = new RegExp(`(^|[^a-zA-Z])${token}`, 'i');
-                                        return regex.test(lineContent);
-                                    } catch (e) {
-                                        return cleanContent.includes(token);
-                                    }
-                                }
-                                // For longer tokens, simple includes
                                 return cleanContent.includes(token);
                             });
                         }
@@ -1450,6 +1453,29 @@ const App = () => {
     // Citation Handler
     const handleCitationClick = (keyword) => {
         console.log(`App handled citation: ${keyword}`);
+
+        // 1. Check if it's a page navigation (e.g. "Page 2" or "2페이지")
+        const pageMatch = keyword.match(/(?:Page|페이지)\s*(\d+)/i);
+        if (pageMatch) {
+            const pageNum = parseInt(pageMatch[1]);
+            if (activeDoc && pageNum >= 1 && pageNum <= (activeDoc.totalPages || 1)) {
+                goToPage(pageNum);
+                return;
+            }
+        }
+
+        // 2. Check if it matches a document name
+        const docMatch = documents.find(d =>
+            d.name.toLowerCase().includes(keyword.toLowerCase()) ||
+            keyword.toLowerCase().includes(d.name.toLowerCase())
+        );
+        if (docMatch) {
+            setActiveDocId(docMatch.id);
+            setActivePage(1); // Optional: reset to page 1 when switching docs via citation
+            return;
+        }
+
+        // 3. Default to text search
         setSearchTerm(keyword);
         setAutoSelectFirstResult(true);
     };
