@@ -785,6 +785,28 @@ const App = () => {
         // TODO: Implement full resume logic using status_manager
     };
 
+    const deleteIncompleteJob = async (filename) => {
+        if (!window.confirm('정말 이 분석 기록을 삭제하시겠습니까?')) return;
+
+        try {
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+
+            const res = await fetch(`${API_URL}/api/v1/analyze/cleanup?filename=${encodeURIComponent(filename)}`, {
+                method: 'DELETE'
+            });
+
+            if (res.ok) {
+                setIncompleteJobs(prev => prev.filter(job => job.filename !== filename));
+            } else {
+                alert("삭제에 실패했습니다.");
+            }
+        } catch (e) {
+            console.error("Failed to delete job:", e);
+            alert("삭제 중 오류가 발생했습니다.");
+        }
+    };
+
     // --- Analysis ---
     const analyzeLocalDocument = async (file, docId) => {
         try {
@@ -1480,9 +1502,14 @@ const App = () => {
                         {incompleteJobs.length > 0 && (
                             <div className="flex gap-2">
                                 {incompleteJobs.map((job, i) => (
-                                    <button key={i} onClick={() => resumeAnalysis(job)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors border border-amber-200 animate-pulse">
-                                        <RotateCw size={14} /> {job.filename} 이어서 분석
-                                    </button>
+                                    <div key={i} className="flex items-center gap-1">
+                                        <button onClick={() => resumeAnalysis(job)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors border border-amber-200 animate-pulse">
+                                            <RotateCw size={14} /> {job.filename} 이어서 분석
+                                        </button>
+                                        <button onClick={() => deleteIncompleteJob(job.filename)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors border border-transparent hover:border-red-100" title="기록 삭제">
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
                                 ))}
                             </div>
                         )}
