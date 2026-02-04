@@ -809,30 +809,38 @@ const App = () => {
             // Step 3: Start Robust Analysis (Backend Background Task)
             setAnalysisState({ isAnalyzing: true, progress: 20, status: '분석 요청 중...' });
 
-            const formData = new FormData();
-            formData.append('filename', file.name);
-            formData.append('total_pages', documents.find(d => d.id === docId)?.totalPages || 1);
-            formData.append('category', uploadCategory);
+            // Call synchronous analysis endpoint (Streamlit-proven flow)
+            // This will block until analysis is complete
+            const totalPages = documents.find(d => d.id === docId)?.totalPages || 1;
 
-            const startRes = await fetch(`${API_URL}/api/v1/analyze/start`, {
+            setAnalysisState({ isAnalyzing: true, progress: 30, status: `서버에서 분석 중... (총 ${totalPages} 페이지)` });
+
+            const syncRes = await fetch(`${API_URL}/api/v1/analyze/analyze-sync`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     filename: file.name,
-                    total_pages: documents.find(d => d.id === docId)?.totalPages || 1,
+                    total_pages: totalPages,
                     category: uploadCategory
                 })
             });
 
-            if (!startRes.ok) {
-                const err = await startRes.json();
-                throw new Error(err.detail || "Analysis start failed");
+            if (!syncRes.ok) {
+                const err = await syncRes.json();
+                throw new Error(err.detail || "Analysis failed");
             }
 
-            console.log("Analysis Background Task Started");
+            const result = await syncRes.json();
+            console.log("Analysis Complete:", result);
 
-            // Step 4: Poll for Completion
-            await pollAnalysisStatus(file.name);
+            // Success!
+            setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
+
+            // Refresh file list
+            if (uploadCategory === 'documents') fetchAzureItems('documents');
+            else fetchAzureItems('drawings');
+
+            alert(`분석 완료! ${result.chunks_analyzed}개 페이지를 처리했습니다.`);
 
         } catch (e) {
             console.error("Analysis Error:", e);
@@ -841,37 +849,8 @@ const App = () => {
         }
     };
 
-    const pollAnalysisStatus = async (filename) => {
-        // Simple approach: Just show progress animation and wait
-        // Backend will process in background. After timeout, refresh list.
+    // pollAnalysisStatus function removed - no longer needed with synchronous endpoint
 
-        let elapsed = 0;
-        const maxWait = 120; // 2 minutes max
-
-        const interval = setInterval(() => {
-            elapsed += 3;
-
-            // Simulate progress (not accurate, just UX)
-            const progress = Math.min(95, 20 + (elapsed / maxWait) * 75);
-            setAnalysisState({
-                isAnalyzing: true,
-                progress: Math.round(progress),
-                status: `서버 분석 중... (${elapsed}초 경과)`
-            });
-
-            // After max wait, assume completion and refresh
-            if (elapsed >= maxWait) {
-                clearInterval(interval);
-                setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
-
-                // Refresh file list
-                if (uploadCategory === 'documents') fetchAzureItems('documents');
-                else fetchAzureItems('drawings');
-
-                alert("분석이 완료되었습니다! 파일 목록을 새로고침해주세요.");
-            }
-        }, 3000);
-    };
 
     const confirmAnalysis = () => {
         setShowAnalysisConfirmModal(false);

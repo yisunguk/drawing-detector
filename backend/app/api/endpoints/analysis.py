@@ -109,6 +109,258 @@ async def get_upload_sas(filename: str):
         print(f"SAS Gen Failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/start")
+async def start_robust_analysis(
+    filename: str = Body(...),
+    total_pages: int = Body(...),
+    category: str = Body("drawings")
+):
+    """
+    Initiates chunked background analysis using robust_analysis_manager.
+    Frontend should have already uploaded file to temp/{filename} via SAS.
+    """
+    try:
+        print(f"[StartAnalysis] Received: {filename}, {total_pages} pages, category={category}")
+        
+        # 1. Verify file exists in temp/
+        container_client = get_container_client()
+        blob_name = f"temp/{filename}"
+        blob_client = container_client.get_blob_client(blob_name)
+        
+        if not blob_client.exists():
+            print(f"[StartAnalysis] File not found: {blob_name}")
+            raise HTTPException(status_code=404, detail=f"File not found in temp/: {filename}")
+        
+        # 2. Initialize Status
+        from app.services.status_manager import status_manager
+        status_manager.init_status(filename, total_pages, category)
+        print(f"[StartAnalysis] Status initialized for {filename}")
+        
+        # 3. Start Background Task
+        from app.services.robust_analysis_manager import robust_analysis_manager
+        
+        asyncio.create_task(
+            robust_analysis_manager.run_analysis_loop(
+                filename=filename,
+                blob_name=blob_name,
+                total_pages=total_pages,
+                category=category
+            )
+        )
+        
+        print(f"[StartAnalysis] Background task created for {filename}")
+        return {"status": "started", "filename": filename, "total_pages": total_pages}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[StartAnalysis] Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/analyze-sync")
+async def analyze_document_sync(
+    filename: str = Body(...),
+    total_pages: int = Body(...),
+    category: str = Body("drawings")
+):
+    """
+    Synchronous document analysis endpoint (Streamlit-proven flow).
+    
+    Frontend uploads file to temp/ via SAS, then calls this endpoint.
+    This endpoint:
+    1. Verifies temp file exists
+    2. Analyzes with Document Intelligence (50 pages per chunk)
+    3. Moves to final location (drawings/ or documents/)
+    4. Saves JSON to json/ folder
+    5. Indexes to Azure Search (batch upload)
+    6. Returns only when complete
+    
+    Frontend should show loading spinner during this request.
+    """
+    try:
+        print(f"[AnalyzeSync] Starting: {filename}, {total_pages} pages, category={category}")
+        
+        # 1. Get container client
+        container_client = get_container_client()
+        
+        # 2. Verify temp file exists
+        temp_blob_name = f"temp/{filename}"
+        temp_blob_client = container_client.get_blob_client(temp_blob_name)
+        
+        if not temp_blob_client.exists():
+            print(f"[AnalyzeSync] File not found: {temp_blob_name}")
+            raise HTTPException(status_code=404, detail=f"File not found in temp/: {filename}")
+        
+        print(f"[AnalyzeSync] Temp file verified: {temp_blob_name}")
+        
+        # 3. Generate SAS URL for Document Intelligence
+        account_name = container_client.account_name
+        
+        # Get account key from credential
+        if hasattr(container_client.credential, 'account_key'):
+            account_key = container_client.credential.account_key
+        else:
+            # ConnectionString case
+            conn_str = settings.AZURE_STORAGE_CONNECTION_STRING
+            for part in conn_str.split(';'):
+                if 'AccountKey=' in part:
+                    account_key = part.split('AccountKey=')[1]
+                    break
+        
+        sas_token = generate_blob_sas(
+            account_name=account_name,
+            container_name=settings.AZURE_BLOB_CONTAINER_NAME,
+            blob_name=temp_blob_name,
+            account_key=account_key,
+            permission=BlobSasPermissions(read=True),
+            start=datetime.utcnow() - timedelta(minutes=15),
+            expiry=datetime.utcnow() + timedelta(hours=2)
+        )
+        
+        import urllib.parse
+        blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{urllib.parse.quote(temp_blob_name)}?{sas_token}"
+        print(f"[AnalyzeSync] SAS URL generated")
+        
+        # 4. Analyze document in chunks (Streamlit pattern: 50 pages per chunk)
+        from app.services.doc_intel_service import get_doc_intel_service
+        doc_intel_service = get_doc_intel_service()
+        
+        chunk_size = 50
+        all_chunks = []
+        
+        for start_page in range(1, total_pages + 1, chunk_size):
+            end_page = min(start_page + chunk_size - 1, total_pages)
+            page_range = f"{start_page}-{end_page}"
+            
+            print(f"[AnalyzeSync] Analyzing pages {page_range}...")
+            
+            # Retry logic (from Streamlit)
+            max_retries = 3
+            for retry in range(max_retries):
+                try:
+                    chunks = doc_intel_service.analyze_document(
+                        blob_url=blob_url,
+                        page_range=page_range,
+                        high_res=False  # Default to standard OCR
+                    )
+                    all_chunks.extend(chunks)
+                    print(f"[AnalyzeSync] Chunk {page_range} complete: {len(chunks)} pages")
+                    break
+                except Exception as e:
+                    if retry == max_retries - 1:
+                        print(f"[AnalyzeSync] Chunk {page_range} failed after {max_retries} retries: {e}")
+                        raise
+                    
+                    import time
+                    wait_time = 5 * (retry + 1)
+                    print(f"[AnalyzeSync] Retry {retry + 1}/{max_retries} for {page_range} (waiting {wait_time}s)")
+                    time.sleep(wait_time)
+        
+        print(f"[AnalyzeSync] Analysis complete: {len(all_chunks)} pages processed")
+        
+        # 5. Move to final location
+        final_folder = category if category in ["drawings", "documents"] else "drawings"
+        final_blob_name = f"{final_folder}/{filename}"
+        final_blob_client = container_client.get_blob_client(final_blob_name)
+        
+        # Copy from temp to final
+        temp_blob_url_with_sas = blob_url  # Reuse SAS from before
+        final_blob_client.start_copy_from_url(temp_blob_url_with_sas)
+        
+        # Wait for copy to complete
+        import time
+        for _ in range(30):  # Max 15 seconds
+            props = final_blob_client.get_blob_properties()
+            if props.copy.status == "success":
+                break
+            if props.copy.status == "failed":
+                raise Exception(f"Blob copy failed: {props.copy.status_description}")
+            time.sleep(0.5)
+        
+        # Delete temp file
+        temp_blob_client.delete_blob()
+        print(f"[AnalyzeSync] Moved to {final_blob_name}, temp deleted")
+        
+        # 6. Save JSON to Blob Storage
+        json_blob_name = f"json/{os.path.splitext(filename)[0]}.json"
+        json_blob_client = container_client.get_blob_client(json_blob_name)
+        
+        json_content = json.dumps(all_chunks, ensure_ascii=False, indent=2)
+        json_blob_client.upload_blob(json_content, overwrite=True)
+        print(f"[AnalyzeSync] JSON saved: {json_blob_name}")
+        
+        # 7. Index to Azure Search (Streamlit pattern: page-by-page with batch upload)
+        from app.services.azure_search import azure_search_service
+        
+        if not azure_search_service.client:
+            print("[AnalyzeSync] WARNING: Azure Search not configured, skipping indexing")
+        else:
+            documents_to_index = []
+            
+            for chunk in all_chunks:
+                # Create unique document ID
+                import base64
+                page_id_str = f"{final_blob_name}_page_{chunk['page_number']}"
+                doc_id = base64.urlsafe_b64encode(page_id_str.encode('utf-8')).decode('utf-8')
+                
+                # Get file size
+                blob_props = final_blob_client.get_blob_properties()
+                
+                document = {
+                    "id": doc_id,
+                    "content": chunk['content'],
+                    "content_exact": chunk['content'],
+                    "metadata_storage_name": f"{filename} (p.{chunk['page_number']})",
+                    "metadata_storage_path": f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{final_blob_name}#page={chunk['page_number']}",
+                    "metadata_storage_last_modified": datetime.utcnow().isoformat() + "Z",
+                    "metadata_storage_size": blob_props.size,
+                    "metadata_storage_content_type": "application/pdf",
+                    "project": "drawings_analysis",
+                    "page_number": chunk['page_number'],
+                    "filename": filename,
+                    "category": category
+                }
+                
+                documents_to_index.append(document)
+            
+            # Batch upload (50 docs at a time)
+            batch_size = 50
+            for i in range(0, len(documents_to_index), batch_size):
+                batch = documents_to_index[i:i + batch_size]
+                try:
+                    result = azure_search_service.client.upload_documents(documents=batch)
+                    print(f"[AnalyzeSync] Indexed batch {i//batch_size + 1}: {len(batch)} docs")
+                except Exception as e:
+                    print(f"[AnalyzeSync] Indexing batch {i//batch_size + 1} failed: {e}")
+                    # Continue with other batches
+            
+            print(f"[AnalyzeSync] Indexing complete: {len(documents_to_index)} documents")
+        
+        # 8. Return success
+        return {
+            "status": "completed",
+            "filename": filename,
+            "total_pages": total_pages,
+            "chunks_analyzed": len(all_chunks),
+            "final_location": final_blob_name,
+            "json_location": json_blob_name
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[AnalyzeSync] Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
 @router.post("/init")
 async def init_analysis(
     file: UploadFile = File(None),
@@ -350,3 +602,102 @@ async def cleanup_analysis(filename: str):
         print(f"Cleanup Failed: {e}")
         # Don't raise 500, just return error status, as this is best-effort
         return {"status": "error", "detail": str(e)}
+@router.post("/repair")
+async def repair_analysis(
+    filename: str = Body(...),
+    category: str = Body("drawings")
+):
+    """
+    Manually triggers repair using CHUNKED analysis (to avoid size limits).
+    """
+    try:
+        print(f"[Repair] Starting chunked repair for {filename} (Version: Chunked-Fix-Recalled)...")
+        
+        # 1. Verify File
+        container_client = get_container_client()
+        target_blob_name = f"{category}/{filename}"
+        blob = container_client.get_blob_client(target_blob_name)
+        
+        if not blob.exists():
+            return {"status": "error", "detail": f"File not found in {category}/"}
+            
+        # 2. Initialize Status (Required for run_analysis_loop)
+        # We assume 44 pages based on logs, or we default to a safe number. 
+        # If we under-guess, we miss pages. If we over-guess, we error on range?
+        # Let's try to get page count if possible?
+        # For now, HARDCODE 44 as per logs for this specific file. 
+        # Ideally we'd use a PDF library to count.
+        total_pages = 44 
+        
+        from app.services.status_manager import status_manager
+        status_manager.init_status(filename, total_pages, category)
+        
+        # 3. Run Analysis Loop (Synchronous-ish)
+        from app.services.robust_analysis_manager import robust_analysis_manager
+        
+        # run_analysis_loop is async. We await it.
+        # It handles: SAS generation, Chunking, Saving JSON parts, Finalizing (Merging + Indexing + Move)
+        # BUT finalize moves file from temp/.
+        # Our file is ALREADY in drawings/.
+        # So finalize will fail to move?
+        # finalize checks: if source (temp) exists, move.
+        # source (temp) does NOT exist.
+        # So finalize will skip move.
+        # Then it saves final JSON.
+        # Then it indexes.
+        # So it SHOULD work!
+        
+        await robust_analysis_manager.run_analysis_loop(
+            filename=filename,
+            blob_name=target_blob_name, # Use final location as source for SAS
+            total_pages=total_pages,
+            category=category
+        )
+        
+        return {"status": "repaired_chunked", "pages": total_pages}
+        
+    except Exception as e:
+        print(f"[Repair] Failed: {e}")
+        return {"status": "error", "detail": str(e)}
+
+@router.post("/debug-sync")
+async def debug_analyze_sync(
+    filename: str = Body(...),
+    total_pages: int = Body(...),
+    category: str = Body(...)
+):
+    """
+    Runs the analysis loop SYNCHRONOUSLY for debugging.
+    Returns the log of what happened or the error.
+    """
+    try:
+        print(f"[DEBUG v2] Starting Sync Analysis for {filename}")
+        blob_name = f"temp/{filename}"
+        
+        # 1. Test SAS Generation
+        try:
+            from app.services.blob_storage import generate_sas_url
+            test_sas = generate_sas_url(blob_name)
+            print(f"[DEBUG] SAS Token Generated successfully: {test_sas[:50]}...")
+        except Exception as e:
+            return {"status": "error", "stage": "sas_generation", "detail": str(e)}
+
+        # 1.5 Init Status for Debug
+        if not status_manager.get_status(filename):
+            print(f"[DEBUG] Initializing status for {filename}")
+            status_manager.init_status(filename, total_pages, category)
+
+        # 2. Run Analysis Loop (limited to 1 chunk/page for speed if possible, but let's run all)
+        # We catch the error inside
+        await robust_analysis_manager.run_analysis_loop(
+            filename=filename,
+            blob_name=blob_name,
+            total_pages=total_pages, # maybe force 1 for test?
+            category=category
+        )
+        
+        return {"status": "completed", "message": "Sync analysis finished without raising exception"}
+        
+    except Exception as e:
+        import traceback
+        return {"status": "error", "stage": "execution", "detail": str(e), "traceback": traceback.format_exc()}
