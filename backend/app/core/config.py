@@ -25,8 +25,16 @@ class Settings(BaseSettings):
     
     # Azure Document Intelligence Settings
     AZURE_FORM_RECOGNIZER_ENDPOINT: str = ""
-    AZURE_FORM_RECOGNIZER_ENDPOINT: str = ""
     AZURE_FORM_RECOGNIZER_KEY: str = ""
+    
+    # Aliases for Document Intelligence (code uses AZURE_DOC_INTEL_*)
+    @property
+    def AZURE_DOC_INTEL_ENDPOINT(self) -> str:
+        return self.AZURE_FORM_RECOGNIZER_ENDPOINT
+    
+    @property
+    def AZURE_DOC_INTEL_KEY(self) -> str:
+        return self.AZURE_FORM_RECOGNIZER_KEY
 
     # Azure AI Search Settings
     AZURE_SEARCH_ENDPOINT: str = ""

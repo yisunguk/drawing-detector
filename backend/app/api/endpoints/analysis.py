@@ -204,7 +204,7 @@ async def analyze_document_sync(
             account_key = container_client.credential.account_key
         else:
             # ConnectionString case
-            conn_str = settings.AZURE_STORAGE_CONNECTION_STRING
+            conn_str = settings.AZURE_BLOB_CONNECTION_STRING
             for part in conn_str.split(';'):
                 if 'AccountKey=' in part:
                     account_key = part.split('AccountKey=')[1]
