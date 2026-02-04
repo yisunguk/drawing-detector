@@ -1,0 +1,7 @@
+C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'drawing-detector-backend-kr7kyy4mza-uc.a.run.app'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+Triggering Repair for 119103_CONSOL_GMTP-CS-TS-031-T0.pdf...
+Status Code: 404
+{
+  "detail": "Not Found"
+}

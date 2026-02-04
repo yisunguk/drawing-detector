@@ -5,7 +5,8 @@ import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp, where, writeBatch } from 'firebase/firestore';
+import MessageModal from '../components/MessageModal';
 import { updateProfile, updatePassword } from 'firebase/auth';
 import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check, Send, X, List } from 'lucide-react';
 import html2canvas from 'html2canvas';
@@ -19,6 +20,11 @@ const UserProfile = () => {
     const [saving, setSaving] = useState(false);
     const [expandedChatId, setExpandedChatId] = useState(null);
     const [sharingId, setSharingId] = useState(null);
+    const [messages, setMessages] = useState([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+    const [replyRecipientId, setReplyRecipientId] = useState(null);
+    const [expandedMessageId, setExpandedMessageId] = useState(null);
 
     // Profile State
     const [profileData, setProfileData] = useState({
@@ -76,6 +82,62 @@ const UserProfile = () => {
             fetchLogs();
         }
     }, [activeTab, currentUser]);
+
+    // Fetch Messages
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const fetchMessages = async () => {
+            try {
+                const q = query(
+                    collection(db, 'messages'),
+                    where('receiverId', '==', currentUser.uid),
+                    orderBy('timestamp', 'desc')
+                );
+                const snapshot = await getDocs(q);
+                const msgList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setMessages(msgList);
+                setUnreadCount(msgList.filter(m => !m.read).length);
+            } catch (error) {
+                console.error("Error fetching messages:", error);
+            }
+        };
+
+        fetchMessages();
+    }, [currentUser, activeTab]);
+
+    const markAsRead = async (messageId) => {
+        try {
+            const msgRef = doc(db, 'messages', messageId);
+            await updateDoc(msgRef, { read: true });
+            setMessages(prev => prev.map(m => m.id === messageId ? { ...m, read: true } : m));
+            setUnreadCount(prev => Math.max(0, prev - 1));
+        } catch (error) {
+            console.error("Error marking message as read:", error);
+        }
+    };
+
+    const markAllAsRead = async () => {
+        const unreadIds = messages.filter(m => !m.read).map(m => m.id);
+        if (unreadIds.length === 0) return;
+
+        try {
+            const batch = writeBatch(db);
+            unreadIds.forEach(id => {
+                batch.update(doc(db, 'messages', id), { read: true });
+            });
+            await batch.commit();
+            setMessages(prev => prev.map(m => ({ ...m, read: true })));
+            setUnreadCount(0);
+        } catch (error) {
+            console.error("Error marking all as read:", error);
+        }
+    };
+
+    const handleReply = (senderId) => {
+        setReplyRecipientId(senderId);
+        setIsMessageModalOpen(true);
+    };
 
     const handleSubmitFeedback = async (e) => {
         e.preventDefault();
@@ -255,6 +317,12 @@ const UserProfile = () => {
         }
     };
 
+    const handleSendDirectMessage = (chat) => {
+        setReplyRecipientId(null); // Clear any stored recipient to allow selection
+        setIsMessageModalOpen(true);
+        // We'll pass the chat data to the modal
+    };
+
     if (loading) return (
         <div className="min-h-screen flex items-center justify-center bg-[#fcfaf7]">
             <Loader2 className="animate-spin text-[#d97757]" size={32} />
@@ -280,6 +348,20 @@ const UserProfile = () => {
                         >
                             <History size={18} />
                             채팅 히스토리
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('messages')}
+                            className={`flex items-center justify-between w-full px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'messages' ? 'bg-white text-[#d97757] shadow-sm' : 'text-[#666666] hover:bg-[#e5e1d8]'}`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <MessageSquare size={18} />
+                                받은 메시지
+                            </div>
+                            {unreadCount > 0 && (
+                                <span className="bg-[#d97757] text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold min-w-[20px] text-center">
+                                    {unreadCount}
+                                </span>
+                            )}
                         </button>
                         <button
                             onClick={() => setActiveTab('profile')}
@@ -466,10 +548,21 @@ const UserProfile = () => {
                                                     {/* Share Button (Visible on Hover or Expanded) */}
                                                     <div className="shrink-0 mr-2">
                                                         <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSharingId(chat.id);
+                                                                setIsMessageModalOpen(true);
+                                                            }}
+                                                            className="p-1.5 text-[#a0a0a0] hover:text-[#d97757] hover:bg-[#fff0eb] rounded-md transition-colors"
+                                                            title="Direct Message to Colleague"
+                                                        >
+                                                            <Send size={16} />
+                                                        </button>
+                                                        <button
                                                             onClick={(e) => handleShare(e, chat)}
                                                             disabled={sharingId === chat.id}
                                                             className="p-1.5 text-[#a0a0a0] hover:text-[#d97757] hover:bg-[#fff0eb] rounded-md transition-colors"
-                                                            title="Share this conversation"
+                                                            title="Copy Share Link"
                                                         >
                                                             {sharingId === chat.id ? <Loader2 size={16} className="animate-spin" /> : <Share2 size={16} />}
                                                         </button>
@@ -543,6 +636,132 @@ const UserProfile = () => {
                                                 </button>
                                             </div>
                                         )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Messages Tab */}
+                        {activeTab === 'messages' && (
+                            <div className="flex flex-col h-full">
+                                <div className="flex items-center justify-between mb-6">
+                                    <h2 className="text-2xl font-bold text-[#333333]">받은 메시지</h2>
+                                    {unreadCount > 0 && (
+                                        <button
+                                            onClick={markAllAsRead}
+                                            className="text-xs text-[#d97757] font-medium hover:underline flex items-center gap-1"
+                                        >
+                                            <Check size={14} /> 모두 읽음 처리
+                                        </button>
+                                    )}
+                                </div>
+
+                                {messages.length === 0 ? (
+                                    <div className="text-center py-20 bg-[#f9f8f6] rounded-xl border border-dashed border-[#dcd8d0]">
+                                        <MessageSquare size={48} className="text-[#dcd8d0] mx-auto mb-4" />
+                                        <p className="text-[#888888] font-medium">받은 메시지가 없습니다.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {messages.map((msg) => (
+                                            <div
+                                                key={msg.id}
+                                                className={`group border ${msg.read ? 'border-[#e5e1d8] bg-white' : 'border-[#d97757]/30 bg-[#fffcfb] shadow-sm'} rounded-xl transition-all overflow-hidden`}
+                                            >
+                                                <div
+                                                    className="p-4 cursor-pointer"
+                                                    onClick={() => {
+                                                        setExpandedMessageId(expandedMessageId === msg.id ? null : msg.id);
+                                                        if (!msg.read) markAsRead(msg.id);
+                                                    }}
+                                                >
+                                                    <div className="flex items-start gap-4">
+                                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white shrink-0 ${msg.read ? 'bg-gray-300' : 'bg-[#d97757]'}`}>
+                                                            {(msg.senderName || 'U')[0].toUpperCase()}
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center justify-between mb-0.5">
+                                                                <h4 className={`text-sm font-bold truncate ${msg.read ? 'text-[#333333]' : 'text-[#d97757]'}`}>
+                                                                    {msg.senderName}
+                                                                </h4>
+                                                                <span className="text-[10px] text-[#a0a0a0] font-mono shrink-0">
+                                                                    {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleString() : '-'}
+                                                                </span>
+                                                            </div>
+                                                            <p className={`text-sm line-clamp-1 ${msg.read ? 'text-[#666666]' : 'text-[#333333] font-medium'}`}>
+                                                                {msg.content || (msg.shareData ? '도면 검토 내용을 공유했습니다.' : '새 메시지가 있습니다.')}
+                                                            </p>
+                                                        </div>
+                                                        <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleReply(msg.senderId); }}
+                                                                className="p-1.5 text-[#d97757] hover:bg-[#fff0eb] rounded-md transition-colors"
+                                                                title="Reply"
+                                                            >
+                                                                <Send size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Expanded Message Content */}
+                                                    {expandedMessageId === msg.id && (
+                                                        <div className="mt-4 pt-4 border-t border-[#f0ede6] animate-in fade-in slide-in-from-top-1">
+                                                            <div className="text-sm text-[#333333] leading-relaxed whitespace-pre-wrap mb-4">
+                                                                {msg.content}
+                                                            </div>
+
+                                                            {msg.shareData && (
+                                                                <div className="bg-[#fcfaf7] border border-[#e5e1d8] rounded-xl p-4 mb-4">
+                                                                    <div className="flex items-center gap-2 mb-3">
+                                                                        <div className="bg-[#fff0eb] p-1.5 rounded-lg text-[#d97757]">
+                                                                            <Share2 size={14} />
+                                                                        </div>
+                                                                        <h5 className="text-xs font-bold text-[#333333]">공유된 검토 내용</h5>
+                                                                        {msg.shareData.filename && (
+                                                                            <span className="text-[10px] text-[#888888] bg-white px-1.5 py-0.5 rounded border border-[#e5e1d8]">
+                                                                                {msg.shareData.filename}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+
+                                                                    <div className="space-y-3">
+                                                                        <div className="flex gap-2">
+                                                                            <span className="text-[10px] font-bold text-[#d97757] shrink-0 mt-0.5">Q.</span>
+                                                                            <p className="text-xs font-bold text-[#333333] italic">{msg.shareData.query}</p>
+                                                                        </div>
+                                                                        <div className="flex gap-2">
+                                                                            <span className="text-[10px] font-bold text-emerald-600 shrink-0 mt-0.5">A.</span>
+                                                                            <div className="text-xs text-[#555555] prose-sm max-w-none">
+                                                                                <ReactMarkdown
+                                                                                    remarkPlugins={[remarkGfm]}
+                                                                                    components={{
+                                                                                        table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-[10px]" {...props} /></div>,
+                                                                                        thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
+                                                                                        th: ({ node, ...props }) => <th className="border border-gray-300 px-2 py-1 font-semibold text-left" {...props} />,
+                                                                                        td: ({ node, ...props }) => <td className="border border-gray-300 px-2 py-1" {...props} />,
+                                                                                    }}
+                                                                                >
+                                                                                    {msg.shareData.response.replace(/\[\[(.*?)\]\]/g, ' **📄 $1** ')}
+                                                                                </ReactMarkdown>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            <div className="flex justify-end">
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); handleReply(msg.senderId); }}
+                                                                    className="flex items-center gap-2 px-4 py-2 bg-[#d97757] text-white rounded-lg text-xs font-bold hover:bg-[#c05535] transition-all shadow-sm shadow-[#d97757]/20"
+                                                                >
+                                                                    <Send size={14} /> 답장 보내기
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                             </div>
@@ -752,6 +971,18 @@ const UserProfile = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Messaging Modal */}
+            <MessageModal
+                isOpen={isMessageModalOpen}
+                onClose={() => {
+                    setIsMessageModalOpen(false);
+                    setReplyRecipientId(null);
+                    setSharingId(null);
+                }}
+                shareData={sharingId ? chatHistory.find(c => c.id === sharingId) : null}
+                initialRecipientId={replyRecipientId}
+            />
         </div>
     );
 };

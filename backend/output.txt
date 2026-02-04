@@ -1,0 +1,11 @@
+Uploading dummy file: test_debug_zombie.pdf...
+Successfully authenticated with SAS Token (Singleton initialized)
+Upload successful.
+Triggering Debug Sync for test_debug_zombie.pdf...
+Response Status: 200
+{
+  "status": "error",
+  "stage": "execution",
+  "detail": "'NoneType' object has no attribute 'get'",
+  "traceback": "Traceback (most recent call last):\n  File \"/app/app/api/endpoints/analysis.py\", line 377, in debug_analyze_sync\n    await robust_analysis_manager.run_analysis_loop(\n  File \"/app/app/services/robust_analysis_manager.py\", line 91, in run_analysis_loop\n    current_completed = set(status.get(\"completed_chunks\", []))\n                            ^^^^^^^^^^\nAttributeError: 'NoneType' object has no attribute 'get'\n"
+}

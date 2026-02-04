@@ -66,13 +66,13 @@ async def analyze_local_file(
 # --- Batch Indexing Endpoints ---
 
 @router.get("/upload-sas")
-async def get_upload_sas(filename: str):
+async def get_upload_sas(filename: str, username: str = None):
     """
     Generate a Write-enabled SAS URL for frontend direct upload.
     Blob will be saved to 'temp/{filename}'.
     """
     try:
-        blob_name = f"temp/{filename}"
+        blob_name = f"{username}/temp/{filename}" if username else f"temp/{filename}"
         
         sas_token = None
         
@@ -164,21 +164,11 @@ async def start_robust_analysis(
 async def analyze_document_sync(
     filename: str = Body(...),
     total_pages: int = Body(...),
-    category: str = Body("drawings")
+    category: str = Body("drawings"),
+    username: str = Body(None)
 ):
     """
     Synchronous document analysis endpoint (Streamlit-proven flow).
-    
-    Frontend uploads file to temp/ via SAS, then calls this endpoint.
-    This endpoint:
-    1. Verifies temp file exists
-    2. Analyzes with Document Intelligence (50 pages per chunk)
-    3. Moves to final location (drawings/ or documents/)
-    4. Saves JSON to json/ folder
-    5. Indexes to Azure Search (batch upload)
-    6. Returns only when complete
-    
-    Frontend should show loading spinner during this request.
     """
     try:
         print(f"[AnalyzeSync] Starting: {filename}, {total_pages} pages, category={category}")
@@ -187,7 +177,7 @@ async def analyze_document_sync(
         container_client = get_container_client()
         
         # 2. Verify temp file exists
-        temp_blob_name = f"temp/{filename}"
+        temp_blob_name = f"{username}/temp/{filename}" if username else f"temp/{filename}"
         temp_blob_client = container_client.get_blob_client(temp_blob_name)
         
         if not temp_blob_client.exists():
@@ -204,6 +194,8 @@ async def analyze_document_sync(
         
         if hasattr(container_client.credential, 'account_key'):
             account_key = container_client.credential.account_key
+        elif isinstance(container_client.credential, dict) and 'account_key' in container_client.credential:
+            account_key = container_client.credential['account_key']
         else:
             # ConnectionString case
             conn_str = settings.AZURE_BLOB_CONNECTION_STRING
@@ -213,19 +205,33 @@ async def analyze_document_sync(
                         account_key = part.split('AccountKey=')[1]
                         break
         
+        # Debug logging
         if not account_key:
-            print("[AnalyzeSync] Error: Could not extract account_key from credentials or connection string")
-            raise HTTPException(status_code=500, detail="Azure Storage account key could not be retrieved.")
+            print(f"[AnalyzeSync] Credential Type: {type(container_client.credential)}")
+            if isinstance(container_client.credential, dict):
+                 print(f"[AnalyzeSync] Credential Keys: {container_client.credential.keys()}")
+
         
-        sas_token = generate_blob_sas(
-            account_name=account_name,
-            container_name=settings.AZURE_BLOB_CONTAINER_NAME,
-            blob_name=temp_blob_name,
-            account_key=account_key,
-            permission=BlobSasPermissions(read=True),
-            start=datetime.utcnow() - timedelta(minutes=15),
-            expiry=datetime.utcnow() + timedelta(hours=2)
-        )
+        if not account_key:
+            # Check if we assume SAS Token auth (Singleton initialized with SAS)
+            if settings.AZURE_BLOB_SAS_TOKEN:
+                 print("[AnalyzeSync] Using configured SAS Token (Account Key not found/needed)")
+                 sas_token = settings.AZURE_BLOB_SAS_TOKEN.replace("%2C", ",").strip()
+                 if sas_token.startswith("?"):
+                     sas_token = sas_token[1:]
+            else:
+                print("[AnalyzeSync] Error: Could not extract account_key and no SAS Token configured")
+                raise HTTPException(status_code=500, detail="Azure Storage authentication failed (No Key/SAS)")
+        else:
+             sas_token = generate_blob_sas(
+                 account_name=account_name,
+                 container_name=settings.AZURE_BLOB_CONTAINER_NAME,
+                 blob_name=temp_blob_name,
+                 account_key=account_key,
+                 permission=BlobSasPermissions(read=True),
+                 start=datetime.utcnow() - timedelta(minutes=15),
+                 expiry=datetime.utcnow() + timedelta(hours=2)
+             )
         
         import urllib.parse
         blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{urllib.parse.quote(temp_blob_name)}?{sas_token}"
@@ -253,7 +259,25 @@ async def analyze_document_sync(
                         page_range=page_range,
                         high_res=False  # Default to standard OCR
                     )
-                    all_chunks.extend(chunks)
+                    
+                    # Apply P&ID Topology Processing
+                    from app.services.pid_processor import pid_processor
+                    enriched_chunks = []
+                    for chunk in chunks:
+                        try:
+                            enriched = pid_processor.process_chunk(chunk)
+                            
+                            # Format for LLM (Append to Content)
+                            topology_text = pid_processor.format_to_text(enriched)
+                            if topology_text:
+                                enriched['content'] += topology_text
+                                
+                            enriched_chunks.append(enriched)
+                        except Exception as e:
+                            print(f"[AnalyzeSync] PID Processing Warning for page {chunk.get('page_number')}: {e}")
+                            enriched_chunks.append(chunk) # Fallback to original
+                            
+                    all_chunks.extend(enriched_chunks)
                     print(f"[AnalyzeSync] Chunk {page_range} complete: {len(chunks)} pages")
                     break
                 except Exception as e:
@@ -270,7 +294,8 @@ async def analyze_document_sync(
         
         # 5. Move to final location
         final_folder = category if category in ["drawings", "documents"] else "drawings"
-        final_blob_name = f"{final_folder}/{filename}"
+        folder_prefix = f"{username}/{final_folder}" if username else final_folder
+        final_blob_name = f"{folder_prefix}/{filename}"
         final_blob_client = container_client.get_blob_client(final_blob_name)
         
         # Copy from temp to final
@@ -292,7 +317,8 @@ async def analyze_document_sync(
         print(f"[AnalyzeSync] Moved to {final_blob_name}, temp deleted")
         
         # 6. Save JSON to Blob Storage
-        json_blob_name = f"json/{os.path.splitext(filename)[0]}.json"
+        json_prefix = f"{username}/json" if username else "json"
+        json_blob_name = f"{json_prefix}/{os.path.splitext(filename)[0]}.json"
         json_blob_client = container_client.get_blob_client(json_blob_name)
         
         json_content = json.dumps(all_chunks, ensure_ascii=False, indent=2)
@@ -409,7 +435,7 @@ from app.services.robust_analysis_manager import robust_analysis_manager
 from fastapi import BackgroundTasks
 
 @router.post("/start")
-async def start_robust_analysis(
+async def start_robust_analysis_task(
     background_tasks: BackgroundTasks,
     filename: str = Body(...),
     total_pages: int = Body(...),
@@ -489,11 +515,8 @@ async def finalize_analysis(
 
         # 1. Merge Partial Results
         final_pages = []
-        # Sort chunks by starting page number to ensure order
-        # chunks are strings like "1-30", "31-60"
         chunks = status["completed_chunks"]
         
-        # Helper to parse start page
         def get_start_page(chunk_str):
             return int(chunk_str.split('-')[0]) if '-' in chunk_str else int(chunk_str)
             
@@ -505,10 +528,7 @@ async def finalize_analysis(
             if blob_client.exists():
                 data = blob_client.download_blob().readall()
                 partial_json = json.loads(data)
-                # Append pages
                 final_pages.extend(partial_json)
-                
-                # Cleanup partial json
                 blob_client.delete_blob()
         
         # 2. Move File from temp/ to final location
@@ -519,18 +539,13 @@ async def finalize_analysis(
         source_blob = container_client.get_blob_client(temp_blob_name)
         dest_blob = container_client.get_blob_client(final_blob_name)
         
-        # Copy
         if source_blob.exists():
             dest_blob.start_copy_from_url(source_blob.url)
-            # Find a way to wait for copy? Usually instant for same account
-            # But let's verify exists
             import time
             max_retries = 10
             while dest_blob.get_blob_properties().copy.status == 'pending' and max_retries > 0:
                 time.sleep(0.5)
                 max_retries -= 1
-            
-            # Delete temp
             if dest_blob.exists():
                  source_blob.delete_blob()
 
@@ -543,9 +558,6 @@ async def finalize_analysis(
         
         # 4. Cleanup Status
         status_manager.mark_completed(filename)
-        # Optionally delete status file:
-        # status_blob = container_client.get_blob_client(f"temp/status/{filename}.status.json")
-        # status_blob.delete_blob()
         
         return {"status": "completed", "final_path": final_blob_name}
 
@@ -557,7 +569,6 @@ async def finalize_analysis(
 async def list_incomplete_jobs():
     try:
         container_client = get_container_client()
-        # List blobs in temp/status/
         blobs = container_client.list_blobs(name_starts_with="temp/status/")
         
         incomplete_jobs = []
@@ -572,7 +583,7 @@ async def list_incomplete_jobs():
         return incomplete_jobs
     except Exception as e:
         print(f"List Incomplete Failed: {e}")
-        return [] # Return empty list on error
+        return []
 
 @router.delete("/cleanup")
 async def cleanup_analysis(filename: str):
@@ -595,20 +606,12 @@ async def cleanup_analysis(filename: str):
         if status_client.exists():
             status_client.delete_blob()
             
-        # 3. Delete partial json chunks?
-        # Listing and deleting might be expensive if many, but let's try to be clean
-        # Uses detailed listing which might be slow, so maybe skip or do it async?
-        # For now, let's leave partials or rely on a lifecycle policy for temp/ folder.
-        # But we will try to delete the main partials if we can guess their names?
-        # Without knowing how many chunks, we can't easily guess. 
-        # So we just delete the main file and status, allowing Resume to restart fresh or User to retry.
-        
         return {"status": "cleaned_up", "filename": filename}
         
     except Exception as e:
         print(f"Cleanup Failed: {e}")
-        # Don't raise 500, just return error status, as this is best-effort
         return {"status": "error", "detail": str(e)}
+
 @router.post("/repair")
 async def repair_analysis(
     filename: str = Body(...),
@@ -628,31 +631,12 @@ async def repair_analysis(
         if not blob.exists():
             return {"status": "error", "detail": f"File not found in {category}/"}
             
-        # 2. Initialize Status (Required for run_analysis_loop)
-        # We assume 44 pages based on logs, or we default to a safe number. 
-        # If we under-guess, we miss pages. If we over-guess, we error on range?
-        # Let's try to get page count if possible?
-        # For now, HARDCODE 44 as per logs for this specific file. 
-        # Ideally we'd use a PDF library to count.
         total_pages = 44 
         
         from app.services.status_manager import status_manager
         status_manager.init_status(filename, total_pages, category)
         
-        # 3. Run Analysis Loop (Synchronous-ish)
         from app.services.robust_analysis_manager import robust_analysis_manager
-        
-        # run_analysis_loop is async. We await it.
-        # It handles: SAS generation, Chunking, Saving JSON parts, Finalizing (Merging + Indexing + Move)
-        # BUT finalize moves file from temp/.
-        # Our file is ALREADY in drawings/.
-        # So finalize will fail to move?
-        # finalize checks: if source (temp) exists, move.
-        # source (temp) does NOT exist.
-        # So finalize will skip move.
-        # Then it saves final JSON.
-        # Then it indexes.
-        # So it SHOULD work!
         
         await robust_analysis_manager.run_analysis_loop(
             filename=filename,

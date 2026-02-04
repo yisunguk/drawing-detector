@@ -72,7 +72,7 @@ class DocumentIntelligenceService:
             print(f"[DI] Starting analysis: pages={page_range}, high_res={high_res}")
             
             # Prepare features
-            features = []
+            features = [DocumentAnalysisFeature.BARCODES, DocumentAnalysisFeature.STYLE_FONT]
             if high_res:
                 features.append(DocumentAnalysisFeature.OCR_HIGH_RESOLUTION)
             
@@ -82,10 +82,12 @@ class DocumentIntelligenceService:
             # Start analysis
             poller = self.client.begin_analyze_document(
                 model_id="prebuilt-layout",
-                analyze_request=analyze_request,
+                body=analyze_request,
                 pages=page_range,
-                features=features if features else None
+                features=features
             )
+            
+            # ... (rest of function) ...
             
             # Wait for completion
             result = poller.result()
@@ -103,68 +105,69 @@ class DocumentIntelligenceService:
         except Exception as e:
             print(f"[DI] Analysis failed: {e}")
             raise
-    
+
     def _extract_page_content(self, page: Any, full_result: Any) -> Dict[str, Any]:
         """
-        Extract content from a single page.
-        
-        Args:
-            page: Page object from DI result
-            full_result: Full analysis result (for accessing paragraphs, tables, etc.)
-        
-        Returns:
-            Dictionary with page content
+        Extract content including Polygons for Spatial Analysis.
         """
         page_num = page.page_number
         
-        # 1. Extract text content
-        # Collect all text from lines (preserves layout better than paragraphs)
-        lines = []
+        # 1. Extract text content with Geometry
+        lines_data = []
         if hasattr(page, 'lines') and page.lines:
             for line in page.lines:
-                lines.append(line.content)
+                lines_data.append({
+                    "text": line.content,
+                    "polygon": line.polygon,  # List[float] [x1, y1, x2, y2, ...]
+                    "confidence": line.confidence if hasattr(line, 'confidence') else 1.0
+                })
         
-        # Fallback to words if lines not available
-        if not lines and hasattr(page, 'words') and page.words:
-            lines = [word.content for word in page.words]
+        # Words for finer granularity
+        words_data = []
+        if hasattr(page, 'words') and page.words:
+            for word in page.words:
+                words_data.append({
+                    "text": word.content,
+                    "polygon": word.polygon,
+                    "confidence": word.confidence if hasattr(word, 'confidence') else 1.0
+                })
+
+        # Barcodes
+        barcodes = []
+        if hasattr(page, 'barcodes') and page.barcodes:
+            for bc in page.barcodes:
+                barcodes.append({
+                    "kind": bc.kind,
+                    "value": bc.value,
+                    "polygon": bc.polygon,
+                    "confidence": bc.confidence
+                })
+
+        content = "\n".join([l["text"] for l in lines_data])
         
-        content = "\n".join(lines)
+        # ... (Tables and KVs extraction - kept similar or simplified) ...
+        # For P&ID, tables are less critical than topology, but we keep them.
         
-        # 2. Extract tables
         tables = []
         if hasattr(full_result, 'tables') and full_result.tables:
             for table in full_result.tables:
-                # Check if table belongs to this page
-                if hasattr(table, 'bounding_regions') and table.bounding_regions:
-                    table_page = table.bounding_regions[0].page_number
-                    if table_page == page_num:
+                 if hasattr(table, 'bounding_regions') and table.bounding_regions:
+                    if table.bounding_regions[0].page_number == page_num:
                         tables.append(self._extract_table(table))
-        
-        # 3. Extract key-value pairs (if any)
-        key_values = {}
-        if hasattr(full_result, 'key_value_pairs') and full_result.key_value_pairs:
-            for kv in full_result.key_value_pairs:
-                if hasattr(kv, 'key') and kv.key and hasattr(kv.key, 'content'):
-                    key_text = kv.key.content
-                    value_text = kv.value.content if kv.value and hasattr(kv.value, 'content') else ""
-                    
-                    # Check if belongs to this page
-                    if hasattr(kv.key, 'bounding_regions') and kv.key.bounding_regions:
-                        kv_page = kv.key.bounding_regions[0].page_number
-                        if kv_page == page_num:
-                            key_values[key_text] = value_text
-        
-        # 4. Build chunk
+
+        # 4. Build chunk with Geometry
         chunk = {
             "page_number": page_num,
             "content": content,
+            "lines": lines_data,   # New: For Spatial Analysis
+            "words": words_data,   # New: For Proximity
+            "barcodes": barcodes,  # New
             "tables": tables,
-            "key_values": key_values,
             "metadata": {
-                "width": page.width if hasattr(page, 'width') else None,
-                "height": page.height if hasattr(page, 'height') else None,
-                "unit": page.unit if hasattr(page, 'unit') else None,
-                "angle": page.angle if hasattr(page, 'angle') else 0
+                "width": page.width,
+                "height": page.height,
+                "unit": page.unit,
+                "angle": page.angle
             }
         }
         

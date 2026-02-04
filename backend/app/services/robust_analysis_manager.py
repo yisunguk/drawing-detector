@@ -21,82 +21,87 @@ class RobustAnalysisManager:
         Executes the Chunked Analysis Loop.
         Designed to be run as a background task.
         """
-        print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages})")
-        
-        chunk_size = 10 # Matches Dashboard.jsx logic
-        total_chunks = (total_pages + chunk_size - 1) // chunk_size # Ceiling division
-        
-        # 1. Load Existing Progress
-        status = status_manager.get_status(filename)
-        completed_chunks = set(status.get("completed_chunks", [])) if status else set()
-        
-        # 2. Iterate Chunks
-        for i in range(total_chunks):
-            start_page = i * chunk_size + 1
-            end_page = min((i + 1) * chunk_size, total_pages)
-            page_range = f"{start_page}-{end_page}"
+        try:
+            print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages})")
             
-            if page_range in completed_chunks:
-                print(f"[RobustAnalysis] Skipping finished chunk: {page_range}")
-                continue
+            chunk_size = 10 # Matches Dashboard.jsx logic
+            total_chunks = (total_pages + chunk_size - 1) // chunk_size # Ceiling division
             
-            print(f"[RobustAnalysis] Processing chunk {page_range}...")
+            # 1. Load Existing Progress
+            status = status_manager.get_status(filename)
+            completed_chunks = set(status.get("completed_chunks", [])) if status else set()
             
-            # Retry Logic
-            max_retries = 3
-            success = False
-            
-            for retry in range(max_retries):
-                try:
-                    # A. Generate SAS URL (Read-Only) for DI
-                    from app.services.blob_storage import generate_sas_url
-                    blob_url = generate_sas_url(blob_name) 
-                    
-                    # B. Analyze (Run in Executor to avoid blocking async loop)
-                    # analyze_document_from_url is blocking.
-                    loop = asyncio.get_running_loop()
-                    partial_result = await loop.run_in_executor(
-                        None, 
-                        lambda: azure_di_service.analyze_document_from_url(blob_url, pages=page_range)
-                    )
-                    
-                    # C. Save Partial Result
-                    container_client = get_container_client()
-                    part_name = f"temp/json/{filename}_part_{page_range}.json"
-                    blob_client = container_client.get_blob_client(part_name)
-                    
-                    import json
-                    json_content = json.dumps(partial_result, ensure_ascii=False, indent=2)
-                    blob_client.upload_blob(json_content, overwrite=True)
-                    
-                    # D. Update Status
-                    status_manager.update_chunk_progress(filename, page_range)
-                    success = True
-                    break
-                    
-                except Exception as e:
-                    print(f"[RobustAnalysis] Error chunk {page_range} (Retry {retry+1}): {e}")
-                    await asyncio.sleep(2 * (retry + 1)) # Simple backoff
-            
-            if not success:
-                print(f"[RobustAnalysis] Failed to process chunk {page_range} after {max_retries} retries.")
-                # Mark status as error so frontend stops polling
-                self._mark_error(filename, f"Failed to process chunk {page_range}")
-                return
+            # 2. Iterate Chunks
+            for i in range(total_chunks):
+                start_page = i * chunk_size + 1
+                end_page = min((i + 1) * chunk_size, total_pages)
+                page_range = f"{start_page}-{end_page}"
+                
+                if page_range in completed_chunks:
+                    print(f"[RobustAnalysis] Skipping finished chunk: {page_range}")
+                    continue
+                
+                print(f"[RobustAnalysis] Processing chunk {page_range}...")
+                
+                # Retry Logic
+                max_retries = 3
+                success = False
+                
+                for retry in range(max_retries):
+                    try:
+                        # A. Generate SAS URL (Read-Only) for DI
+                        from app.services.blob_storage import generate_sas_url
+                        blob_url = generate_sas_url(blob_name) 
+                        
+                        # B. Analyze (Run in Executor to avoid blocking async loop)
+                        # analyze_document_from_url is blocking.
+                        loop = asyncio.get_running_loop()
+                        partial_result = await loop.run_in_executor(
+                            None, 
+                            lambda: azure_di_service.analyze_document_from_url(blob_url, pages=page_range)
+                        )
+                        
+                        # C. Save Partial Result
+                        container_client = get_container_client()
+                        part_name = f"temp/json/{filename}_part_{page_range}.json"
+                        blob_client = container_client.get_blob_client(part_name)
+                        
+                        import json
+                        json_content = json.dumps(partial_result, ensure_ascii=False, indent=2)
+                        blob_client.upload_blob(json_content, overwrite=True)
+                        
+                        # D. Update Status
+                        status_manager.update_chunk_progress(filename, page_range)
+                        success = True
+                        break
+                        
+                    except Exception as e:
+                        print(f"[RobustAnalysis] Error chunk {page_range} (Retry {retry+1}): {e}")
+                        await asyncio.sleep(2 * (retry + 1)) # Simple backoff
+                
+                if not success:
+                    print(f"[RobustAnalysis] Failed to process chunk {page_range} after {max_retries} retries.")
+                    # Mark status as error so frontend stops polling
+                    self._mark_error(filename, f"Failed to process chunk {page_range}")
+                    return
 
-        # 3. Finalize if all chunks done
-        # ... (rest of the logic) ...
-        # logic for checking completeness
-        status = status_manager.get_status(filename)
-        current_completed = set(status.get("completed_chunks", []))
-        all_ranges = {f"{i*chunk_size+1}-{min((i+1)*chunk_size, total_pages)}" for i in range(total_chunks)}
-        
-        if all_ranges.issubset(current_completed):
-            print(f"[RobustAnalysis] All chunks executed. Finalizing...")
-            await self.finalize_analysis(filename, category)
-        else:
-            print(f"[RobustAnalysis] Loop finished but some chunks missing? {all_ranges - current_completed}")
-            self._mark_error(filename, "Loop finished but chunks missing")
+            # 3. Finalize if all chunks done
+            # logic for checking completeness
+            status = status_manager.get_status(filename)
+            current_completed = set(status.get("completed_chunks", []))
+            all_ranges = {f"{i*chunk_size+1}-{min((i+1)*chunk_size, total_pages)}" for i in range(total_chunks)}
+            
+            if all_ranges.issubset(current_completed):
+                print(f"[RobustAnalysis] All chunks executed. Finalizing...")
+                await self.finalize_analysis(filename, category)
+            else:
+                print(f"[RobustAnalysis] Loop finished but some chunks missing? {all_ranges - current_completed}")
+                self._mark_error(filename, "Loop finished but chunks missing")
+
+        except Exception as e:
+            print(f"[RobustAnalysis] Critical Failure: {e}")
+            self._mark_error(filename, f"Critical System Error: {str(e)}")
+
 
     def _mark_error(self, filename, message):
         try:

@@ -4,7 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import ChatInterface from '../components/ChatInterface';
 import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import MessageModal from '../components/MessageModal';
 import { VERSION } from '../version';
 
 import { BlobServiceClient } from '@azure/storage-blob';
@@ -45,6 +46,7 @@ const DOC_COLORS = [
 ];
 
 const App = () => {
+
     const [documents, setDocuments] = useState([]);
     const [activeDocId, setActiveDocId] = useState(null);
     const [activePage, setActivePage] = useState(1);
@@ -59,9 +61,14 @@ const App = () => {
     const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
     const [isLoading, setIsLoading] = useState(false);
+    const [pdfJsReady, setPdfJsReady] = useState(false);
     const [loadingProgress, setLoadingProgress] = useState(null);
-    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [inputPage, setInputPage] = useState(1);
+    const [isInitialLoad, setIsInitialLoad] = useState(true);
+    const [unreadMessages, setUnreadMessages] = useState([]);
+    const [newMessagePopup, setNewMessagePopup] = useState(null);
+    const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+    const [shareMessageData, setShareMessageData] = useState(null);
 
     useEffect(() => {
         setInputPage(activePage);
@@ -81,12 +88,30 @@ const App = () => {
 
                     if (validDocs.length > 0) {
                         setDocuments(validDocs);
-                        const savedActiveId = await get('activeDocId');
+
+                        const [savedActiveId, savedPage, savedZoom, savedPanX, savedPanY, savedRotation] = await Promise.all([
+                            get('activeDocId'),
+                            get('activePage'),
+                            get('zoom'),
+                            get('panX'),
+                            get('panY'),
+                            get('rotation')
+                        ]);
+
                         if (savedActiveId && validDocs.find(d => d.id === savedActiveId)) {
                             setActiveDocId(savedActiveId);
                         } else {
                             setActiveDocId(validDocs[0].id);
                         }
+
+                        if (savedPage) setActivePage(Number(savedPage));
+                        if (savedZoom) setZoom(Number(savedZoom));
+                        if (savedPanX) setPanX(Number(savedPanX));
+                        if (savedPanY) setPanY(Number(savedPanY));
+                        if (savedRotation) setRotation(Number(savedRotation));
+
+                        // Small delay to allow canvas render before disabling protection
+                        setTimeout(() => setIsInitialLoad(false), 1000);
                     }
                 }
             } catch (err) {
@@ -120,6 +145,47 @@ const App = () => {
         }
     }, [documents, activeDocId]);
 
+    // Message Listener for Notifications
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const q = query(
+            collection(db, 'messages'),
+            where('receiverId', '==', currentUser.uid),
+            where('read', '==', false),
+            orderBy('timestamp', 'desc')
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const newMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // If we have a new message that wasn't previously in our list, show a popup
+            const latestMsg = newMessages[0];
+            if (latestMsg && !unreadMessages.find(m => m.id === latestMsg.id)) {
+                setNewMessagePopup(latestMsg);
+                // Auto-hide popup after 5 seconds
+                setTimeout(() => setNewMessagePopup(null), 5000);
+            }
+
+            setUnreadMessages(newMessages);
+        }, (err) => {
+            console.error("Messaging listener error:", err);
+        });
+
+        return () => unsubscribe();
+    }, [currentUser?.uid]);
+
+    // View State Persistence
+    useEffect(() => {
+        if (!isInitialLoad) {
+            set('activePage', activePage);
+            set('zoom', zoom);
+            set('panX', panX);
+            set('panY', panY);
+            set('rotation', rotation);
+        }
+    }, [activePage, zoom, panX, panY, rotation, isInitialLoad]);
+
     const handleReset = async () => {
         if (window.confirm('모든 도면과 채팅 기록을 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
             try {
@@ -130,10 +196,15 @@ const App = () => {
                 await del('global_chat_history');
                 await del('documents'); // legacy key
 
-                // 2. Delete Individual Docs
-                if (documents.length > 0) {
-                    await Promise.all(documents.map(d => del(`doc_${d.id}`)));
-                }
+                // 2. Delete Individual Docs and View State
+                await Promise.all([
+                    ...(documents.length > 0 ? documents.map(d => del(`doc_${d.id}`)) : []),
+                    del('activePage'),
+                    del('zoom'),
+                    del('panX'),
+                    del('panY'),
+                    del('rotation')
+                ]);
 
                 // 3. Reload
                 window.location.reload();
@@ -253,8 +324,13 @@ const App = () => {
         if (!window.pdfjsLib) {
             const script = document.createElement('script');
             script.src = PDFJS_URL;
-            script.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL; };
+            script.onload = () => {
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+                setPdfJsReady(true);
+            };
             document.head.appendChild(script);
+        } else {
+            setPdfJsReady(true);
         }
     }, []);
 
@@ -324,15 +400,18 @@ const App = () => {
 
     // 버블 파싱
     const parseInstrumentBubbles = useCallback((ocrData) => {
-        if (!ocrData?.layout?.lines) return [];
-        const lines = ocrData.layout.lines;
+        const lines = ocrData.layout?.lines || ocrData.lines || [];
+        if (lines.length === 0) return [];
         const bubbles = [];
         const used = new Set();
 
         lines.forEach((line1, i) => {
+            if (!line1?.content) return; // Defensive check
             if (used.has(i) || !/^N\d+[A-Z]?$/i.test(line1.content.trim())) return;
             lines.forEach((line2, j) => {
                 if (i === j || used.has(j)) return;
+                if (!line2?.content) return; // Defensive check
+
                 const x1 = line1.polygon[0], y1 = line1.polygon[1];
                 const x2 = line2.polygon[0], y2 = line2.polygon[1];
                 const dx = Math.abs(x1 - x2), dy = y2 - y1;
@@ -394,18 +473,35 @@ const App = () => {
             if (!dataSource) return;
             const pages = Array.isArray(dataSource) ? dataSource : [dataSource];
 
-            // Check if it looks like standard OCR
-            const hasOcrStructure = pages.some(p => p?.layout?.lines);
+            // Check if it looks like standard OCR (layout.lines) or Azure OCR (lines + metadata)
+            const hasOcrStructure = pages.some(p => p?.layout?.lines || p?.lines);
 
             if (hasOcrStructure || doc.pdfTextData) {
                 // ... Existing OCR-based search ...
                 pages.forEach((pageData, idx) => {
-                    if (!pageData?.layout) return;
+                    // Support both schemas:
+                    // 1. Standard: pageData.layout.lines
+                    // 2. Azure: pageData.lines
+                    const lines = pageData.layout?.lines || pageData.lines || [];
+
+
+
+                    if (lines.length === 0) return;
+
                     const pageNum = pageData.page_number || idx + 1;
-                    const lines = pageData.layout.lines || [];
+
+                    // Dimensions for scaling (Standard: pageData.layout, Azure: pageData.metadata or direct)
+                    const layoutWidth = pageData.layout?.width || pageData.metadata?.width || pageData.width || 0;
+                    const layoutHeight = pageData.layout?.height || pageData.metadata?.height || pageData.height || 0;
 
                     lines.forEach(line => {
-                        const cleanContent = line.content.replace(/\s+/g, '').toLowerCase();
+                        // Support both 'content' (standard) and 'text' (custom backend)
+                        // This fixes the issue where Azure backend returns "text" but frontend expects "content"
+                        const lineContent = line?.content || line?.text;
+
+                        if (!lineContent || typeof lineContent !== 'string') return;
+
+                        const cleanContent = lineContent.replace(/\s+/g, '').toLowerCase();
 
                         // 1. Exact Match (existing)
                         let isMatch = cleanContent.includes(cleanSearch);
@@ -416,17 +512,14 @@ const App = () => {
 
                             // If any significant token matches, we consider it a hit (OR logic)
                             isMatch = tokens.some(token => {
-                                // For numeric tokens, strict includes is fine
-                                if (/^\d+$/.test(token)) {
-                                    return cleanContent.includes(token);
-                                }
-                                // For text tokens, avoid suffix matches (e.g. "TIC" in "STATIC")
-                                // If token is short (<=3 chars), ensure it's not preceded by a letter
-                                if (token.length <= 3) {
+                                if (token.length < 2) return false;
+
+                                // For short tokens (like "H20"), check for whole-word matches if possible
+                                if (token.length < 4) {
                                     try {
                                         // Check against original content to see word boundaries
                                         const regex = new RegExp(`(^|[^a-zA-Z])${token}`, 'i');
-                                        return regex.test(line.content);
+                                        return regex.test(lineContent);
                                     } catch (e) {
                                         return cleanContent.includes(token);
                                     }
@@ -437,17 +530,17 @@ const App = () => {
                         }
 
                         if (isMatch) {
-                            const type = classifyTag(line.content);
+                            const type = classifyTag(lineContent);
                             if (filters[type]) {
                                 results.push({
-                                    content: line.content,
-                                    polygon: [...line.polygon],
+                                    content: lineContent,
+                                    polygon: line.polygon ? [...line.polygon] : [],
                                     docId: doc.id,
                                     docName: doc.name,
                                     pageNum,
                                     tagType: type,
-                                    layoutWidth: pageData.layout.width,
-                                    layoutHeight: pageData.layout.height,
+                                    layoutWidth: layoutWidth,
+                                    layoutHeight: layoutHeight,
                                 });
                             }
                         }
@@ -466,8 +559,8 @@ const App = () => {
                                         docName: doc.name,
                                         pageNum,
                                         tagType: 'instrument',
-                                        layoutWidth: pageData.layout.width,
-                                        layoutHeight: pageData.layout.height,
+                                        layoutWidth: layoutWidth,
+                                        layoutHeight: layoutHeight,
                                     });
                                 }
                             }
@@ -699,10 +792,10 @@ const App = () => {
     }, [extractPdfText, rotation]); // Removed inputPage dependency
 
     useEffect(() => {
-        if (activeDoc) {
+        if (activeDoc && pdfJsReady) {
             loadAndRenderPage(activeDoc, activePage);
         }
-    }, [activeDoc, activePage, loadAndRenderPage]);
+    }, [activeDoc, activePage, loadAndRenderPage, pdfJsReady]);
 
     const fitToScreen = useCallback(() => {
         if (!canvasSize.width || !containerSize.width) return;
@@ -716,10 +809,11 @@ const App = () => {
     }, [canvasSize, containerSize]);
 
     useEffect(() => {
-        if (canvasSize.width && containerSize.width && activeDoc) {
+        // Only auto-fit if it's NOT the initial load (which restores saved zoom)
+        if (canvasSize.width && containerSize.width && activeDoc && !isInitialLoad) {
             setTimeout(fitToScreen, 200);
         }
-    }, [canvasSize.width, containerSize.width, activeDoc, fitToScreen]);
+    }, [canvasSize.width, containerSize.width, activeDoc, fitToScreen, isInitialLoad]);
 
     // --- Upload Handlers ---
 
@@ -772,7 +866,10 @@ const App = () => {
             setAnalysisState({ isAnalyzing: true, progress: 5, status: '업로드 채널 확보 중...' });
 
             // Encode filename to handle spaces/special characters safely
-            const sasRes = await fetch(`${API_URL}/api/v1/analyze/upload-sas?filename=${encodeURIComponent(file.name)}`);
+            const uName = userProfile?.name || currentUser?.displayName;
+            const usernameParam = uName ? `&username=${encodeURIComponent(uName)}` : '';
+            const sasRes = await fetch(`${API_URL}/api/v1/analyze/upload-sas?filename=${encodeURIComponent(file.name)}${usernameParam}`);
+
             if (!sasRes.ok) throw new Error("Failed to get upload URL");
             const { upload_url, blob_name } = await sasRes.json();
 
@@ -821,7 +918,8 @@ const App = () => {
                 body: JSON.stringify({
                     filename: file.name,
                     total_pages: totalPages,
-                    category: uploadCategory
+                    category: uploadCategory,
+                    username: userProfile?.name || currentUser?.displayName
                 })
             });
 
@@ -841,6 +939,48 @@ const App = () => {
             else fetchAzureItems('drawings');
 
             alert(`분석 완료! ${result.chunks_analyzed}개 페이지를 처리했습니다.`);
+
+            // --- Context Fix: Fetch the generated JSON and update local state ---
+            try {
+                // Construct potential JSON paths based on blob_name
+                // blob_name example: "username/drawings/filename.pdf"
+                if (blob_name) {
+                    const jsonCandidates = [];
+                    // 1. Parallel json folder
+                    if (blob_name.toLowerCase().includes('drawings')) {
+                        jsonCandidates.push(blob_name.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                        jsonCandidates.push(blob_name.replace(/drawings/i, 'json') + '.json');
+                    }
+                    // 2. Same directory
+                    jsonCandidates.push(blob_name.replace(/\.pdf$/i, '.json'));
+                    jsonCandidates.push(blob_name + '.json');
+
+                    console.log("[ContextFix] Attempting to fetch derived JSON for:", blob_name, jsonCandidates);
+
+                    let fetchedOcrData = null;
+                    for (const jsonPath of jsonCandidates) {
+                        try {
+                            const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
+                            if (jsonRes.ok) {
+                                const jsonBlob = await jsonRes.blob();
+                                const jsonText = await jsonBlob.text();
+                                fetchedOcrData = JSON.parse(jsonText);
+                                console.log(`[ContextFix] ✅ JSON context fetched from: ${jsonPath}`);
+                                break;
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    if (fetchedOcrData) {
+                        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: fetchedOcrData, isLoaded: true } : d));
+                        console.log("[ContextFix] Document state updated with OCR data.");
+                    } else {
+                        console.warn("[ContextFix] ⚠️ Could not fetch generated JSON. Chat context may be empty.");
+                    }
+                }
+            } catch (ctxErr) {
+                console.error("[ContextFix] Error fetching context JSON:", ctxErr);
+            }
 
         } catch (e) {
             console.error("Analysis Error:", e);
@@ -1025,29 +1165,38 @@ const App = () => {
 
                 // Auto-fetch JSON logic
                 let fetchedJson = null;
+                const jsonCandidates = [];
+
+                // Priority 1: Parallel 'json' folder (if in 'drawings' folder)
                 if (file.path.toLowerCase().includes('drawings')) {
-                    const jsonPath1 = file.path.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json');
-                    const jsonPath2 = file.path.replace(/drawings/i, 'json') + '.json';
+                    jsonCandidates.push(file.path.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                    jsonCandidates.push(file.path.replace(/drawings/i, 'json') + '.json');
+                }
 
+                // Priority 2: Same directory
+                jsonCandidates.push(file.path.replace(/\.pdf$/i, '.json'));
+                jsonCandidates.push(file.path + '.json');
+
+                console.log("Attempting to fetch JSON metadata from candidates:", jsonCandidates);
+
+                for (const jsonPath of jsonCandidates) {
                     try {
-                        let jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath1)}`);
-
-                        if (!jsonResponse.ok) {
-                            console.log(`JSON not found at ${jsonPath1}, trying fallback: ${jsonPath2}`);
-                            jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath2)}`);
-                        }
-
+                        const jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
                         if (jsonResponse.ok) {
                             const jsonBlob = await jsonResponse.blob();
                             const jsonText = await jsonBlob.text();
                             fetchedJson = JSON.parse(jsonText);
-                            console.log("Auto-fetched JSON metadata");
-                        } else {
-                            console.log("JSON metadata not found at:", jsonPath1, "or", jsonPath2);
+                            console.log(`✅ Successfully fetched JSON metadata from: ${jsonPath}`);
+                            break; // Stop after first success
                         }
                     } catch (jsonErr) {
-                        console.warn("Failed to auto-fetch JSON:", jsonErr);
+                        // Continue to next candidate
+                        console.warn(`Failed to fetch JSON from ${jsonPath}`, jsonErr);
                     }
+                }
+
+                if (!fetchedJson) {
+                    console.warn("⚠️ No JSON metadata found for this document.");
                 }
                 const colorIndex = documents.length % DOC_COLORS.length;
 
@@ -1133,6 +1282,7 @@ const App = () => {
     };
 
     const handleResultClick = (result) => {
+        console.log("Selected Result Debug:", result); // DEBUG
         setSelectedResult(result);
         if (result.docId !== activeDocId) {
             setActiveDocId(result.docId);
@@ -1142,12 +1292,38 @@ const App = () => {
         }
     };
 
+    // Auto-pan to selected result
+    /* 
+    // Auto-pan disabled per user request ("도면은 가운대 고정해줘")
+    useEffect(() => {
+        if (!selectedResult || !selectedResult.polygon || !activeDoc || !canvasSize.width) return;
+        if (selectedResult.docId !== activeDocId) return;
+
+        // Get center point of the polygon
+        const p = selectedResult.polygon;
+        const lw = selectedResult.layoutWidth || 1; 
+        const lh = selectedResult.layoutHeight || 1;
+
+        const cx = (p[0] + p[2]) / 2;
+        const cy = (p[1] + p[5]) / 2;
+
+        let perX = (cx / lw) * 100;
+        let perY = (cy / lh) * 100;
+
+        perX = Math.max(0, Math.min(100, perX));
+        perY = Math.max(0, Math.min(100, perY));
+
+        setPanX(perX);
+        setPanY(perY);
+    }, [selectedResult, activeDocId, activeDoc, canvasSize]);
+    */
+
     const getPolygonPoints = (result) => {
-        if (!canvasSize.width) return "";
+        if (!canvasSize.width || !result.layoutWidth || !result.layoutHeight || !result.polygon) return "";
         const p = result.polygon;
         const lw = result.layoutWidth;
         const lh = result.layoutHeight;
-        const needScale = Math.abs(lw - canvasSize.width) > 1;
+        const needScale = Math.abs(lw - canvasSize.width) > 5;
 
         if (!needScale) {
             return `${p[0]},${p[1]} ${p[2]},${p[3]} ${p[4]},${p[5]} ${p[6]},${p[7]}`;
@@ -1208,6 +1384,17 @@ const App = () => {
         setZoom(prev => Math.min(Math.max(prev * scaleMultiplier, 0.1), 5));
     }, [activeDoc]);
 
+    // Attach wheel listener manually to support { passive: false }
+    useEffect(() => {
+        const container = containerRef.current;
+        if (container) {
+            container.addEventListener('wheel', handleWheel, { passive: false });
+        }
+        return () => {
+            if (container) container.removeEventListener('wheel', handleWheel);
+        };
+    }, [handleWheel]);
+
     const handleMouseDown = useCallback((e) => {
         if (!activeDoc) return;
         setIsDragging(true);
@@ -1219,13 +1406,16 @@ const App = () => {
         e.preventDefault();
         const dx = e.clientX - dragStart.x;
         const dy = e.clientY - dragStart.y;
-        const containerWidth = containerRef.current.clientWidth;
-        const containerHeight = containerRef.current.clientHeight;
-        const sensitivity = 0.2;
-        setPanX(prev => Math.min(Math.max(prev + (dx / containerWidth * 100 * sensitivity), 0), 100));
-        setPanY(prev => Math.min(Math.max(prev + (dy / containerHeight * 100 * sensitivity), 0), 100));
+
+        // Calculate percentages based on CURRENT VISUAL SIZE (canvas * zoom)
+        // Drag Right (dx > 0) -> Paper moves Right -> translate increases -> (50 - panX) increases -> panX decreases
+        const currentWidth = (canvasSize.width * zoom) || containerRef.current.clientWidth;
+        const currentHeight = (canvasSize.height * zoom) || containerRef.current.clientHeight;
+
+        setPanX(prev => Math.min(Math.max(prev - (dx / currentWidth * 100), 0), 100));
+        setPanY(prev => Math.min(Math.max(prev - (dy / currentHeight * 100), 0), 100));
         setDragStart({ x: e.clientX, y: e.clientY });
-    }, [isDragging, activeDoc, dragStart]);
+    }, [isDragging, activeDoc, dragStart, canvasSize, zoom]);
 
     const handleMouseUp = useCallback(() => {
         setIsDragging(false);
@@ -1235,8 +1425,10 @@ const App = () => {
         if (!canvasSize.width || !containerSize.width) return { min: 50, max: 50 };
         const cw = canvasSize.width * zoom;
         const ch = canvasSize.height * zoom;
-        const overX = Math.max(0, (cw - containerSize.width) / 2 / cw * 50);
-        const overY = Math.max(0, (ch - containerSize.height) / 2 / ch * 50);
+        // Calculate max overhang % (how much we can shift to see the edge)
+        // If Image > Container: Shift = (Image - Container) / 2 / Image * 100
+        const overX = Math.max(0, (cw - containerSize.width) / 2 / cw * 100);
+        const overY = Math.max(0, (ch - containerSize.height) / 2 / ch * 100);
         return { minX: 50 - overX, maxX: 50 + overX, minY: 50 - overY, maxY: 50 + overY };
     };
     const panRange = getPanRange();
@@ -1317,14 +1509,20 @@ const App = () => {
                                                     <div className={`w-1 self-stretch rounded-full ${docColor.indicator} mr-1 shrink-0 opacity-70`} title={resDoc?.name}></div>
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center gap-2">
-                                                            <span className="font-semibold text-sm text-[#333333] truncate">{r.content}</span>
-                                                            <button onClick={(e) => { e.stopPropagation(); copyToClipboard(r.content); }} className="p-1 text-[#a0a0a0] hover:text-[#d97757] transition-colors">
+                                                            <span className="font-semibold text-sm text-[#333333] break-words line-clamp-2" title={r.content}>
+                                                                {(r.content || "").split(new RegExp(`(${searchTerm})`, 'gi')).map((part, idx) =>
+                                                                    part.toLowerCase() === searchTerm.toLowerCase()
+                                                                        ? <span key={idx} className="bg-yellow-200 text-black rounded px-0.5">{part}</span>
+                                                                        : part
+                                                                )}
+                                                            </span>
+                                                            <button onClick={(e) => { e.stopPropagation(); copyToClipboard(r.content || ""); }} className="p-1 text-[#a0a0a0] hover:text-[#d97757] transition-colors shrink-0">
                                                                 {copiedTag === r.content ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
                                                             </button>
                                                         </div>
                                                         <div className="text-[10px] text-[#888888] mt-0.5">{r.docName} • P.{r.pageNum}</div>
                                                     </div>
-                                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-medium ${tagColors[r.tagType].bg} ${tagColors[r.tagType].text}`}>{r.tagType}</span>
+                                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-medium ${tagColors[r.tagType].bg} ${tagColors[r.tagType].text} shrink-0`}>{r.tagType}</span>
                                                 </div>
                                             </div>
                                         )
@@ -1360,6 +1558,9 @@ const App = () => {
                             >
                                 <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
                                     {(userProfile?.name || currentUser?.email || 'U')[0].toUpperCase()}
+                                    {unreadMessages.length > 0 && (
+                                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#d97757] border-2 border-[#f4f1ea] rounded-full"></span>
+                                    )}
                                 </div>
                                 <div className="flex flex-col min-w-0">
                                     <span className="text-sm font-medium text-[#333333] truncate">{userProfile?.name || currentUser?.displayName || 'User'}</span>
@@ -1523,7 +1724,6 @@ const App = () => {
                 <div
                     ref={containerRef}
                     className={`flex-1 overflow-hidden bg-[#f0ede6] relative flex items-center justify-center ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-                    onWheel={handleWheel}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
@@ -1538,10 +1738,10 @@ const App = () => {
                                     <p className="text-sm text-[#888888]">잠시만 기다려 주세요...</p>
                                 </div>
                             )}
-                            <div style={{ transform: `scale(${zoom}) translate(${(panX - 50) * 2}%, ${(panY - 50) * 2}%)`, transformOrigin: 'center center' }} className="relative shadow-xl transition-transform duration-75 ease-out">
+                            <div style={{ transform: `scale(${zoom}) translate(${(50 - (isNaN(panX) ? 50 : panX))}%, ${(50 - (isNaN(panY) ? 50 : panY))}%)`, transformOrigin: 'center center' }} className="relative shadow-xl transition-transform duration-75 ease-out">
                                 <canvas ref={canvasRef} className="block bg-white" />
 
-                                {canvasSize.width > 0 && currentPageData?.layout && (
+                                {canvasSize.width > 0 && (currentPageData?.layout || currentPageData?.lines) && (
                                     <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
                                         {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
                                             <polygon key={i} points={getPolygonPoints(r)} fill="rgba(250,204,21,0.2)" stroke="rgba(250,204,21,0.6)" strokeWidth="2" />
@@ -1791,6 +1991,34 @@ const App = () => {
                 )
             }
 
+            {/* New Message Alert Popup */}
+            {newMessagePopup && (
+                <div
+                    className="fixed top-20 right-6 z-[100] bg-white rounded-2xl shadow-2xl border-l-[4px] border-[#d97757] p-4 flex gap-4 min-w-[320px] animate-in slide-in-from-right-full duration-300 cursor-pointer hover:bg-[#fcfaf7]"
+                    onClick={() => {
+                        setNewMessagePopup(null);
+                        navigate('/profile');
+                    }}
+                >
+                    <div className="bg-[#fff0eb] p-2 rounded-xl text-[#d97757] h-fit">
+                        <MessageSquare size={20} />
+                    </div>
+                    <div className="flex-1">
+                        <div className="flex justify-between items-start mb-1">
+                            <h4 className="font-bold text-sm text-[#333333]">새 메시지 도착</h4>
+                            <span className="text-[10px] text-[#a0a0a0]">방금 전</span>
+                        </div>
+                        <p className="text-xs text-[#666666] font-medium mb-1">
+                            <span className="text-[#d97757] font-bold">{newMessagePopup.senderName}</span>님이 메시지를 보냈습니다.
+                        </p>
+                        <p className="text-[10px] text-[#888888] line-clamp-1">{newMessagePopup.content || "공유된 도면 데이터가 있습니다."}</p>
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); setNewMessagePopup(null); }} className="text-gray-400 hover:text-gray-600">
+                        <X size={14} />
+                    </button>
+                </div>
+            )}
+
             {/* Analysis Progress Modal */}
             {
                 analysisState.isAnalyzing && (
@@ -1869,7 +2097,17 @@ const App = () => {
                     </div>
                 )
             }
-        </div >
+
+            {/* Messaging Modal */}
+            <MessageModal
+                isOpen={isMessageModalOpen}
+                onClose={() => {
+                    setIsMessageModalOpen(false);
+                    setShareMessageData(null);
+                }}
+                shareData={shareMessageData}
+            />
+        </div>
     );
 };
 

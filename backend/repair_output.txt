@@ -1,0 +1,72 @@
+Azure Search credentials not found.
+Traceback (most recent call last):
+  File "D:\Projects\Drawing_detecter\backend\repair_data.py", line 35, in repair_data
+    pages = await loop.run_in_executor(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\Drawing_detecter\backend\repair_data.py", line 37, in <lambda>
+    lambda: azure_di_service.analyze_document_from_url(sas_url)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\Drawing_detecter\backend\app\services\azure_di.py", line 25, in analyze_document_from_url
+    poller = self.client.begin_analyze_document_from_url(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\tracing\decorator.py", line 119, in wrapper_use_tracer
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\ai\formrecognizer\_document_analysis_client.py", line 198, in begin_analyze_document_from_url
+    return _client_op_path.begin_analyze_document(  # type: ignore
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\tracing\decorator.py", line 119, in wrapper_use_tracer
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\ai\formrecognizer\_generated\v2023_07_31\operations\_document_models_operations.py", line 518, in begin_analyze_document
+    raw_result = self._analyze_document_initial(  # type: ignore
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\ai\formrecognizer\_generated\v2023_07_31\operations\_document_models_operations.py", line 434, in _analyze_document_initial
+    pipeline_response = self._client._pipeline.run(  # type: ignore # pylint: disable=protected-access
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\_base.py", line 242, in run
+    return first_node.send(pipeline_request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\_base.py", line 98, in send
+    response = self.next.send(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\_base.py", line 98, in send
+    response = self.next.send(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\_base.py", line 98, in send
+    response = self.next.send(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  [Previous line repeated 2 more times]
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\policies\_redirect.py", line 205, in send
+    response = self.next.send(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\policies\_retry.py", line 567, in send
+    raise err
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\policies\_retry.py", line 545, in send
+    response = self.next.send(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\_base.py", line 98, in send
+    response = self.next.send(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\_base.py", line 98, in send
+    response = self.next.send(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\_base.py", line 98, in send
+    response = self.next.send(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  [Previous line repeated 4 more times]
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\_base.py", line 130, in send
+    self._sender.send(request.http_request, **request.context.options),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\149710\AppData\Local\Programs\Python\Python311\Lib\site-packages\azure\core\pipeline\transport\_requests_basic.py", line 422, in send
+    raise error
+azure.core.exceptions.ServiceRequestError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1006)
+Starting Repair for 119103_CONSOL_GMTP-CS-TS-031-T0.pdf...
+Successfully authenticated with SAS Token (Singleton initialized)
+Found file at drawings/119103_CONSOL_GMTP-CS-TS-031-T0.pdf. Size: 5596121
+Generating SAS URL...
+Running Azure DI Analysis (This may take 1-2 mins)...
+Repair Failed: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1006)

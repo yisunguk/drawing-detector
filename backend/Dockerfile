@@ -20,6 +20,7 @@ COPY . .
 
 # Expose port (Cloud Run will set PORT env var, default to 8080)
 ENV PORT=8080
+ENV FORCE_REBUILD=20260204
 EXPOSE 8080
 
 # Run the application
