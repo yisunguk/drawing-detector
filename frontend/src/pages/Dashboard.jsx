@@ -65,6 +65,7 @@ const App = () => {
     const [loadingProgress, setLoadingProgress] = useState(null);
     const [inputPage, setInputPage] = useState(1);
     const [isInitialLoad, setIsInitialLoad] = useState(true);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [unreadMessages, setUnreadMessages] = useState([]);
     const [newMessagePopup, setNewMessagePopup] = useState(null);
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
