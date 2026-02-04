@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
-import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp, where, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp, where, writeBatch, onSnapshot } from 'firebase/firestore';
 import MessageModal from '../components/MessageModal';
 import { updateProfile, updatePassword } from 'firebase/auth';
 import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check, Send, X, List } from 'lucide-react';
@@ -91,12 +91,18 @@ const UserProfile = () => {
 
         const q = query(
             collection(db, 'messages'),
-            where(messageView === 'inbox' ? 'receiverId' : 'senderId', '==', currentUser.uid),
-            orderBy('timestamp', 'desc')
+            where(messageView === 'inbox' ? 'receiverId' : 'senderId', '==', currentUser.uid)
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const msgList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            let msgList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Sort in memory to avoid complex index requirements which might be failing
+            msgList.sort((a, b) => {
+                const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+                const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+                return timeB - timeA;
+            });
+
             setMessages(msgList);
             if (messageView === 'inbox') {
                 setUnreadCount(msgList.filter(m => !m.read).length);

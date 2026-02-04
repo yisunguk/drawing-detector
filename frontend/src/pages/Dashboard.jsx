@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import ChatInterface from '../components/ChatInterface';
 import { db } from '../firebase';
-import { doc, getDoc, collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, onSnapshot, orderBy, limit, serverTimestamp } from 'firebase/firestore';
 import MessageModal from '../components/MessageModal';
 import { VERSION } from '../version';
 
@@ -72,6 +72,7 @@ const App = () => {
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [unreadMessages, setUnreadMessages] = useState([]);
     const [newMessagePopup, setNewMessagePopup] = useState(null);
+    const isFirstRun = useRef(true);
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
     const [shareMessageData, setShareMessageData] = useState(null);
 
@@ -173,6 +174,12 @@ const App = () => {
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const newMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            if (isFirstRun.current) {
+                isFirstRun.current = false;
+                setUnreadMessages(newMessages);
+                return;
+            }
 
             setUnreadMessages(prev => {
                 // If we have a new message that wasn't previously in our list, show a popup
