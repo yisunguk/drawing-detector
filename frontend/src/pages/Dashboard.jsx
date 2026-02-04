@@ -451,25 +451,43 @@ const App = () => {
     // 검색
     const searchResults = useMemo(() => {
         if (!searchTerm.trim()) return [];
+
+        // Noise Filtering: Ignore extremely short/meaningless keywords
         const cleanSearch = searchTerm.toLowerCase().replace(/\s+/g, '');
+        const noiseWords = ['g', 'e', 'ㅎ', 's', 't', 'c', 'd', 'p', 'i', 'v', 'l', 'r', 'o', 'm', 'n', 'u', 'k'];
+        if (cleanSearch.length < 2 || noiseWords.includes(cleanSearch)) {
+            console.log("Search ignored due to noise/length:", cleanSearch);
+            return [];
+        }
+
         const results = [];
         const docsToSearch = searchScope === 'all' ? documents : documents.filter(d => d.id === activeDocId);
 
-        // Recursive helper for generic JSON
+        // Scoring helper
+        const calculateScore = (content, search) => {
+            const cleanContent = content.toLowerCase().replace(/\s+/g, '');
+            if (cleanContent === search) return 100; // Perfect match
+            if (cleanContent.startsWith(search)) return 80;
+            if (cleanContent.includes(search)) return 60;
+            return 0;
+        };
+
         const searchGenericJson = (obj, doc, pageNum) => {
             if (!obj) return;
             if (typeof obj === 'string') {
-                if (obj.toLowerCase().replace(/\s+/g, '').includes(cleanSearch)) {
+                const score = calculateScore(obj, cleanSearch);
+                if (score > 0) {
                     results.push({
                         content: obj,
-                        polygon: null, // No geometry
+                        polygon: null,
                         docId: doc.id,
                         docName: doc.name,
                         pageNum,
-                        tagType: 'other', // Default type
+                        tagType: 'other',
                         layoutWidth: 0,
                         layoutHeight: 0,
-                        isMetadata: true
+                        isMetadata: true,
+                        score: score
                     });
                 }
             } else if (Array.isArray(obj)) {
@@ -480,9 +498,9 @@ const App = () => {
         };
 
         docsToSearch.forEach(doc => {
-            // 0. Check if document name matches search term (Virtual Match)
-            const cleanDocName = doc.name.toLowerCase().replace(/\s+/g, '');
-            if (cleanDocName.includes(cleanSearch)) {
+            // 0. Document Name Match
+            const docScore = calculateScore(doc.name, cleanSearch);
+            if (docScore > 0) {
                 results.push({
                     content: doc.name,
                     polygon: null,
@@ -492,7 +510,8 @@ const App = () => {
                     tagType: 'other',
                     layoutWidth: 0,
                     layoutHeight: 0,
-                    isDocumentMatch: true
+                    isDocumentMatch: true,
+                    score: docScore + 10 // Bonus for being a document name
                 });
             }
 
@@ -500,50 +519,38 @@ const App = () => {
             if (!dataSource) return;
             const pages = Array.isArray(dataSource) ? dataSource : [dataSource];
 
-            // Check if it looks like standard OCR (layout.lines) or Azure OCR (lines + metadata)
             const hasOcrStructure = pages.some(p => p?.layout?.lines || p?.lines);
 
             if (hasOcrStructure || doc.pdfTextData) {
-                // ... Existing OCR-based search ...
                 pages.forEach((pageData, idx) => {
-                    // Support both schemas:
-                    // 1. Standard: pageData.layout.lines
-                    // 2. Azure: pageData.lines
                     const lines = pageData.layout?.lines || pageData.lines || [];
-
                     if (lines.length === 0) return;
 
                     const pageNum = pageData.page_number || idx + 1;
-
-                    // Dimensions for scaling (Standard: pageData.layout, Azure: pageData.metadata or direct)
                     const layoutWidth = pageData.layout?.width || pageData.metadata?.width || pageData.width || 0;
                     const layoutHeight = pageData.layout?.height || pageData.metadata?.height || pageData.height || 0;
 
                     lines.forEach(line => {
-                        // Support both 'content' (standard) and 'text' (custom backend)
-                        // This fixes the issue where Azure backend returns "text" but frontend expects "content"
                         const lineContent = line?.content || line?.text;
-
                         if (!lineContent || typeof lineContent !== 'string') return;
 
-                        const cleanContent = lineContent.replace(/\s+/g, '').toLowerCase();
+                        let score = calculateScore(lineContent, cleanSearch);
 
-                        // 1. Partial Text Match
-                        let isMatch = cleanContent.includes(cleanSearch) || cleanSearch.includes(cleanContent);
-
-                        // 2. Split Token Match (for citations like "LIC 7240")
-                        if (!isMatch && searchTerm.includes(' ')) {
-                            const tokens = searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 0);
-
-                            // If any significant token matches, we consider it a hit (OR logic)
-                            // Narrowed down to tokens with length > 2 to avoid too many noisy matches
-                            isMatch = tokens.some(token => {
-                                if (token.length < 2) return false;
-                                return cleanContent.includes(token);
-                            });
+                        // Token match for terms with spaces (e.g. "LIC 7240")
+                        if (score < 60 && searchTerm.includes(' ')) {
+                            const tokens = searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+                            if (tokens.length > 0) {
+                                let tokenHits = 0;
+                                tokens.forEach(token => {
+                                    if (lineContent.toLowerCase().includes(token)) tokenHits++;
+                                });
+                                if (tokenHits > 0) {
+                                    score = 40 + (tokenHits / tokens.length * 20);
+                                }
+                            }
                         }
 
-                        if (isMatch) {
+                        if (score > 0) {
                             const type = classifyTag(lineContent);
                             if (filters[type]) {
                                 results.push({
@@ -555,6 +562,7 @@ const App = () => {
                                     tagType: type,
                                     layoutWidth: layoutWidth,
                                     layoutHeight: layoutHeight,
+                                    score: score
                                 });
                             }
                         }
@@ -563,20 +571,19 @@ const App = () => {
                     if (doc.ocrData) {
                         const bubbles = parseInstrumentBubbles(pageData);
                         bubbles.forEach(bubble => {
-                            const nb = bubble.content.toLowerCase().replace(/[\s/]+/g, '');
-                            if (nb.includes(cleanSearch.replace(/[\s/]+/g, ''))) {
-                                if (filters.instrument) {
-                                    results.push({
-                                        content: bubble.content,
-                                        polygon: [...bubble.polygon],
-                                        docId: doc.id,
-                                        docName: doc.name,
-                                        pageNum,
-                                        tagType: 'instrument',
-                                        layoutWidth: layoutWidth,
-                                        layoutHeight: layoutHeight,
-                                    });
-                                }
+                            const score = calculateScore(bubble.content, cleanSearch);
+                            if (score > 0 && filters.instrument) {
+                                results.push({
+                                    content: bubble.content,
+                                    polygon: [...bubble.polygon],
+                                    docId: doc.id,
+                                    docName: doc.name,
+                                    pageNum,
+                                    tagType: 'instrument',
+                                    layoutWidth: layoutWidth,
+                                    layoutHeight: layoutHeight,
+                                    score: score
+                                });
                             }
                         });
                     }
@@ -590,7 +597,11 @@ const App = () => {
                 }
             }
         });
-        return results;
+
+        // Sort by Score descending and Limit results to prevent crashes
+        return results
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 200);
     }, [searchTerm, documents, activeDocId, searchScope, filters, parseInstrumentBubbles]);
 
     const handlePageInputChange = (e) => {
@@ -1333,7 +1344,7 @@ const App = () => {
     */
 
     const getPolygonPoints = (result) => {
-        if (!canvasSize.width || !result.layoutWidth || !result.layoutHeight || !result.polygon) return "";
+        if (!canvasSize.width || !result.layoutWidth || !result.layoutHeight || !result.polygon || result.polygon.length < 8) return "";
         const p = result.polygon;
         const lw = result.layoutWidth;
         const lh = result.layoutHeight;
@@ -1453,6 +1464,14 @@ const App = () => {
     // Citation Handler
     const handleCitationClick = (keyword) => {
         console.log(`App handled citation: ${keyword}`);
+
+        // Noise Filtering for Citations
+        const cleanKeyword = keyword.toLowerCase().trim();
+        const noiseWords = ['g', 'e', 'ㅎ', 's', 't', 'c', 'd', 'p', 'i', 'v', 'l', 'r', 'o', 'm', 'n', 'u', 'k'];
+        if (cleanKeyword.length < 2 || noiseWords.includes(cleanKeyword)) {
+            console.log("Citation click ignored (noise/too short):", cleanKeyword);
+            return;
+        }
 
         // 1. Check if it's a page navigation (e.g. "Page 2" or "2페이지")
         const pageMatch = keyword.match(/(?:Page|페이지)\s*(\d+)/i);
