@@ -46,6 +46,10 @@ const DOC_COLORS = [
 ];
 
 const App = () => {
+    // Auth & Navigation (Move to top)
+    const { currentUser, logout } = useAuth();
+    const navigate = useNavigate();
+    const [userProfile, setUserProfile] = useState(null);
 
     const [documents, setDocuments] = useState([]);
     const [activeDocId, setActiveDocId] = useState(null);
@@ -70,6 +74,16 @@ const App = () => {
     const [newMessagePopup, setNewMessagePopup] = useState(null);
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
     const [shareMessageData, setShareMessageData] = useState(null);
+
+    const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+    const [viewMode, setViewMode] = useState('list');
+    const [copiedTag, setCopiedTag] = useState(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+    const [extractionProgress, setExtractionProgress] = useState(null); // { current, total }
+    // Chat Context Scope: 'active' (default) or 'all'
+    const [chatScope, setChatScope] = useState('active');
+    const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
 
     useEffect(() => {
         setInputPage(activePage);
@@ -160,15 +174,16 @@ const App = () => {
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const newMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-            // If we have a new message that wasn't previously in our list, show a popup
-            const latestMsg = newMessages[0];
-            if (latestMsg && !unreadMessages.find(m => m.id === latestMsg.id)) {
-                setNewMessagePopup(latestMsg);
-                // Auto-hide popup after 5 seconds
-                setTimeout(() => setNewMessagePopup(null), 5000);
-            }
-
-            setUnreadMessages(newMessages);
+            setUnreadMessages(prev => {
+                // If we have a new message that wasn't previously in our list, show a popup
+                const latestMsg = newMessages[0];
+                if (latestMsg && !prev.find(m => m.id === latestMsg.id)) {
+                    setNewMessagePopup(latestMsg);
+                    // Auto-hide popup after 5 seconds
+                    setTimeout(() => setNewMessagePopup(null), 5000);
+                }
+                return newMessages;
+            });
         }, (err) => {
             console.error("Messaging listener error:", err);
         });
@@ -216,23 +231,6 @@ const App = () => {
             }
         }
     };
-
-    const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
-    const [viewMode, setViewMode] = useState('list');
-    const [copiedTag, setCopiedTag] = useState(null);
-    const [isDragging, setIsDragging] = useState(false);
-    const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-    const [extractionProgress, setExtractionProgress] = useState(null); // { current, total }
-    // Chat Context Scope: 'active' (default) or 'all'
-    const [chatScope, setChatScope] = useState('active');
-    const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
-
-
-
-    // Auth
-    const { currentUser, logout } = useAuth();
-    const navigate = useNavigate();
-    const [userProfile, setUserProfile] = useState(null);
 
     useEffect(() => {
         const fetchUserProfile = async () => {
