@@ -78,6 +78,8 @@ const App = () => {
     const [shareMessageData, setShareMessageData] = useState(null);
 
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+    const [sidebarWidth, setSidebarWidth] = useState(350);
+    const [isResizing, setIsResizing] = useState(false);
     const [viewMode, setViewMode] = useState('list');
     const [copiedTag, setCopiedTag] = useState(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -315,9 +317,6 @@ const App = () => {
     const [loadingType, setLoadingType] = useState('listing'); // 'listing' or 'downloading'
     const [uploadCategory, setUploadCategory] = useState('drawings'); // 'drawings' or 'documents'
 
-    // Sidebar Resize State
-    const [sidebarWidth, setSidebarWidth] = useState(350);
-    const [isResizing, setIsResizing] = useState(false);
 
     // Sidebar Resize Handler
     useEffect(() => {
