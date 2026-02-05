@@ -419,7 +419,7 @@ async def start_robust_analysis_task(
 ):
     """
     Triggers the Robust Analysis Loop in the background.
-    Frontend should poll /status (via list incomplete) to track progress.
+    Downloads PDF to /tmp once, then passes local path to avoid redundant downloads.
     """
     try:
         # Match the upload path from upload-sas endpoint
@@ -431,15 +431,28 @@ async def start_robust_analysis_task(
         if not blob_client.exists():
             raise HTTPException(status_code=404, detail=f"File not found: {blob_name}")
         
+        # Download PDF to /tmp (ONCE)
+        import tempfile
+        import os
+        tmp_dir = "/tmp"
+        os.makedirs(tmp_dir, exist_ok=True)
+        local_file_path = os.path.join(tmp_dir, filename)
+        
+        print(f"[StartAnalysis] Downloading {blob_name} to {local_file_path}...")
+        with open(local_file_path, 'wb') as f:
+            blob_data = blob_client.download_blob()
+            blob_data.readinto(f)
+        print(f"[StartAnalysis] Downloaded {os.path.getsize(local_file_path) / 1024 / 1024:.1f} MB")
+        
         # Initialize Status if not already
         if not status_manager.get_status(filename):
             status_manager.init_status(filename, total_pages, category)
         
-        # Add Background Task
+        # Add Background Task with local file path
         background_tasks.add_task(
             robust_analysis_manager.run_analysis_loop,
             filename=filename,
-            blob_name=blob_name,
+            local_file_path=local_file_path,  # Pass cached file instead of blob_name
             total_pages=total_pages,
             category=category
         )
