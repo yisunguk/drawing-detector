@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import UserProfile from './pages/UserProfile';
 import AdminNotice from './pages/AdminNotice';
+import AdminUsers from './pages/AdminUsers';
 import NoticePopup from './components/NoticePopup';
 import { Loader2 } from 'lucide-react';
 
@@ -90,6 +91,14 @@ const App = () => {
                             element={
                                 <PrivateRoute>
                                     <AdminNotice />
+                                </PrivateRoute>
+                            }
+                        />
+                        <Route
+                            path="/admin/users"
+                            element={
+                                <PrivateRoute>
+                                    <AdminUsers />
                                 </PrivateRoute>
                             }
                         />

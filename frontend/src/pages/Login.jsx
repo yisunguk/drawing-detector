@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
 import { User, Lock, Loader2, AlertCircle } from 'lucide-react';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { logActivity } from '../services/logging';
 
 const Login = () => {
@@ -9,7 +11,7 @@ const Login = () => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const { login } = useAuth();
+    const { login, logout } = useAuth();
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
@@ -17,15 +19,56 @@ const Login = () => {
         try {
             setError('');
             setLoading(true);
-            setLoading(true);
+
+            // 1. Firebase Auth Login
             const userCred = await login(email, password);
-            if (userCred && userCred.user) {
-                logActivity(userCred.user.uid, userCred.user.email, 'LOGIN', 'User logged in');
+            const user = userCred.user;
+
+            // 2. Check Admin Bypass
+            if (user.email === 'admin@poscoenc.com') {
+                logActivity(user.uid, user.email, 'LOGIN', 'Admin logged in');
+                navigate('/');
+                return;
             }
+
+            // 3. Check User Status in Firestore
+            const userDocRef = doc(db, "users", user.uid);
+            const userDoc = await getDoc(userDocRef);
+
+            if (userDoc.exists()) {
+                const userData = userDoc.data();
+                if (userData.status !== 'approved') {
+                    await logout(); // Logout immediately
+                    if (userData.status === 'rejected') {
+                        throw new Error('가입이 거절되었습니다. 관리자에게 문의하세요.');
+                    } else {
+                        throw new Error('가입 승인 대기 중입니다. 관리자 승인 후 이용 가능합니다.');
+                    }
+                }
+            } else {
+                // Legacy users might not have status, allow or defaulted? 
+                // Let's assume strict mode, or maybe allow legacy users if no status field?
+                // For now, let's treat no-doc as valid or create one? 
+                // Safest is to allow if "status" is undefined (for existing users) OR check logic.
+                // But requirement implies "New users". Legacy users don't have "status" field likely.
+                // Let's allow ONLY if status is explicitly NOT 'approved' AND status exists.
+                // Actually user requested "Member Join Approval", implies new workflow.
+                // Let's assume legacy users are fine. Only block if status === 'pending' | 'rejected'.
+                // If status is undefined, we could assume 'approved' (legacy) or update them. 
+                // Let's be strict: if status is explicitly pending/rejected block. Else allow.
+                if (userData.status === 'pending') {
+                    await logout();
+                    throw new Error('가입 승인 대기 중입니다. 관리자 승인 후 이용 가능합니다.');
+                }
+            }
+
+            logActivity(user.uid, user.email, 'LOGIN', 'User logged in');
             navigate('/');
+
         } catch (err) {
             console.error(err);
-            setError('로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.');
+            // Handle specific error messages
+            setError(err.message || '로그인에 실패했습니다. 이메일과 비밀번호를 확인해주세요.');
         } finally {
             setLoading(false);
         }

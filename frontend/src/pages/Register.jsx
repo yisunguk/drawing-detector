@@ -54,7 +54,8 @@ const Register = () => {
                 email: formData.email,
                 company: formData.company,
                 createdAt: new Date().toISOString(),
-                role: 'user' // Default role
+                role: 'user', // Default role
+                status: 'pending' // Wait for admin approval
             });
 
             navigate('/');
@@ -101,7 +102,7 @@ const Register = () => {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">회사 (선택사항)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">회사</label>
                         <div className="relative">
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                 <Building className="h-5 w-5 text-gray-400" />
@@ -109,8 +110,9 @@ const Register = () => {
                             <input
                                 type="text"
                                 name="company"
+                                required
                                 className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
-                                placeholder="(주)대한건설"
+                                placeholder="(주)포스코이앤씨"
                                 value={formData.company}
                                 onChange={handleChange}
                             />
@@ -128,7 +130,7 @@ const Register = () => {
                                 name="email"
                                 required
                                 className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
-                                placeholder="name@example.com"
+                                placeholder="회사 이메일 입력해 주세요"
                                 value={formData.email}
                                 onChange={handleChange}
                             />
