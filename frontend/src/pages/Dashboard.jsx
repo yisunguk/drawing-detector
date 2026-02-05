@@ -1595,15 +1595,51 @@ const App = () => {
             }
         }
 
-        // 2. Check if it matches a document name
-        const docMatch = documents.find(d =>
-            d.name.toLowerCase().includes(cleanText.toLowerCase()) ||
-            cleanText.toLowerCase().includes(d.name.toLowerCase())
-        );
-        if (docMatch) {
-            setActiveDocId(docMatch.id);
+        // 2. Check if it matches a document name (Direct or in Parenthesis)
+        // Pattern: "Topic (DocName P.1)" or just "DocName"
+        let targetDocId = null;
+
+        // Check for (DocName P.x) pattern
+        const hintMatch = cleanText.match(/\((.*?)(?:\s+P\.?(\d+))?\)$/i);
+        if (hintMatch) {
+            const docHint = hintMatch[1].trim();
+            const pageHint = hintMatch[2] ? parseInt(hintMatch[2]) : null;
+
+            // Try to find doc matching the hint
+            const docMatch = documents.find(d =>
+                d.name.toLowerCase().includes(docHint.toLowerCase()) ||
+                docHint.toLowerCase().includes(d.name.toLowerCase())
+            );
+
+            if (docMatch) {
+                targetDocId = docMatch.id;
+                if (pageHint) targetPage = pageHint;
+
+                // Strip the hint from search term for cleaner highlighting
+                cleanText = cleanText.replace(hintMatch[0], '').trim();
+                console.log(`[Citation] Found extraction hint. Doc: ${docMatch.name}, Page: ${targetPage}, CleanTerm: ${cleanText}`);
+            }
+        }
+
+        if (!targetDocId) {
+            // Direct Doc Name Match (original logic)
+            const docMatch = documents.find(d =>
+                d.name.toLowerCase().includes(cleanText.toLowerCase()) ||
+                cleanText.toLowerCase().includes(d.name.toLowerCase())
+            );
+            if (docMatch) targetDocId = docMatch.id;
+        }
+
+        if (targetDocId) {
+            setActiveDocId(targetDocId);
             if (targetPage) setActivePage(targetPage);
             else setActivePage(1);
+
+            // If we extracted a clean term, also set it for highlighting
+            if (cleanText && cleanText.length > 2) {
+                setSearchTerm(cleanText);
+                // Don't auto-click result if we already navigated to correct doc/page
+            }
             return;
         }
 
