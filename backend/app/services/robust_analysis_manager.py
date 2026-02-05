@@ -31,47 +31,47 @@ class RobustAnalysisManager:
         try:
             print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages}, Local: {local_file_path})")
             
-            blob_url = None
-            if not local_file_path:
-                # Only need SAS if no local file
-                # 1. Generate SAS URL
-                container_client = get_container_client()
-                account_name = container_client.account_name
-                account_key = None
+        try:
+            print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages}, Local: {local_file_path})")
+            
+            # ALWAYS Generate SAS URL for Azure DI (Azure-to-Azure transfer is faster/stable)
+            container_client = get_container_client()
+            account_name = container_client.account_name
+            account_key = None
+            
+            # Credential extraction logic
+            if hasattr(container_client.credential, 'account_key'):
+                account_key = container_client.credential.account_key
+            elif isinstance(container_client.credential, dict) and 'account_key' in container_client.credential:
+                account_key = container_client.credential['account_key']
+            else:
+                conn_str = settings.AZURE_BLOB_CONNECTION_STRING
+                if conn_str:
+                    for part in conn_str.split(';'):
+                        if 'AccountKey=' in part:
+                            account_key = part.split('AccountKey=')[1]
+                            break
+            
+            sas_token = None
+            if account_key:
+                sas_token = generate_blob_sas(
+                    account_name=account_name,
+                    container_name=settings.AZURE_BLOB_CONTAINER_NAME,
+                    blob_name=blob_name,
+                    account_key=account_key,
+                    permission=BlobSasPermissions(read=True),
+                    expiry=datetime.utcnow() + timedelta(hours=4)
+                )
+            elif settings.AZURE_BLOB_SAS_TOKEN:
+                    sas_token = settings.AZURE_BLOB_SAS_TOKEN.strip()
+                    if sas_token.startswith("?"): sas_token = sas_token[1:]
+
+            if not sas_token:
+                raise Exception("Could not generate SAS token")
                 
-                # Credential extraction logic
-                if hasattr(container_client.credential, 'account_key'):
-                    account_key = container_client.credential.account_key
-                elif isinstance(container_client.credential, dict) and 'account_key' in container_client.credential:
-                    account_key = container_client.credential['account_key']
-                else:
-                    conn_str = settings.AZURE_BLOB_CONNECTION_STRING
-                    if conn_str:
-                        for part in conn_str.split(';'):
-                            if 'AccountKey=' in part:
-                                account_key = part.split('AccountKey=')[1]
-                                break
-                
-                sas_token = None
-                if account_key:
-                    sas_token = generate_blob_sas(
-                        account_name=account_name,
-                        container_name=settings.AZURE_BLOB_CONTAINER_NAME,
-                        blob_name=blob_name,
-                        account_key=account_key,
-                        permission=BlobSasPermissions(read=True),
-                        expiry=datetime.utcnow() + timedelta(hours=4)
-                    )
-                elif settings.AZURE_BLOB_SAS_TOKEN:
-                     sas_token = settings.AZURE_BLOB_SAS_TOKEN.strip()
-                     if sas_token.startswith("?"): sas_token = sas_token[1:]
-    
-                if not sas_token:
-                    raise Exception("Could not generate SAS token")
-                    
-                encoded_blob_name = urllib.parse.quote(blob_name, safe="/~()-_.")
-                blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{encoded_blob_name}?{sas_token}"
-                print(f"[RobustAnalysis] SAS URL Ready: {blob_url[:60]}...")
+            encoded_blob_name = urllib.parse.quote(blob_name, safe="/~()-_.")
+            blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{encoded_blob_name}?{sas_token}"
+            print(f"[RobustAnalysis] SAS URL Ready: {blob_url[:60]}...")
 
             # 2. Check Progress
             status = status_manager.get_status(filename)
@@ -126,26 +126,25 @@ class RobustAnalysisManager:
     async def _process_chunk(self, filename: str, blob_name: str, blob_url: str, local_file_path: str, page_range: str, category: str):
         """
         Processes a single chunk:
-        1. Analyze (using cached file if available)
+        1. Analyze (Using URL-based analysis for stability)
         2. Save JSON
         3. Index to Azure Search (INCREMENTAL)
         """
         try:
             print(f"[Chunk] Processing {page_range}...")
             
-            # 1. Analyze
-            from app.services.doc_intel_service import get_doc_intel_service
-            doc_service = get_doc_intel_service()
-            
+            # 1. Analyze (Use Azure DI directly via URL - Server-to-Server)
+            # This avoids "Image too large" errors from manual rendering
+            from app.services.azure_di import azure_di_service
+
             loop = asyncio.get_running_loop()
             
             # Run blocking analysis in executor
             chunks = await loop.run_in_executor(
                 None,
-                lambda: doc_service.analyze_via_rendering(
-                    blob_url=blob_url,
-                    local_file_path=local_file_path,
-                    page_range=page_range
+                lambda: azure_di_service.analyze_document_from_url(
+                    document_url=blob_url,
+                    pages=page_range
                 )
             )
             
@@ -159,7 +158,6 @@ class RobustAnalysisManager:
                 azure_search_service.index_documents(filename, category, chunks, blob_name=blob_name)
             except Exception as e:
                 print(f"[Chunk] Indexing Warning for {page_range}: {e}")
-                # Don't fail the chunk just because indexing failed, progress is saved
                 
             return True
 
