@@ -135,17 +135,12 @@ class DocumentIntelligenceService:
                     print(f"[DI] Fallback: Re-analyzing optimized PDF ({len(optimized_pdf_bytes)/1024/1024:.2f} MB)...")
                     
                     # Retry with optimized bytes
-                    # Note: New SDK uses 'base64_source' for bytes content
-                    import base64
-                    
-                    # For retry, we analyze the WHOLE optimized PDF (because we already filtered pages)
-                    # So pages=None (or "1-{count}")
-                    
-                    analyze_request = AnalyzeDocumentRequest(base64_source=base64.b64encode(optimized_pdf_bytes).decode("utf-8"))
+                    # Note: Pass bytes directly to analyze_request
                     
                     poller = self.client.begin_analyze_document(
                         model_id="prebuilt-layout",
-                        body=analyze_request,
+                        analyze_request=optimized_pdf_bytes,
+                        content_type="application/pdf",
                         features=features
                         # pages is omitted as optimized PDF contains only relevant pages
                     )
