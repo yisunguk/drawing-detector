@@ -1000,6 +1000,7 @@ const App = () => {
 
             // Step 3: Start Robust Analysis (Backend Background Task)
             setAnalysisState({ isAnalyzing: true, progress: 20, status: `${prefix}분석 요청 중...` });
+            console.log("[Dashboard] Requesting Robust Analysis from Backend...");
 
             // Call synchronous analysis endpoint (Streamlit-proven flow)
             // This will block until analysis is complete
