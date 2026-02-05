@@ -89,7 +89,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
             if (doc.ocrData) {
                 // Check if it's the standard OCR structure (Array or Object with layout.lines)
                 const pages = Array.isArray(doc.ocrData) ? doc.ocrData : [doc.ocrData];
-                const hasOcrStructure = pages.some(p => p?.layout?.lines);
+                const hasOcrStructure = pages.some(p => p?.layout?.lines || (p?.tables && p.tables.length > 0));
 
                 console.log(`[ChatContext] Processing ${doc.name}: Has OCR Data (Pages: ${pages.length}, Structured: ${hasOcrStructure})`);
 
