@@ -1,6 +1,7 @@
 import json
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import HttpResponseError
 from app.core.config import settings
 
 class AzureDIService:
@@ -21,15 +22,31 @@ class AzureDIService:
         if not self.client:
             raise Exception("Azure Document Intelligence client not initialized")
 
-        # Stable SDK v3.3 uses begin_analyze_document_from_url
-        poller = self.client.begin_analyze_document_from_url(
-            "prebuilt-layout", 
-            document_url,
-            pages=pages
-        )
-        result = poller.result()
-        
-        return self._format_result(result)
+        try:
+            print(f"[AzureDIService] Analyzing URL: {document_url[:60]}... Pages={pages}")
+            # Stable SDK v3.3 uses begin_analyze_document_from_url
+            poller = self.client.begin_analyze_document_from_url(
+                "prebuilt-layout", 
+                document_url,
+                pages=pages
+            )
+            result = poller.result()
+            
+            return self._format_result(result)
+            
+        except HttpResponseError as e:
+            print("[DI] HttpResponseError:", str(e))
+            # Diagnostic: Print details to understand InvalidRequest / InvalidContentLength
+            try:
+                if hasattr(e, 'response'):
+                     print("[DI] response headers:", dict(e.response.headers))
+                     print("[DI] response status:", e.response.status_code)
+                     print("[DI] response text:", e.response.text())
+            except Exception as inner_e:
+                print(f"[DI] Failed to log response details: {inner_e}")
+            
+            # Re-raise to let RobustAnalysisManager handle chunk splitting
+            raise e
 
     def analyze_document_from_bytes(self, file_content: bytes) -> list:
         if not self.client:

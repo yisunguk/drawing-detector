@@ -65,10 +65,12 @@ class RobustAnalysisManager:
             if not sas_token:
                 raise Exception("Could not generate SAS token")
                 
-            blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{urllib.parse.quote(blob_name)}?{sas_token}"
-            blob_url = blob_url.replace(" ", "%20")
+            # Use safe quoting to preserve directory structure but encode components
+            encoded_blob_name = urllib.parse.quote(blob_name, safe="/~()-_.")
+            blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{encoded_blob_name}?{sas_token}"
+            # WARNING: Do NOT double-encode or replace spaces manually, quote() handles it.
             
-            print(f"[RobustAnalysis] SAS URL Ready: {blob_url[:60]}...")
+            print(f"[RobustAnalysis] SAS URL Ready: {blob_url[:60]}... (Safe Encoded)")
 
             # 2. Check Progress
             status = status_manager.get_status(filename)
