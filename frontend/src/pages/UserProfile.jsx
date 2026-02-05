@@ -8,7 +8,7 @@ import { db } from '../firebase';
 import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp, where, writeBatch, onSnapshot } from 'firebase/firestore';
 import MessageModal from '../components/MessageModal';
 import { updateProfile, updatePassword } from 'firebase/auth';
-import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check, Send, X, List } from 'lucide-react';
+import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check, Send, X, List, Users } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { logActivity } from '../services/logging';
 
@@ -397,6 +397,13 @@ const UserProfile = () => {
                                 >
                                     <MessageSquare size={18} />
                                     공지사항 관리
+                                </button>
+                                <button
+                                    onClick={() => navigate('/admin/users')}
+                                    className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium transition-all text-[#666666] hover:bg-[#e5e1d8]`}
+                                >
+                                    <Users size={18} />
+                                    사용자 관리
                                 </button>
                                 <button
                                     onClick={() => setActiveTab('admin-feedback')}

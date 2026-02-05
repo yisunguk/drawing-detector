@@ -16,7 +16,7 @@ const Register = () => {
     });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const { signup } = useAuth();
+    const { signup, logout } = useAuth();
     const navigate = useNavigate();
 
     const handleChange = (e) => {
@@ -58,7 +58,9 @@ const Register = () => {
                 status: 'pending' // Wait for admin approval
             });
 
-            navigate('/');
+            await logout();
+            alert("회원가입 요청이 완료되었습니다.\n관리자 승인 후 로그인하실 수 있습니다.");
+            navigate('/login');
         } catch (err) {
             console.error(err);
             setError('계정을 생성하는데 실패했습니다. ' + err.message);
