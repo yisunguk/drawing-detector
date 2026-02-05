@@ -56,13 +56,67 @@ class AzureSearchService:
             documents.append(doc)
 
         if documents:
+            # Batch Upload Logic
+            BATCH_SIZE = 50
+            MAX_PAYLOAD_SIZE = 4 * 1024 * 1024  # 4MB safety limit (Azure limit is usually higher, but safe is better)
+            
+            current_batch = []
+            current_batch_size = 0
+            
+            import json
+            
+            total_docs = len(documents)
+            print(f"[AzureSearch] Starting batch indexing for {total_docs} documents...")
+
+            for i, doc in enumerate(documents):
+                # Optimize Payload: Truncate content_exact
+                if "content_exact" in doc and len(doc["content_exact"]) > 1000:
+                    doc["content_exact"] = doc["content_exact"][:1000]
+
+                # Estimate size (rough JSON string length)
+                doc_size = len(json.dumps(doc))
+                
+                # Check limits
+                if (len(current_batch) >= BATCH_SIZE) or (current_batch_size + doc_size > MAX_PAYLOAD_SIZE):
+                    self._upload_batch_with_retry(current_batch)
+                    current_batch = []
+                    current_batch_size = 0
+                
+                current_batch.append(doc)
+                current_batch_size += doc_size
+            
+            # Upload remaining
+            if current_batch:
+                self._upload_batch_with_retry(current_batch)
+                
+            print(f"[AzureSearch] Completed indexing for {filename}.")
+            return True
+
+    def _upload_batch_with_retry(self, batch, max_retries=3):
+        """
+        Uploads a batch of documents with exponential backoff retry.
+        """
+        import time
+        if not batch: return
+
+        for attempt in range(max_retries):
             try:
-                result = self.client.upload_documents(documents=documents)
-                print(f"Indexed {len(documents)} pages for {filename}. Success: {all(r.succeeded for r in result)}")
-                return result
+                result = self.client.upload_documents(documents=batch)
+                
+                # Check for partial failures
+                if not all(r.succeeded for r in result):
+                    failed = [r for r in result if not r.succeeded]
+                    logger.warning(f"Partial indexing failure: {len(failed)} docs failed in batch.")
+                    # In a robust system, we might retry only failed ones, but for now log and move on.
+                
+                print(f"[AzureSearch] Indexed batch of {len(batch)} documents.")
+                return
             except Exception as e:
-                logger.error(f"Failed to upload documents to index: {e}")
-                print(f"Indexing Error: {e}")
-                raise e
+                print(f"[AzureSearch] Batch upload failed (Attempt {attempt+1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** (attempt + 1))  # Exponential backoff: 2, 4, 8 sec
+                else:
+                    logger.error(f"Final failure uploading batch: {e}")
+                    # Don't raise, just log. We don't want to kill the whole process for one batch failure.
 
 azure_search_service = AzureSearchService()
