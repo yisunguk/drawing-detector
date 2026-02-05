@@ -118,11 +118,14 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                                 }
 
                                 // Fill grid
-                                table.cells.forEach(cell => {
-                                    if (cell.row_index < table.row_count && cell.column_index < table.column_count) {
-                                        grid[cell.row_index][cell.column_index] = (cell.content || "").replace(/\n/g, " ");
-                                    }
-                                });
+                                // Fill grid
+                                if (table.cells) {
+                                    table.cells.forEach(cell => {
+                                        if (cell.row_index < table.row_count && cell.column_index < table.column_count) {
+                                            grid[cell.row_index][cell.column_index] = (cell.content || "").replace(/\n/g, " ");
+                                        }
+                                    });
+                                }
 
                                 // Render Markdown Table
                                 if (grid.length > 0) {
