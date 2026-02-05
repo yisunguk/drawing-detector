@@ -72,35 +72,39 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
             ? (activeDoc ? [activeDoc] : [])
             : documents;
 
+        console.log(`[ChatContext] Generating context. Scope: ${chatScope}, Docs: ${docsToInclude.length}`);
+
         if (docsToInclude.length === 0) return '';
 
         let context = '';
 
         docsToInclude.forEach(doc => {
-            context += `\n=== Document Name: ${doc.name} ===\n`;
+            let docContext = `\n=== Document Name: ${doc.name} ===\n`;
 
             if (doc.ocrData) {
                 // Check if it's the standard OCR structure (Array or Object with layout.lines)
                 const pages = Array.isArray(doc.ocrData) ? doc.ocrData : [doc.ocrData];
                 const hasOcrStructure = pages.some(p => p?.layout?.lines);
 
+                console.log(`[ChatContext] Processing ${doc.name}: Has OCR Data (Pages: ${pages.length}, Structured: ${hasOcrStructure})`);
+
                 if (hasOcrStructure) {
                     // Use OCR data if available
                     pages.forEach((page, idx) => {
-                        context += `\n[Page ${page.page_number || idx + 1}]\n`;
+                        docContext += `\n[Page ${page.page_number || idx + 1}]\n`;
 
                         // Add line-based content first
                         if (page.layout?.lines) {
                             page.layout.lines.forEach(line => {
-                                context += `${line.content}\n`;
+                                docContext += `${line.content}\n`;
                             });
                         }
 
                         // Add structured table content if available
                         if (page.tables && page.tables.length > 0) {
-                            context += `\n[Structured Tables from Page ${page.page_number || idx + 1}]\n`;
+                            docContext += `\n[Structured Tables from Page ${page.page_number || idx + 1}]\n`;
                             page.tables.forEach((table, tIdx) => {
-                                context += `\nTable ${tIdx + 1}:\n`;
+                                docContext += `\nTable ${tIdx + 1}:\n`;
 
                                 // Initialize grid
                                 const grid = [];
@@ -118,36 +122,43 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                                 // Render Markdown Table
                                 if (grid.length > 0) {
                                     // Header
-                                    context += "| " + grid[0].join(" | ") + " |\n";
-                                    context += "| " + grid[0].map(() => "---").join(" | ") + " |\n";
+                                    docContext += "| " + grid[0].join(" | ") + " |\n";
+                                    docContext += "| " + grid[0].map(() => "---").join(" | ") + " |\n";
 
                                     // Body
                                     for (let r = 1; r < grid.length; r++) {
-                                        context += "| " + grid[r].join(" | ") + " |\n";
+                                        docContext += "| " + grid[r].join(" | ") + " |\n";
                                     }
                                 }
-                                context += "\n";
+                                docContext += "\n";
                             });
                         }
                     });
                 } else {
                     // Fallback: Dump the entire JSON as context (for custom metadata)
-                    context += `\n[Metadata / JSON Content]\n${JSON.stringify(doc.ocrData, null, 2)}\n`;
+                    console.log(`[ChatContext] ${doc.name}: Using JSON dump fallback`);
+                    docContext += `\n[Metadata / JSON Content]\n${JSON.stringify(doc.ocrData, null, 2)}\n`;
                 }
             } else if (doc.pdfTextData) {
+                console.log(`[ChatContext] ${doc.name}: Using PDF Text Data`);
                 // Use PDF text data if available
                 doc.pdfTextData.forEach((page, idx) => {
-                    context += `\n[Page ${page.page_number || idx + 1}]\n`;
+                    docContext += `\n[Page ${page.page_number || idx + 1}]\n`;
                     if (page.layout?.lines) {
                         page.layout.lines.forEach(line => {
-                            context += `${line.content}\n`;
+                            docContext += `${line.content}\n`;
                         });
                     }
                 });
+            } else {
+                console.warn(`[ChatContext] ${doc.name}: No text data found!`);
             }
-            context += `\n=== End of ${doc.name} ===\n`;
+            docContext += `\n=== End of ${doc.name} ===\n`;
+            console.log(`[ChatContext] Added ${docContext.length} chars for ${doc.name}`);
+            context += docContext;
         });
 
+        console.log(`[ChatContext] Total context length: ${context.length}`);
         return context;
     };
 
