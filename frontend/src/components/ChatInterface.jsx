@@ -89,7 +89,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
             if (doc.ocrData) {
                 // Check if it's the standard OCR structure (Array or Object with layout.lines)
                 const pages = Array.isArray(doc.ocrData) ? doc.ocrData : [doc.ocrData];
-                const hasOcrStructure = pages.some(p => p?.layout?.lines || (p?.tables && p.tables.length > 0));
+                const hasOcrStructure = pages.some(p => p?.layout?.lines || p?.lines || (p?.tables && p.tables.length > 0));
 
                 console.log(`[ChatContext] Processing ${doc.name}: Has OCR Data (Pages: ${pages.length}, Structured: ${hasOcrStructure})`);
 
@@ -99,9 +99,10 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                         docContext += `\n[Page ${page.page_number || idx + 1}]\n`;
 
                         // Add line-based content first
-                        if (page.layout?.lines) {
-                            page.layout.lines.forEach(line => {
-                                docContext += `${line.content}\n`;
+                        const lines = page.layout?.lines || page.lines;
+                        if (lines) {
+                            lines.forEach(line => {
+                                docContext += `${line.content || line.text}\n`;
                             });
                         }
 
