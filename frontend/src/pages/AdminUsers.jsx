@@ -185,7 +185,7 @@ const AdminUsers = () => {
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex justify-end gap-2">
-                                                {user.status !== 'approved' && (
+                                                {(user.status || 'approved') !== 'approved' && (
                                                     <button
                                                         onClick={() => handleUpdateStatus(user.id, 'approved')}
                                                         className="p-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
@@ -201,15 +201,6 @@ const AdminUsers = () => {
                                                         title="Reject"
                                                     >
                                                         <X className="w-5 h-5" />
-                                                    </button>
-                                                )}
-                                                {user.email !== 'admin@poscoenc.com' && (
-                                                    <button
-                                                        onClick={() => handleDelete(user.id)}
-                                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors ml-2"
-                                                        title="Delete"
-                                                    >
-                                                        <Trash2 className="w-5 h-5" />
                                                     </button>
                                                 )}
                                             </div>
