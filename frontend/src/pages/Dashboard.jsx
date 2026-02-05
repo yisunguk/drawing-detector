@@ -86,6 +86,7 @@ const App = () => {
     // Chat Context Scope: 'active' (default) or 'all'
     const [chatScope, setChatScope] = useState('active');
     const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
+    const [pendingUploads, setPendingUploads] = useState([]); // Array of { file, docId }
 
     useEffect(() => {
         setInputPage(activePage);
@@ -934,7 +935,6 @@ const App = () => {
     // --- Analysis State ---
     const [analysisState, setAnalysisState] = useState({ isAnalyzing: false, progress: 0, status: '' });
     const [showAnalysisConfirmModal, setShowAnalysisConfirmModal] = useState(false);
-    const [pendingUploads, setPendingUploads] = useState([]); // Array of { file, docId }
 
 
 
