@@ -165,6 +165,14 @@ const App = () => {
         }
     }, [documents, activeDocId]);
 
+    // Auto-open Analysis Modal when pending uploads exist
+    useEffect(() => {
+        if (pendingUploads.length > 0) {
+            console.log("[Dashboard] Pending uploads detected:", pendingUploads.length);
+            setShowAnalysisConfirmModal(true);
+        }
+    }, [pendingUploads]);
+
     // Message Listener for Notifications
     useEffect(() => {
         if (!currentUser) return;
@@ -1135,8 +1143,8 @@ const App = () => {
         }
 
         if (newPending.length > 0) {
+            console.log("[Dashboard] Adding to pending uploads:", newPending.length);
             setPendingUploads(prev => [...prev, ...newPending]);
-            setShowAnalysisConfirmModal(true);
         }
 
         // Modal Trigger... 
