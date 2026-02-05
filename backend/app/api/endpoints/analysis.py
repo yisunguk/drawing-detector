@@ -274,12 +274,30 @@ async def analyze_document_sync(
                     break # Success
                     
                 except Exception as e:
-                    # Check for "Too Large" error for High-Accuracy Fallback
-                    error_msg = str(e).lower()
-                    if "too large" in error_msg or "invalidcontentlength" in error_msg:
-                        print(f"[AnalyzeSync] Large Image detected. Initiating High-Accuracy Fallback via Blob Storage...")
+                    # [DEBUG] Deep inspection of error
+                    print(f"[AnalyzeSync] Exception caught: type={type(e)}, msg={str(e)}")
+                    
+                    is_pylimit_error = False
+                    try:
+                        # Check Azure SDK specific error structure
+                        if hasattr(e, 'error') and e.error:
+                             print(f"[AnalyzeSync] e.error: {e.error}")
+                             if getattr(e.error, 'code', '') == 'InvalidContentLength':
+                                 is_pylimit_error = True
+                        
+                        # Check Inner Error (JSON body)
+                        if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                            pass # Logging response text might be too verbose options, but helpful
+                    except: 
+                        pass
+                        
+                    error_str = str(e).lower()
+                    if "too large" in error_str or "invalidcontentlength" in error_str or "invalidrequest" in error_str or is_pylimit_error:
+                        print(f"[AnalyzeSync] Azure DI Error detected. Triggering High-Accuracy Fallback (Rasterization)...")
+                        
                         try:
-                            # 1. Optimize (High Quality)
+                            # 1. Optimize (High Quality Rasterization)
+                            # P&ID drawings are complex vectors. Rasterizing them simplifies the structure for Azure DI.
                             optimized_bytes = doc_intel_service.create_optimized_pdf_bytes(
                                 blob_url=blob_url, page_range=page_range, dpi=150, max_dimension=3000
                             )
@@ -303,28 +321,39 @@ async def analyze_document_sync(
                             fb_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/temp/{fb_filename}?{fb_sas}"
                             
                             # 4. Analyze New Blob
+                            print(f"[AnalyzeSync] Re-submitting Rasterized PDF to Azure DI...")
                             chunks = doc_intel_service.analyze_document(
                                 blob_url=fb_url, page_range=None, high_res=False
                             )
-                            print(f"[AnalyzeSync] Fallback analysis done, chunks: {len(chunks)}")
+                            print(f"[AnalyzeSync] Fallback analysis success, chunks: {len(chunks)}")
                             
-                            # 5. Fix Page Numbers (Map 1..N back to page_range)
+                            # 5. Fix Page Numbers
                             if page_range and "-" in str(page_range):
                                 try:
                                     start_p = int(str(page_range).split('-')[0])
                                     for ch in chunks:
                                         ch["page_number"] = start_p + (ch["page_number"] - 1)
-                                except: pass
+                                except Exception as p_err:
+                                    print(f"[AnalyzeSync] Page number correction failed: {p_err}")
                                 
                             # 6. Delete Temp Blob
                             try: fb_blob_client.delete_blob()
                             except: pass
                             
-                            break # Fallback Success
+                            break # Fallback Success!
                             
                         except Exception as fb_e:
-                            print(f"[AnalyzeSync] High-Acc Fallback Failed: {fb_e}")
-                            # Continue to standard retry logic
+                            print(f"[AnalyzeSync] CRITICAL: Fallback Failed: {fb_e}")
+                            import traceback
+                            traceback.print_exc()
+                            # Continue to retry loop to raise original error eventually
+                    
+                    if retry == max_retries - 1:
+                        print(f"[AnalyzeSync] Final failure after {max_retries} retries.")
+                        # Print full traceback of detecting error
+                        import traceback
+                        traceback.print_exc()
+                        raise
                     
                     if retry == max_retries - 1:
                         print(f"[AnalyzeSync] Chunk {page_range} failed after {max_retries} retries: {e}")
