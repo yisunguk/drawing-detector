@@ -54,14 +54,21 @@ class RobustAnalysisManager:
                         blob_url = generate_sas_url(blob_name) 
                         
                         # B. Analyze (Run in Executor to avoid blocking async loop)
-                        # analyze_document_from_url is blocking.
+                        # analyze_via_rendering handles large files correctly.
+                        from app.services.doc_intel_service import get_doc_intel_service
+                        doc_service = get_doc_intel_service()
+                        
                         loop = asyncio.get_running_loop()
-                        partial_result = await loop.run_in_executor(
+                        # call doc_service.analyze_via_rendering(blob_url, page_range, dpi=150, max_dimension=3000)
+                        chunks = await loop.run_in_executor(
                             None, 
-                            lambda: azure_di_service.analyze_document_from_url(blob_url, pages=page_range)
+                            lambda: doc_service.analyze_via_rendering(blob_url, page_range=page_range, dpi=150, max_dimension=3000)
                         )
                         
-                        # C. Save Partial Result
+                        # C. Save Partial Result (Chunks)
+                        # The robust service returns CHUNKS (List[Dict]), not the raw Azure Result object.
+                        # We need to save this list directly.
+                        partial_result = chunks
                         container_client = get_container_client()
                         part_name = f"temp/json/{filename}_part_{page_range}.json"
                         blob_client = container_client.get_blob_client(part_name)

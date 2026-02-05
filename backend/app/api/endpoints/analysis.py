@@ -447,6 +447,16 @@ async def init_analysis(
 from app.services.robust_analysis_manager import robust_analysis_manager
 from fastapi import BackgroundTasks
 
+@router.get("/status/{filename}")
+async def get_analysis_status(filename: str):
+    """
+    Get the status of a background analysis task.
+    """
+    status = status_manager.get_status(filename)
+    if not status:
+        return {"status": "not_found", "filename": filename}
+    return status
+
 @router.post("/start")
 async def start_robust_analysis_task(
     background_tasks: BackgroundTasks,

@@ -999,16 +999,14 @@ const App = () => {
             });
 
             // Step 3: Start Robust Analysis (Backend Background Task)
+            // Modified to ASYNC Polling to prevent 504 Timeouts on large files (Robust Mode)
             setAnalysisState({ isAnalyzing: true, progress: 20, status: `${prefix}분석 요청 중...` });
-            console.log("[Dashboard] Requesting Robust Analysis from Backend...");
+            console.log("[Dashboard] Requesting Async Analysis from Backend...");
 
-            // Call synchronous analysis endpoint (Streamlit-proven flow)
-            // This will block until analysis is complete
             const totalPages = documents.find(d => d.id === docId)?.totalPages || 1;
 
-            setAnalysisState({ isAnalyzing: true, progress: 30, status: `${prefix}서버에서 분석 중... (총 ${totalPages} 페이지)` });
-
-            const syncRes = await fetch(`${API_URL}/api/v1/analyze/analyze-sync`, {
+            // 3.1 Start Task
+            const startRes = await fetch(`${API_URL}/api/v1/analyze/start`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1019,13 +1017,43 @@ const App = () => {
                 })
             });
 
-            if (!syncRes.ok) {
-                const err = await syncRes.json();
-                throw new Error(err.detail || "Analysis failed");
+            if (!startRes.ok) throw new Error("Failed to start analysis task");
+
+            // 3.2 Poll Status
+            let isComplete = false;
+            let result = null;
+
+            while (!isComplete) {
+                await new Promise(r => setTimeout(r, 2000)); // Poll every 2s
+
+                const statusRes = await fetch(`${API_URL}/api/v1/analyze/status/${encodeURIComponent(file.name)}`);
+                if (statusRes.ok) {
+                    const statusData = await statusRes.json();
+
+                    if (statusData.status === 'completed') {
+                        isComplete = true;
+                        result = statusData; // success
+                    } else if (statusData.status === 'error') {
+                        throw new Error(statusData.error_message || "Analysis failed on server");
+                    } else {
+                        // Update Progress
+                        // statusData example: { completed_chunks: ["1-10", "11-20"], ... }
+                        // Estimate progress
+                        const chunksDone = (statusData.completed_chunks || []).length;
+                        // Estimate total chunks (approx 10 pages per chunk)
+                        const estimatedChunks = Math.ceil(totalPages / 10);
+                        const progress = 20 + Math.round((chunksDone / estimatedChunks) * 70);
+
+                        setAnalysisState(prev => ({
+                            ...prev,
+                            progress: Math.min(progress, 90),
+                            status: `${prefix}서버에서 분석 중... (${chunksDone}/${estimatedChunks} 구간 완료)`
+                        }));
+                    }
+                }
             }
 
-            const result = await syncRes.json();
-            console.log("Analysis Complete:", result);
+            console.log("Analysis Complete (Async):", result);
 
             // Success!
             setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
@@ -1034,7 +1062,7 @@ const App = () => {
             if (uploadCategory === 'documents') fetchAzureItems('documents');
             else fetchAzureItems('drawings');
 
-            alert(`분석 완료! ${result.chunks_analyzed}개 페이지를 처리했습니다.`);
+            alert(`분석 완료! ${result.total_pages} 페이지 처리가 완료되었습니다.`);
 
             // --- Context Fix: Fetch the generated JSON and update local state ---
             // --- Context Fix: Fetch the generated JSON and update local state ---
