@@ -55,6 +55,12 @@ const AdminUsers = () => {
     };
 
     const handleDelete = async (userId) => {
+        const userToDelete = users.find(u => u.id === userId);
+        if (userToDelete?.email === 'admin@poscoenc.com') {
+            alert("관리자 계정은 삭제할 수 없습니다.");
+            return;
+        }
+
         if (!window.confirm("Are you sure you want to delete this user completely? This cannot be undone.")) return;
         try {
             await deleteDoc(doc(db, 'users', userId));
@@ -107,14 +113,14 @@ const AdminUsers = () => {
                             key={status}
                             onClick={() => setFilterStatus(status)}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize ${filterStatus === status
-                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'
+                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                                : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'
                                 }`}
                         >
                             {status}
                             {status === 'pending' && (
                                 <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-600 rounded-full text-xs">
-                                    {users.filter(u => (u.status || 'pending') === 'pending').length}
+                                    {users.filter(u => u.status === 'pending').length}
                                 </span>
                             )}
                         </button>
@@ -168,8 +174,8 @@ const AdminUsers = () => {
                                         </td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${user.status === 'approved' ? 'bg-green-100 text-green-700' :
-                                                    user.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                                                        'bg-yellow-100 text-yellow-800' // Pending
+                                                user.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                                                    'bg-yellow-100 text-yellow-800' // Pending
                                                 }`}>
                                                 {user.status || 'approved'}
                                             </span>
@@ -188,7 +194,7 @@ const AdminUsers = () => {
                                                         <Check className="w-5 h-5" />
                                                     </button>
                                                 )}
-                                                {user.status !== 'rejected' && (
+                                                {user.status !== 'rejected' && user.email !== 'admin@poscoenc.com' && (
                                                     <button
                                                         onClick={() => handleUpdateStatus(user.id, 'rejected')}
                                                         className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
@@ -197,13 +203,15 @@ const AdminUsers = () => {
                                                         <X className="w-5 h-5" />
                                                     </button>
                                                 )}
-                                                <button
-                                                    onClick={() => handleDelete(user.id)}
-                                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors ml-2"
-                                                    title="Delete"
-                                                >
-                                                    <Trash2 className="w-5 h-5" />
-                                                </button>
+                                                {user.email !== 'admin@poscoenc.com' && (
+                                                    <button
+                                                        onClick={() => handleDelete(user.id)}
+                                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded-lg transition-colors ml-2"
+                                                        title="Delete"
+                                                    >
+                                                        <Trash2 className="w-5 h-5" />
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
