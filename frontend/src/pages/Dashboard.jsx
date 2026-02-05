@@ -1025,20 +1025,12 @@ const App = () => {
 
             // --- Context Fix: Fetch the generated JSON and update local state ---
             try {
-                // Construct potential JSON paths based on blob_name
-                // blob_name example: "username/drawings/filename.pdf"
-                if (blob_name) {
-                    const jsonCandidates = [];
-                    // 1. Parallel json folder
-                    if (blob_name.toLowerCase().includes('drawings')) {
-                        jsonCandidates.push(blob_name.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
-                        jsonCandidates.push(blob_name.replace(/drawings/i, 'json') + '.json');
-                    }
-                    // 2. Same directory
-                    jsonCandidates.push(blob_name.replace(/\.pdf$/i, '.json'));
-                    jsonCandidates.push(blob_name + '.json');
+                // Use the precise JSON location returned by the backend
+                const jsonPath = result.json_location;
 
-                    console.log("[ContextFix] Attempting to fetch derived JSON for:", blob_name, jsonCandidates);
+                if (jsonPath) {
+                    console.log("[ContextFix] Fetching derived JSON from backend location:", jsonPath);
+                    const jsonCandidates = [jsonPath];
 
                     let fetchedOcrData = null;
                     for (const jsonPath of jsonCandidates) {
