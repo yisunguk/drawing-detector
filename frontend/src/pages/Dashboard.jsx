@@ -55,7 +55,8 @@ const App = () => {
     const [activeDocId, setActiveDocId] = useState(null);
     const [activePage, setActivePage] = useState(1);
     const [searchTerm, setSearchTerm] = useState('');
-    const [searchScope, setSearchScope] = useState('all');
+    const [searchScope, setSearchScope] = useState('active'); // 'active' or 'all'
+    const [searchPreferPage, setSearchPreferPage] = useState(null);
     const [selectedResult, setSelectedResult] = useState(null);
     const [filters, setFilters] = useState({ line: true, instrument: true, valve: true, equipment: true, gauge: true, other: true });
     const [zoom, setZoom] = useState(1);
@@ -468,7 +469,8 @@ const App = () => {
 
     // 검색
     const searchResults = useMemo(() => {
-        if (!searchTerm.trim()) return [];
+        const rawSearch = searchTerm.trim();
+        if (!rawSearch) return [];
 
         // Noise Filtering: Ignore extremely short/meaningless keywords
         const cleanSearch = searchTerm.toLowerCase().replace(/\s+/g, '');
@@ -515,7 +517,7 @@ const App = () => {
         const searchGenericJson = (obj, doc, pageNum) => {
             if (!obj) return;
             if (typeof obj === 'string') {
-                const score = calculateScore(obj, cleanSearch);
+                const score = calculateScore(obj, rawSearch);
                 if (score > 0) {
                     results.push({
                         content: obj,
@@ -539,7 +541,7 @@ const App = () => {
 
         docsToSearch.forEach(doc => {
             // 0. Document Name Match
-            const docScore = calculateScore(doc.name, cleanSearch);
+            const docScore = calculateScore(doc.name, rawSearch);
             if (docScore > 0) {
                 results.push({
                     content: doc.name,
@@ -574,11 +576,11 @@ const App = () => {
                         const lineContent = line?.content || line?.text;
                         if (!lineContent || typeof lineContent !== 'string') return;
 
-                        let score = calculateScore(lineContent, cleanSearch);
+                        let score = calculateScore(lineContent, rawSearch);
 
                         // Token match for terms with spaces (e.g. "LIC 7240")
-                        if (score < 60 && searchTerm.includes(' ')) {
-                            const tokens = searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+                        if (score < 60 && rawSearch.includes(' ')) {
+                            const tokens = rawSearch.toLowerCase().split(/\s+/).filter(t => t.length > 1);
                             if (tokens.length > 0) {
                                 let tokenHits = 0;
                                 tokens.forEach(token => {
@@ -588,6 +590,12 @@ const App = () => {
                                     score = 40 + (tokenHits / tokens.length * 20);
                                 }
                             }
+                        }
+
+                        // Page Preference Bonus
+                        // Boost items on the page where the citation or user is looking
+                        if (score > 0 && pageNum === searchPreferPage) {
+                            score += 200; // Significant boost to stay on the correct page
                         }
 
                         if (score > 0) {
@@ -611,7 +619,7 @@ const App = () => {
                     if (doc.ocrData) {
                         const bubbles = parseInstrumentBubbles(pageData);
                         bubbles.forEach(bubble => {
-                            const score = calculateScore(bubble.content, cleanSearch);
+                            const score = calculateScore(bubble.content, rawSearch);
                             if (score > 0 && filters.instrument) {
                                 results.push({
                                     content: bubble.content,
@@ -642,7 +650,7 @@ const App = () => {
         return results
             .sort((a, b) => b.score - a.score)
             .slice(0, 200);
-    }, [searchTerm, documents, activeDocId, searchScope, filters, parseInstrumentBubbles]);
+    }, [searchTerm, documents, activeDocId, searchScope, filters, parseInstrumentBubbles, searchPreferPage]);
 
     const handlePageInputChange = (e) => {
         setInputPage(e.target.value);
@@ -1064,7 +1072,7 @@ const App = () => {
         if (pendingFile && pendingDocId) {
             analyzeLocalDocument(pendingFile, pendingDocId);
             setPendingDocId(null);
-        }
+        };
     };
 
     const cancelAnalysis = () => {
@@ -1555,6 +1563,7 @@ const App = () => {
         // 3. Fallback to searching the term, potentially restricted to context page
         if (targetPage && activeDoc && targetPage <= activeDoc.totalPages) {
             // If we have a target page, jump there first
+            setSearchPreferPage(targetPage);
             goToPage(targetPage);
         }
 
@@ -1589,9 +1598,27 @@ const App = () => {
                 {!sidebarCollapsed && (
                     <>
                         <div className="p-4 border-b border-[#e5e1d8] space-y-3">
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e8e8e]" size={14} />
-                                <input type="text" placeholder="Search tags..." className="w-full bg-white border border-[#dcd8d0] rounded-lg py-2 pl-9 pr-3 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all placeholder-[#a0a0a0]" value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setSelectedResult(null); }} />
+                            <div className="relative group/search">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#888888] group-focus-within/search:text-[#d97757] transition-colors" size={16} />
+                                <input
+                                    type="text"
+                                    placeholder="도면 내 검색..."
+                                    value={searchTerm}
+                                    onChange={(e) => {
+                                        setSearchTerm(e.target.value);
+                                        setSearchPreferPage(null); // Clear preference on manual search
+                                    }}
+                                    className="w-full bg-[#f4f1ea] border border-[#e5e1d8] focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] rounded-lg py-1.5 pl-10 pr-4 text-xs outline-none transition-all placeholder-[#a0a0a0] font-medium"
+                                />
+                                {searchTerm && (
+                                    <button
+                                        onClick={() => { setSearchTerm(''); setSelectedResult(null); setSearchPreferPage(null); }}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-[#a0a0a0] hover:text-[#d97757] transition-colors"
+                                        title="Clear search"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
                             </div>
                             <div className="flex gap-1 p-1 bg-[#e5e1d8] rounded-lg">
                                 <button onClick={() => setSearchScope('all')} className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${searchScope === 'all' ? 'bg-white text-[#333333] shadow-sm' : 'text-[#666666] hover:text-[#333333]'}`}>All</button>
