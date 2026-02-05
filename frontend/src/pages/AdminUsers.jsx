@@ -71,6 +71,14 @@ const AdminUsers = () => {
         }
     };
 
+    // Calculate counts for all tabs
+    const counts = {
+        all: users.length,
+        pending: users.filter(u => !u.status || u.status === 'pending').length,
+        approved: users.filter(u => u.status === 'approved').length,
+        rejected: users.filter(u => u.status === 'rejected').length
+    };
+
     const filteredUsers = users.filter(user => {
         const matchesSearch = (user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -78,10 +86,8 @@ const AdminUsers = () => {
 
         if (filterStatus === 'all') return matchesSearch;
 
-        // Handle undefined status as 'approved' (legacy) or filtered out?
-        // Let's assume undefined = 'approved' for legacy users? 
-        // Or strictly 'pending' filter.
-        const status = user.status || 'approved'; // Default to approved for legacy
+        // Treat undefined status as 'pending' for legacy users
+        const status = user.status || 'pending';
         return matchesSearch && status === filterStatus;
     });
 
@@ -112,17 +118,19 @@ const AdminUsers = () => {
                         <button
                             key={status}
                             onClick={() => setFilterStatus(status)}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize ${filterStatus === status
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors capitalize flex items-center gap-2 ${filterStatus === status
                                 ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
                                 : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300'
                                 }`}
                         >
                             {status}
-                            {status === 'pending' && (
-                                <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-600 rounded-full text-xs">
-                                    {users.filter(u => u.status === 'pending').length}
-                                </span>
-                            )}
+                            <span className={`px-2 py-0.5 rounded-full text-xs ${status === 'pending' ? 'bg-red-100 text-red-600' :
+                                    status === 'approved' ? 'bg-green-100 text-green-600' :
+                                        status === 'rejected' ? 'bg-gray-100 text-gray-600' :
+                                            'bg-blue-50 text-blue-600'
+                                }`}>
+                                {counts[status]}
+                            </span>
                         </button>
                     ))}
                 </div>
@@ -163,50 +171,55 @@ const AdminUsers = () => {
                                     <td colSpan="5" className="px-6 py-8 text-center text-gray-500">No users found</td>
                                 </tr>
                             ) : (
-                                filteredUsers.map(user => (
-                                    <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <div className="font-medium text-gray-900 dark:text-white">{user.name}</div>
-                                            <div className="text-gray-500 text-xs">{user.email}</div>
-                                        </td>
-                                        <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
-                                            {user.company || '-'}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${user.status === 'approved' ? 'bg-green-100 text-green-700' :
-                                                user.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                                                    'bg-yellow-100 text-yellow-800' // Pending
-                                                }`}>
-                                                {user.status || 'approved'}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-gray-500">
-                                            {new Date(user.createdAt).toLocaleDateString()}
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <div className="flex justify-end gap-2">
-                                                {(user.status || 'approved') !== 'approved' && (
-                                                    <button
-                                                        onClick={() => handleUpdateStatus(user.id, 'approved')}
-                                                        className="p-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
-                                                        title="Approve"
-                                                    >
-                                                        <Check className="w-5 h-5" />
-                                                    </button>
-                                                )}
-                                                {user.status !== 'rejected' && user.email !== 'admin@poscoenc.com' && (
-                                                    <button
-                                                        onClick={() => handleUpdateStatus(user.id, 'rejected')}
-                                                        className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
-                                                        title="Reject"
-                                                    >
-                                                        <X className="w-5 h-5" />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
+                                filteredUsers.map(user => {
+                                    // Normalize status for display
+                                    const displayStatus = user.status || 'pending';
+
+                                    return (
+                                        <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                            <td className="px-6 py-4">
+                                                <div className="font-medium text-gray-900 dark:text-white">{user.name}</div>
+                                                <div className="text-gray-500 text-xs">{user.email}</div>
+                                            </td>
+                                            <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
+                                                {user.company || '-'}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${displayStatus === 'approved' ? 'bg-green-100 text-green-700' :
+                                                    displayStatus === 'rejected' ? 'bg-red-100 text-red-700' :
+                                                        'bg-yellow-100 text-yellow-800' // Pending
+                                                    }`}>
+                                                    {displayStatus}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-gray-500">
+                                                {new Date(user.createdAt).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    {displayStatus !== 'approved' && (
+                                                        <button
+                                                            onClick={() => handleUpdateStatus(user.id, 'approved')}
+                                                            className="p-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                                                            title="Approve"
+                                                        >
+                                                            <Check className="w-5 h-5" />
+                                                        </button>
+                                                    )}
+                                                    {displayStatus !== 'rejected' && user.email !== 'admin@poscoenc.com' && (
+                                                        <button
+                                                            onClick={() => handleUpdateStatus(user.id, 'rejected')}
+                                                            className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                                                            title="Reject"
+                                                        >
+                                                            <X className="w-5 h-5" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
