@@ -802,11 +802,11 @@ const App = () => {
             // If the drawing is naturally portrait (tall) AND it's the initial load (rotation === 0),
             // we might want to rotate it to landscape for better viewing.
             // Check dimensions AFTER applying default rotation.
-            if (rotation === 0 && viewport.width < viewport.height) {
-                // Determine layout rotation needed to make it landscape
-                const newRotation = (effectiveRotation + 90) % 360;
-                viewport = page.getViewport({ scale: 2.0, rotation: newRotation });
-            }
+            // Auto-rotation logic removed to prevent unwanted rotation on portrait documents
+            // if (rotation === 0 && viewport.width < viewport.height) {
+            //     const newRotation = (effectiveRotation + 90) % 360;
+            //     viewport = page.getViewport({ scale: 2.0, rotation: newRotation });
+            // }
             // Double Buffering: Render to offscreen canvas first to prevent flickering
             const offscreenCanvas = document.createElement('canvas');
             offscreenCanvas.width = viewport.width;
