@@ -49,25 +49,6 @@ class DocumentIntelligenceService:
             blob_url: SAS URL to the blob (must include read permissions)
             page_range: Page range to analyze (e.g., "1-10") or None for all pages
             high_res: Whether to use high-resolution OCR (slower but more accurate)
-        
-        Returns:
-            List of page chunks with extracted content
-            
-        Example:
-            chunks = service.analyze_document(
-                "https://account.blob.core.windows.net/container/file.pdf?sas_token",
-                page_range="1-50"
-            )
-            
-            # chunks = [
-            #     {
-            #         "page_number": 1,
-            #         "content": "Extracted text...",
-            #         "tables": [...],
-            #         "metadata": {...}
-            #     },
-            #     ...
-            # ]
         """
         try:
             print(f"[DI] Starting analysis: pages={page_range}, high_res={high_res}")
@@ -77,28 +58,19 @@ class DocumentIntelligenceService:
             if high_res:
                 features.append(DocumentAnalysisFeature.OCR_HIGH_RESOLUTION)
             
-            # Create request
+            # Create request object correctly
             analyze_request = AnalyzeDocumentRequest(url_source=blob_url)
             
-            # Start analysis
-            # Create request logic with conditional 'pages'
-            kwargs = dict(
+            # Start analysis with correct keyword arguments
+            poller = self.client.begin_analyze_document(
                 model_id="prebuilt-layout",
-                body=analyze_request,
-                features=features
+                analyze_request=analyze_request,   # CORRECTED: use analyze_request kwarg, not body
+                features=features,
+                pages=page_range if page_range else None
             )
-            
-            if page_range: # Only add if not None/Empty
-                kwargs["pages"] = page_range
-            
-            # Start analysis
-            poller = self.client.begin_analyze_document(**kwargs)
-            
-            # ... (rest of function) ...
             
             # Wait for completion
             result = poller.result()
-            
             print(f"[DI] Analysis complete: {len(result.pages)} pages processed")
             
             # Extract page chunks
@@ -109,17 +81,21 @@ class DocumentIntelligenceService:
             
             return page_chunks
             
+        except HttpResponseError as e:
+            # Detailed Logging for Debugging
+            print("[DI] HttpResponseError:", str(e))
+            try:
+                if hasattr(e, "response"):
+                     # Attempt to read as JSON first
+                     try:
+                        print("[DI] response json:", e.response.json())
+                     except:
+                        # Fallback to text
+                        print("[DI] response text:", e.response.text())
+            except Exception:
+                 pass
+            raise
         except Exception as e:
-            # [Added by User Request] Detailed Logging for HttpResponseError
-            if isinstance(e, HttpResponseError):
-                print("[DI] status:", getattr(e, "status_code", None))
-                print("[DI] message:", e.message)
-                try:
-                    if hasattr(e, "response") and hasattr(e.response, "text"):
-                         print("[DI] response text:", e.response.text())
-                except:
-                    pass
-
             print(f"[DI] Analysis failed: {e}")
             raise
 
@@ -337,14 +313,9 @@ class DocumentIntelligenceService:
         """
         Robust strategy: Download PDF -> Render specific pages to Images -> Analyze Images.
         Bypasses Azure DI's PDF dimension limits (10,000px) and file size limits by controlling the input strictly.
-        
-        Args:
-            blob_url: Azure Blob SAS URL (if downloading)
-            local_file_path: Local /tmp path (if already cached)
-            page_range: "1-10" or "1,3,5"
-            dpi: Resolution for rendering
-            max_dimension: Max width/height in pixels
         """
+        # DISABLED/DEPRECATED: We are focusing on URL-based analysis.
+        # Logic kept for reference but should not be called in main flow.
         import requests
         import fitz
         import io
@@ -364,12 +335,10 @@ class DocumentIntelligenceService:
         try:
             # 1. Get PDF File Path
             if local_file_path:
-                # Use cached file (no download needed)
                 print(f"[AnalyzeViaRender] Using cached file: {local_file_path}")
                 tmp_path = local_file_path
                 should_cleanup = False
             else:
-                # Download PDF from Blob
                 print(f"[AnalyzeViaRender] Downloading from Blob...")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                     tmp_path = tmp_file.name
@@ -379,11 +348,8 @@ class DocumentIntelligenceService:
                             tmp_file.write(chunk)
                 should_cleanup = True
             
-            # 2. Open PDF
             doc = fitz.open(tmp_path)
             
-            # 3. Parse Page Range
-            # Simple parser: "1-3" -> [0, 1, 2]
             target_indices = []
             if "-" in str(page_range):
                 start, end = map(int, str(page_range).split('-'))
@@ -395,13 +361,11 @@ class DocumentIntelligenceService:
                 
             print(f"[AnalyzeViaRender] Rendering {len(target_indices)} pages...")
 
-            # 4. Process Each Page
             for p_idx in target_indices:
                 if p_idx < 0 or p_idx >= len(doc): continue
                 
                 page = doc.load_page(p_idx)
                 
-                # Check dimensions & Scale
                 rect = page.rect
                 scale = dpi / 72.0
                 if rect.width * scale > max_dimension or rect.height * scale > max_dimension:
@@ -410,7 +374,6 @@ class DocumentIntelligenceService:
                 mat = fitz.Matrix(scale, scale)
                 pix = page.get_pixmap(matrix=mat)
                 
-                # Convert to JPEG bytes
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 img_bio = io.BytesIO()
                 img.save(img_bio, format="JPEG", quality=85)
@@ -418,8 +381,7 @@ class DocumentIntelligenceService:
                 
                 print(f"[AnalyzeViaRender] Page {p_idx+1} rendered: {pix.width}x{pix.height}, {len(img_bytes)/1024:.1f}KB")
                 
-                # Analyze this single image bytes
-                # We reuse the specific byte analyzer method if available, or call client directly
+                # Use analyze_document with body for image bytes
                 poller = self.client.begin_analyze_document(
                     "prebuilt-layout", 
                     body=img_bytes,
@@ -428,11 +390,8 @@ class DocumentIntelligenceService:
                 )
                 result = poller.result()
                 
-                # Extract content
-                # Note: result.pages[0] corresponds to our single image
                 if result.pages:
                     chunk = self._extract_page_content(result.pages[0], result)
-                    # FIX: Correct the page number to match the original PDF
                     chunk["page_number"] = p_idx + 1
                     all_chunks.append(chunk)
 
@@ -442,7 +401,6 @@ class DocumentIntelligenceService:
             print(f"[AnalyzeViaRender] Failed: {e}")
             raise e
         finally:
-            # Only cleanup if we downloaded (not if using cached file)
             if should_cleanup and tmp_path and os.path.exists(tmp_path):
                 try: os.remove(tmp_path)
                 except: pass
