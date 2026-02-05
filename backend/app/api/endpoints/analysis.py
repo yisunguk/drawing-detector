@@ -261,11 +261,14 @@ async def analyze_document_sync(
                         high_res=False  # Default to standard OCR
                     )
                     
+                    print(f"[DI] analyze_document done, chunks: {len(chunks)}")
+                    
                     # Apply P&ID Topology Processing
                     from app.services.pid_processor import pid_processor
                     enriched_chunks = []
                     for chunk in chunks:
                         try:
+                            print(f"[PID] processing page: {chunk.get('page_number')}")
                             enriched = pid_processor.process_chunk(chunk)
                             
                             # Format for LLM (Append to Content)
