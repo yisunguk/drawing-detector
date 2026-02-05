@@ -112,19 +112,25 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                                 docContext += `\nTable ${tIdx + 1}:\n`;
 
                                 // Initialize grid
-                                const grid = [];
-                                for (let r = 0; r < table.row_count; r++) {
-                                    grid[r] = new Array(table.column_count).fill("");
-                                }
+                                let grid = [];
 
-                                // Fill grid
-                                // Fill grid
-                                if (table.cells) {
-                                    table.cells.forEach(cell => {
-                                        if (cell.row_index < table.row_count && cell.column_index < table.column_count) {
-                                            grid[cell.row_index][cell.column_index] = (cell.content || "").replace(/\n/g, " ");
-                                        }
-                                    });
+                                if (table.rows && Array.isArray(table.rows)) {
+                                    // Backend already constructed the 2D grid
+                                    grid = table.rows;
+                                } else {
+                                    // Fallback: Construct from cells (Direct Azure DI response)
+                                    for (let r = 0; r < table.row_count; r++) {
+                                        grid[r] = new Array(table.column_count).fill("");
+                                    }
+
+                                    // Fill grid
+                                    if (table.cells) {
+                                        table.cells.forEach(cell => {
+                                            if (cell.row_index < table.row_count && cell.column_index < table.column_count) {
+                                                grid[cell.row_index][cell.column_index] = (cell.content || "").replace(/\n/g, " ");
+                                            }
+                                        });
+                                    }
                                 }
 
                                 // Render Markdown Table
