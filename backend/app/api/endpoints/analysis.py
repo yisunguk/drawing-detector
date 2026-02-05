@@ -749,6 +749,52 @@ async def repair_analysis(
         print(f"[Repair] Failed: {e}")
         return {"status": "error", "detail": str(e)}
 
+@router.post("/detect")
+async def detect_document_robust(
+    pdf_url: str = Body(..., embed=True),
+    page_range: str = Body(..., embed=True),
+    max_dim: int = Body(3000, embed=True),
+    dpi: int = Body(150, embed=True)
+):
+    """
+    Robust detection endpoint that bypasses Azure DI PDF limits by rendering pages as images on the backend.
+    
+    Args:
+        pdf_url: SAS URL to the source PDF (must have Read permission).
+        page_range: Pages to analyze (e.g., "1-5", "1,3,5").
+        max_dim: Maximum dimension for the rendered image (default 3000px).
+        dpi: DPI for rendering (default 150).
+        
+    Returns:
+        JSON list of analyzed page chunks.
+    """
+    try:
+        print(f"[Detect] Request received for {page_range} (max_dim={max_dim})")
+        
+        # Validate URL
+        if not pdf_url.startswith("http"):
+            raise HTTPException(status_code=400, detail="Invalid PDF URL")
+            
+        from app.services.doc_intel_service import get_doc_intel_service
+        doc_service = get_doc_intel_service()
+        
+        # Delegate to the robust rendering method
+        chunks = doc_service.analyze_via_rendering(
+            blob_url=pdf_url,
+            page_range=page_range,
+            dpi=dpi,
+            max_dimension=max_dim
+        )
+        
+        print(f"[Detect] Success: {len(chunks)} pages processed")
+        return chunks
+        
+    except Exception as e:
+        print(f"[Detect] Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/debug-sync")
 async def debug_analyze_sync(
     filename: str = Body(...),

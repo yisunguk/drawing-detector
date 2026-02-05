@@ -326,6 +326,105 @@ class DocumentIntelligenceService:
         }
 
 
+    def analyze_via_rendering(
+        self, 
+        blob_url: str, 
+        page_range: str, 
+        dpi: int = 150, 
+        max_dimension: int = 3000
+    ) -> List[Dict[str, Any]]:
+        """
+        Robust strategy: Download PDF -> Render specific pages to Images -> Analyze Images.
+        Bypasses Azure DI's PDF dimension limits (10,000px) and file size limits by controlling the input strictly.
+        """
+        import requests
+        import fitz
+        import io
+        import tempfile
+        import os
+        from PIL import Image
+
+        print(f"[AnalyzeViaRender] Starting robust analysis for {page_range}...")
+        
+        all_chunks = []
+        tmp_path = None
+        
+        try:
+            # 1. Download PDF to Temp File
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                tmp_path = tmp_file.name
+                with requests.get(blob_url, stream=True) as r:
+                    r.raise_for_status()
+                    for chunk in r.iter_content(chunk_size=8192):
+                        tmp_file.write(chunk)
+            
+            # 2. Open PDF
+            doc = fitz.open(tmp_path)
+            
+            # 3. Parse Page Range
+            # Simple parser: "1-3" -> [0, 1, 2]
+            target_indices = []
+            if "-" in str(page_range):
+                start, end = map(int, str(page_range).split('-'))
+                target_indices = range(start - 1, end)
+            elif "," in str(page_range):
+                target_indices = [int(p) - 1 for p in str(page_range).split(',')]
+            else:
+                target_indices = [int(page_range) - 1]
+                
+            print(f"[AnalyzeViaRender] Rendering {len(target_indices)} pages...")
+
+            # 4. Process Each Page
+            for p_idx in target_indices:
+                if p_idx < 0 or p_idx >= len(doc): continue
+                
+                page = doc.load_page(p_idx)
+                
+                # Check dimensions & Scale
+                rect = page.rect
+                scale = dpi / 72.0
+                if rect.width * scale > max_dimension or rect.height * scale > max_dimension:
+                    scale = min(max_dimension / rect.width, max_dimension / rect.height)
+                
+                mat = fitz.Matrix(scale, scale)
+                pix = page.get_pixmap(matrix=mat)
+                
+                # Convert to JPEG bytes
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                img_bio = io.BytesIO()
+                img.save(img_bio, format="JPEG", quality=85)
+                img_bytes = img_bio.getvalue()
+                
+                print(f"[AnalyzeViaRender] Page {p_idx+1} rendered: {pix.width}x{pix.height}, {len(img_bytes)/1024:.1f}KB")
+                
+                # Analyze this single image bytes
+                # We reuse the specific byte analyzer method if available, or call client directly
+                poller = self.client.begin_analyze_document(
+                    "prebuilt-layout", 
+                    document=img_bytes,
+                    features=[DocumentAnalysisFeature.BARCODES, DocumentAnalysisFeature.STYLE_FONT]
+                )
+                result = poller.result()
+                
+                # Extract content
+                # Note: result.pages[0] corresponds to our single image
+                if result.pages:
+                    chunk = self._extract_page_content(result.pages[0], result)
+                    # FIX: Correct the page number to match the original PDF
+                    chunk["page_number"] = p_idx + 1
+                    all_chunks.append(chunk)
+
+            return all_chunks
+            
+        except Exception as e:
+            print(f"[AnalyzeViaRender] Failed: {e}")
+            raise e
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try: os.remove(tmp_path)
+                except: pass
+            if 'doc' in locals(): doc.close()
+
 # Singleton instance
 _doc_intel_service = None
 
