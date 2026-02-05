@@ -138,8 +138,8 @@ class DocumentIntelligenceService:
                     # Note: Pass bytes directly to analyze_request
                     
                     poller = self.client.begin_analyze_document(
-                        model_id="prebuilt-layout",
-                        body=optimized_pdf_bytes,
+                        "prebuilt-layout",
+                        optimized_pdf_bytes,
                         content_type="application/pdf",
                         features=features
                         # pages is omitted as optimized PDF contains only relevant pages
