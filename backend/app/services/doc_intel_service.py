@@ -7,6 +7,7 @@ Handles PDF analysis using Azure Document Intelligence.
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, DocumentAnalysisFeature
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import HttpResponseError
 from typing import List, Dict, Any
 import os
 
@@ -80,12 +81,18 @@ class DocumentIntelligenceService:
             analyze_request = AnalyzeDocumentRequest(url_source=blob_url)
             
             # Start analysis
-            poller = self.client.begin_analyze_document(
+            # Create request logic with conditional 'pages'
+            kwargs = dict(
                 model_id="prebuilt-layout",
                 body=analyze_request,
-                pages=page_range,
                 features=features
             )
+            
+            if page_range: # Only add if not None/Empty
+                kwargs["pages"] = page_range
+            
+            # Start analysis
+            poller = self.client.begin_analyze_document(**kwargs)
             
             # ... (rest of function) ...
             
@@ -103,8 +110,146 @@ class DocumentIntelligenceService:
             return page_chunks
             
         except Exception as e:
+            # [Added by User Request] Detailed Logging for HttpResponseError
+            if isinstance(e, HttpResponseError):
+                print("[DI] status:", getattr(e, "status_code", None))
+                print("[DI] message:", e.message)
+                try:
+                    if hasattr(e, "response") and hasattr(e.response, "text"):
+                         print("[DI] response text:", e.response.text())
+                except:
+                    pass
+
+            # Check for "Input image is too large" / "InvalidContentLength" error
+            error_msg = str(e).lower()
+            if "too large" in error_msg or "invalidcontentlength" in error_msg:
+                print(f"[DI] Enormous page detected. Attempting fallback: Downsampling PDF pages...")
+                
+                try:
+                    # Fallback: Download -> Render (Low DPI) -> Re-analyze
+                    max_dimension = 2000 # Max width/height for Vision compatibility
+                    dpi = 96 # Low DPI usually sufficient for reading
+                    
+                    optimized_pdf_bytes = self._optimize_pdf_content(blob_url, page_range, dpi=dpi, max_dimension=max_dimension)
+                    
+                    print(f"[DI] Fallback: Re-analyzing optimized PDF ({len(optimized_pdf_bytes)/1024/1024:.2f} MB)...")
+                    
+                    # Retry with optimized bytes
+                    # Note: New SDK uses 'base64_source' for bytes content
+                    import base64
+                    
+                    # For retry, we analyze the WHOLE optimized PDF (because we already filtered pages)
+                    # So pages=None (or "1-{count}")
+                    
+                    analyze_request = AnalyzeDocumentRequest(base64_source=base64.b64encode(optimized_pdf_bytes).decode("utf-8"))
+                    
+                    poller = self.client.begin_analyze_document(
+                        model_id="prebuilt-layout",
+                        body=analyze_request,
+                        features=features
+                        # pages is omitted as optimized PDF contains only relevant pages
+                    )
+                    
+                    result = poller.result()
+                    print(f"[DI] Fallback analysis complete: {len(result.pages)} pages")
+                    
+                    page_chunks = []
+                    for page in result.pages:
+                        # Original page number is lost in new PDF (starts at 1)
+                        # We must map it back to the requested range if possible.
+                        # Simple mapping: if range was "51-60", page 1 is 51.
+                        
+                        chunk = self._extract_page_content(page, result)
+                        
+                        # Correct page number if range based
+                        if page_range and "-" in str(page_range):
+                            try:
+                                start_p = int(str(page_range).split('-')[0])
+                                chunk["page_number"] = start_p + (page.page_number - 1)
+                            except:
+                                pass # Keep 1-based index if parse fails
+                                
+                        page_chunks.append(chunk)
+                    
+                    return page_chunks
+
+                except Exception as fallback_error:
+                    print(f"[DI] Fallback failed: {fallback_error}")
+                    raise e # Raise original error if fallback fails
+            
             print(f"[DI] Analysis failed: {e}")
             raise
+
+    def _optimize_pdf_content(self, blob_url: str, page_range: str, dpi: int = 96, max_dimension: int = 2000) -> bytes:
+        """
+        Downloads PDF, renders requested pages as images (downsampled), and creates a new PDF.
+        Returns the bytes of the new PDF.
+        """
+        import requests
+        import fitz # PyMuPDF
+        import io
+        from PIL import Image
+
+        # 1. Download original PDF
+        response = requests.get(blob_url, stream=True)
+        response.raise_for_status()
+        
+        # Load entire PDF into memory (robustness tradeoff)
+        # For GB-sized files, we might need more complex streaming, but Image limit usually implies
+        # the dimensions are huge, not necessarily the file size (though usually related).
+        pdf_bytes = io.BytesIO(response.content)
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        
+        new_doc = fitz.open() # output PDF
+        
+        # 2. Parse Page Range
+        # format: "1-5", "1,3,5" or None
+        target_pages = []
+        if not page_range:
+            target_pages = range(len(doc))
+        elif "-" in str(page_range):
+            start, end = map(int, str(page_range).split('-'))
+            target_pages = range(start - 1, end) # 0-indexed
+        else:
+            # Handle "1" or "1,2"
+            parts = str(page_range).split(',')
+            for p in parts:
+                target_pages.append(int(p) - 1)
+        
+        # 3. Render and Add
+        for p_idx in target_pages:
+            if p_idx < 0 or p_idx >= len(doc): continue
+            
+            page = doc.load_page(p_idx)
+            
+            # Calculate resize scale
+            # Default 72 DPI. Target 96 DPI = 1.33x
+            # But check dimension limit
+            rect = page.rect
+            scale = dpi / 72.0
+            
+            if rect.width * scale > max_dimension or rect.height * scale > max_dimension:
+                scale = min(max_dimension / rect.width, max_dimension / rect.height)
+                
+            mat = fitz.Matrix(scale, scale)
+            pix = page.get_pixmap(matrix=mat)
+            
+            # Convert to PIL for easy JPEG compression
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            
+            # Save to JPEG bytes
+            img_bio = io.BytesIO()
+            img.save(img_bio, format="JPEG", quality=70, optimize=True)
+            img_bytes = img_bio.getvalue()
+            
+            # Create new PDF page from image
+            img_page = new_doc.new_page(width=pix.width, height=pix.height)
+            img_page.insert_image(img_page.rect, stream=img_bytes)
+            
+        # 4. Save
+        output_bio = io.BytesIO()
+        new_doc.save(output_bio)
+        return output_bio.getvalue()
 
     def _extract_page_content(self, page: Any, full_result: Any) -> Dict[str, Any]:
         """

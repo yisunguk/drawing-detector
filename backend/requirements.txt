@@ -10,3 +10,6 @@ shapely==2.0.3
 azure-ai-formrecognizer==3.3.3
 azure-search-documents
 azure-ai-documentintelligence
+PyMuPDF>=1.23.0
+Pillow>=10.0.0
+requests>=2.31.0

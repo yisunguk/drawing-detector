@@ -217,7 +217,8 @@ async def analyze_document_sync(
             # Check if we assume SAS Token auth (Singleton initialized with SAS)
             if settings.AZURE_BLOB_SAS_TOKEN:
                  print("[AnalyzeSync] Using configured SAS Token (Account Key not found/needed)")
-                 sas_token = settings.AZURE_BLOB_SAS_TOKEN.replace("%2C", ",").strip()
+                 # [MODIFIED] Do not replace %2C manually, trust the token or minimally clean
+                 sas_token = settings.AZURE_BLOB_SAS_TOKEN.strip()
                  if sas_token.startswith("?"):
                      sas_token = sas_token[1:]
             else:
@@ -236,7 +237,14 @@ async def analyze_document_sync(
         
         import urllib.parse
         blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{urllib.parse.quote(temp_blob_name)}?{sas_token}"
+        
+        # [MODIFIED] Normalize & Log
+        blob_url = blob_url.replace(" ", "%20")
+        
         print(f"[AnalyzeSync] SAS URL generated")
+        print("[DI] url has space?", " " in blob_url)
+        print("[DI] url length:", len(blob_url))
+        print("[DI] url head:", blob_url[:180])
         
         # 4. Analyze document in chunks (Streamlit pattern: 50 pages per chunk)
         from app.services.doc_intel_service import get_doc_intel_service
