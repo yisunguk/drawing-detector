@@ -484,9 +484,31 @@ const App = () => {
         // Scoring helper
         const calculateScore = (content, search) => {
             const cleanContent = content.toLowerCase().replace(/\s+/g, '');
-            if (cleanContent === search) return 100; // Perfect match
-            if (cleanContent.startsWith(search)) return 80;
-            if (cleanContent.includes(search)) return 60;
+            const cleanSearch = search.toLowerCase().replace(/\s+/g, '');
+
+            if (cleanContent === cleanSearch) return 100; // Perfect match
+
+            // Exact word matching bonus
+            // If the content contains the search term as a discrete word (or words)
+            // e.g., "절수형 기기 사용" in "여기에 절수형 기기 사용 항목이 있음"
+            const contentWords = content.toLowerCase().split(/[^a-zA-Z0-9가-힣]+/).filter(Boolean);
+            const searchWords = search.toLowerCase().split(/[^a-zA-Z0-9가-힣]+/).filter(Boolean);
+
+            if (searchWords.length > 0) {
+                // Check if ALL search words appear as exact words in the content
+                const allWordsMatch = searchWords.every(sw => contentWords.includes(sw));
+                if (allWordsMatch) return 95; // Very high score for exact word matches
+
+                // Partial word match (some words match exactly)
+                const matchCount = searchWords.filter(sw => contentWords.includes(sw)).length;
+                if (matchCount > 0) {
+                    return 60 + (matchCount / searchWords.length * 30);
+                }
+            }
+
+            if (cleanContent.startsWith(cleanSearch)) return 80;
+            if (cleanContent.includes(cleanSearch)) return 60;
+
             return 0;
         };
 
@@ -1493,8 +1515,23 @@ const App = () => {
             return;
         }
 
-        // 1. Check if it's a page navigation (e.g. "Page 2" or "2페이지")
-        const pageMatch = keyword.match(/(?:Page|페이지)\s*(\d+)/i);
+        // Parse optional page identifier: [[Keyword|Page 5]] or [[Keyword|P.5]]
+        let targetPage = null;
+        let cleanText = keyword;
+
+        if (keyword.includes('|')) {
+            const parts = keyword.split('|');
+            cleanText = parts[0].trim();
+            const pageStr = parts[1].trim();
+            const pageMatch = pageStr.match(/(\d+)/);
+            if (pageMatch) {
+                targetPage = parseInt(pageMatch[1]);
+                console.log(`Navigating to page ${targetPage} for citation: ${cleanText}`);
+            }
+        }
+
+        // 1. Check if it's a pure page navigation (e.g. "Page 2" or "2페이지")
+        const pageMatch = cleanText.match(/(?:Page|페이지)\s*(\d+)/i);
         if (pageMatch) {
             const pageNum = parseInt(pageMatch[1]);
             if (activeDoc && pageNum >= 1 && pageNum <= (activeDoc.totalPages || 1)) {
@@ -1505,17 +1542,23 @@ const App = () => {
 
         // 2. Check if it matches a document name
         const docMatch = documents.find(d =>
-            d.name.toLowerCase().includes(keyword.toLowerCase()) ||
-            keyword.toLowerCase().includes(d.name.toLowerCase())
+            d.name.toLowerCase().includes(cleanText.toLowerCase()) ||
+            cleanText.toLowerCase().includes(d.name.toLowerCase())
         );
         if (docMatch) {
             setActiveDocId(docMatch.id);
-            setActivePage(1); // Optional: reset to page 1 when switching docs via citation
+            if (targetPage) setActivePage(targetPage);
+            else setActivePage(1);
             return;
         }
 
-        // 3. Default to text search
-        setSearchTerm(keyword);
+        // 3. Fallback to searching the term, potentially restricted to context page
+        if (targetPage && activeDoc && targetPage <= activeDoc.totalPages) {
+            // If we have a target page, jump there first
+            goToPage(targetPage);
+        }
+
+        setSearchTerm(cleanText);
         setAutoSelectFirstResult(true);
     };
 
