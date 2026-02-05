@@ -444,15 +444,23 @@ async def start_robust_analysis_task(
             blob_data.readinto(f)
         print(f"[StartAnalysis] Downloaded {os.path.getsize(local_file_path) / 1024 / 1024:.1f} MB")
         
+        # Verify page count
+        import fitz
+        with fitz.open(local_file_path) as doc:
+            real_pages = doc.page_count
+            if real_pages != total_pages:
+                 print(f"[StartAnalysis] mismatch pages: user={total_pages}, real={real_pages}. Updating.")
+                 total_pages = real_pages
+        
         # Initialize Status if not already
         if not status_manager.get_status(filename):
             status_manager.init_status(filename, total_pages, category)
         
-        # Add Background Task with local file path
+        # Add Background Task
         background_tasks.add_task(
             robust_analysis_manager.run_analysis_loop,
             filename=filename,
-            local_file_path=local_file_path,  # Pass cached file instead of blob_name
+            blob_name=blob_name,
             total_pages=total_pages,
             category=category
         )
