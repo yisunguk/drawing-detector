@@ -414,14 +414,22 @@ async def start_robust_analysis_task(
     background_tasks: BackgroundTasks,
     filename: str = Body(...),
     total_pages: int = Body(...),
-    category: str = Body(...)
+    category: str = Body(...),
+    username: str = Body(None)
 ):
     """
     Triggers the Robust Analysis Loop in the background.
     Frontend should poll /status (via list incomplete) to track progress.
     """
     try:
-        blob_name = f"temp/{filename}"
+        # Match the upload path from upload-sas endpoint
+        blob_name = f"{username}/temp/{filename}" if username else f"temp/{filename}"
+        
+        # Verify file exists
+        container_client = get_container_client()
+        blob_client = container_client.get_blob_client(blob_name)
+        if not blob_client.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {blob_name}")
         
         # Initialize Status if not already
         if not status_manager.get_status(filename):
