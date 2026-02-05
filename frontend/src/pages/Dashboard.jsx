@@ -1024,34 +1024,52 @@ const App = () => {
             alert(`분석 완료! ${result.chunks_analyzed}개 페이지를 처리했습니다.`);
 
             // --- Context Fix: Fetch the generated JSON and update local state ---
+            // --- Context Fix: Fetch the generated JSON and update local state ---
             try {
-                // Use the precise JSON location returned by the backend
-                const jsonPath = result.json_location;
+                let fetchedOcrData = null;
+                const jsonCandidates = [];
 
-                if (jsonPath) {
-                    console.log("[ContextFix] Fetching derived JSON from backend location:", jsonPath);
-                    const jsonCandidates = [jsonPath];
+                // 1. Try precise location from backend
+                if (result.json_location) {
+                    jsonCandidates.push(result.json_location);
+                }
 
-                    let fetchedOcrData = null;
-                    for (const jsonPath of jsonCandidates) {
-                        try {
-                            const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
-                            if (jsonRes.ok) {
-                                const jsonBlob = await jsonRes.blob();
-                                const jsonText = await jsonBlob.text();
-                                fetchedOcrData = JSON.parse(jsonText);
-                                console.log(`[ContextFix] ✅ JSON context fetched from: ${jsonPath}`);
-                                break;
-                            }
-                        } catch (e) { /* ignore */ }
+                // 2. Fallback: Construct path from blob_name
+                // blob_name example: "username/drawings/filename.pdf"
+                if (blob_name) {
+                    // Parallel json folder
+                    if (blob_name.toLowerCase().includes('drawings')) {
+                        jsonCandidates.push(blob_name.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                        jsonCandidates.push(blob_name.replace(/drawings/i, 'json') + '.json');
                     }
+                    // Same directory
+                    jsonCandidates.push(blob_name.replace(/\.pdf$/i, '.json'));
+                    jsonCandidates.push(blob_name + '.json');
+                }
 
-                    if (fetchedOcrData) {
-                        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: fetchedOcrData, isLoaded: true } : d));
-                        console.log("[ContextFix] Document state updated with OCR data.");
-                    } else {
-                        console.warn("[ContextFix] ⚠️ Could not fetch generated JSON. Chat context may be empty.");
+                console.log("[ContextFix] Attempting to fetch derived JSON from candidates:", jsonCandidates);
+
+                for (const jsonPath of jsonCandidates) {
+                    try {
+                        const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
+                        if (jsonRes.ok) {
+                            const jsonBlob = await jsonRes.blob();
+                            const jsonText = await jsonBlob.text();
+                            fetchedOcrData = JSON.parse(jsonText);
+                            console.log(`[ContextFix] ✅ JSON context fetched from: ${jsonPath}`);
+                            break;
+                        }
+                    } catch (e) {
+                        console.warn(`[ContextFix] Failed to fetch from ${jsonPath}`, e);
                     }
+                }
+
+                if (fetchedOcrData) {
+                    setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: fetchedOcrData, isLoaded: true } : d));
+                    console.log("[ContextFix] Document state updated with OCR data.");
+                } else {
+                    console.warn("[ContextFix] ⚠️ Could not fetch generated JSON. Chat context may be empty.");
+                    // Optional: Show a non-blocking toast or indicator?
                 }
             } catch (ctxErr) {
                 console.error("[ContextFix] Error fetching context JSON:", ctxErr);
