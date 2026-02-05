@@ -126,7 +126,15 @@ const App = () => {
                         if (savedZoom) setZoom(Number(savedZoom));
                         if (savedPanX) setPanX(Number(savedPanX));
                         if (savedPanY) setPanY(Number(savedPanY));
+                        if (savedPanY) setPanY(Number(savedPanY));
                         if (savedRotation) setRotation(Number(savedRotation));
+
+                        const [savedSidebarOpen, savedSidebarWidth] = await Promise.all([
+                            get('rightSidebarOpen'),
+                            get('sidebarWidth')
+                        ]);
+                        if (savedSidebarOpen !== undefined) setRightSidebarOpen(savedSidebarOpen);
+                        if (savedSidebarWidth) setSidebarWidth(Number(savedSidebarWidth));
 
                         // Small delay to allow canvas render before disabling protection
                     }
@@ -219,8 +227,10 @@ const App = () => {
             set('panX', panX);
             set('panY', panY);
             set('rotation', rotation);
+            set('rightSidebarOpen', rightSidebarOpen);
+            set('sidebarWidth', sidebarWidth);
         }
-    }, [activePage, zoom, panX, panY, rotation, isInitialLoad]);
+    }, [activePage, zoom, panX, panY, rotation, isInitialLoad, rightSidebarOpen, sidebarWidth]);
 
     const handleReset = async () => {
         if (window.confirm('모든 도면과 채팅 기록을 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
@@ -239,7 +249,9 @@ const App = () => {
                     del('zoom'),
                     del('panX'),
                     del('panY'),
-                    del('rotation')
+                    del('rotation'),
+                    del('rightSidebarOpen'),
+                    del('sidebarWidth')
                 ]);
 
                 // 3. Reload
