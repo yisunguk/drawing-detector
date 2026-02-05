@@ -120,64 +120,12 @@ class DocumentIntelligenceService:
                 except:
                     pass
 
-            # Check for "Input image is too large" / "InvalidContentLength" error
-            error_msg = str(e).lower()
-            if "too large" in error_msg or "invalidcontentlength" in error_msg:
-                print(f"[DI] Enormous page detected. Attempting fallback: Downsampling PDF pages...")
-                
-                try:
-                    # Fallback: Download -> Render (Low DPI) -> Re-analyze
-                    max_dimension = 2000 # Max width/height for Vision compatibility
-                    dpi = 96 # Low DPI usually sufficient for reading
-                    
-                    optimized_pdf_bytes = self._optimize_pdf_content(blob_url, page_range, dpi=dpi, max_dimension=max_dimension)
-                    
-                    print(f"[DI] Fallback: Re-analyzing optimized PDF ({len(optimized_pdf_bytes)/1024/1024:.2f} MB)...")
-                    
-                    # Retry with optimized bytes
-                    # Note: Pass bytes directly to analyze_request
-                    
-                    poller = self.client.begin_analyze_document(
-                        "prebuilt-layout",
-                        optimized_pdf_bytes,
-                        content_type="application/pdf",
-                        features=features
-                        # pages is omitted as optimized PDF contains only relevant pages
-                    )
-                    
-                    result = poller.result()
-                    print(f"[DI] Fallback analysis complete: {len(result.pages)} pages")
-                    
-                    page_chunks = []
-                    for page in result.pages:
-                        # Original page number is lost in new PDF (starts at 1)
-                        # We must map it back to the requested range if possible.
-                        # Simple mapping: if range was "51-60", page 1 is 51.
-                        
-                        chunk = self._extract_page_content(page, result)
-                        
-                        # Correct page number if range based
-                        if page_range and "-" in str(page_range):
-                            try:
-                                start_p = int(str(page_range).split('-')[0])
-                                chunk["page_number"] = start_p + (page.page_number - 1)
-                            except:
-                                pass # Keep 1-based index if parse fails
-                                
-                        page_chunks.append(chunk)
-                    
-                    return page_chunks
-
-                except Exception as fallback_error:
-                    print(f"[DI] Fallback failed: {fallback_error}")
-                    raise e # Raise original error if fallback fails
-            
             print(f"[DI] Analysis failed: {e}")
             raise
 
-    def _optimize_pdf_content(self, blob_url: str, page_range: str, dpi: int = 96, max_dimension: int = 2000) -> bytes:
+    def create_optimized_pdf_bytes(self, blob_url: str, page_range: str, dpi: int = 150, max_dimension: int = 3000) -> bytes:
         """
-        Downloads PDF to temp file, renders requested pages as images (downsampled), and creates a new PDF.
+        Downloads PDF to temp file, renders requested pages as images (High Quality), and creates a new PDF.
         Returns the bytes of the new PDF.
         """
         import requests
@@ -187,7 +135,7 @@ class DocumentIntelligenceService:
         import os
         from PIL import Image
 
-        print(f"[Fallback] Downloading PDF from URL to temp file...")
+        print(f"[HighQualityFallback] Downloading PDF from URL to temp file...")
         
         tmp_path = None
         try:
@@ -199,7 +147,7 @@ class DocumentIntelligenceService:
                     for chunk in r.iter_content(chunk_size=8192):
                         tmp_file.write(chunk)
             
-            print(f"[Fallback] Downloaded to {tmp_path} ({os.path.getsize(tmp_path)/1024/1024:.2f} MB)")
+            print(f"[HighQualityFallback] Downloaded to {tmp_path} ({os.path.getsize(tmp_path)/1024/1024:.2f} MB)")
 
             # Open from disk
             doc = fitz.open(tmp_path)
@@ -219,7 +167,7 @@ class DocumentIntelligenceService:
                 for p in parts:
                     target_pages.append(int(p) - 1)
             
-            print(f"[Fallback] Processing {len(target_pages)} pages...")
+            print(f"[HighQualityFallback] Processing {len(target_pages)} pages (High Quality)...")
 
             # 3. Render and Add
             for i, p_idx in enumerate(target_pages):
@@ -227,13 +175,13 @@ class DocumentIntelligenceService:
                 
                 # Log progress every 5 pages
                 if i % 5 == 0:
-                    print(f"[Fallback] Optimizing page {p_idx+1} ({i+1}/{len(target_pages)})")
+                    print(f"[HighQualityFallback] Optimizing page {p_idx+1} ({i+1}/{len(target_pages)})")
 
                 page = doc.load_page(p_idx)
                 
                 # Calculate resize scale
-                # Default 72 DPI. Target 96 DPI = 1.33x
-                # But check dimension limit
+                # Default 72 DPI. Target 150 DPI = 2.08x
+                # But check dimension limit (3000px)
                 rect = page.rect
                 scale = dpi / 72.0
                 
@@ -246,13 +194,11 @@ class DocumentIntelligenceService:
                 # Convert to PIL for easy JPEG compression (strip alpha to save space)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 
-                # [Optimization] Convert to Grayscale to reduce size (3 channels -> 1 channel)
-                # Azure DI binary upload limit is 4MB. 5.85MB -> < 2MB expected.
-                img = img.convert("L")
+                # [High Accuracy] Keep RGB, Quality 85
                 
                 # Save to JPEG bytes
                 img_bio = io.BytesIO()
-                img.save(img_bio, format="JPEG", quality=60, optimize=True)
+                img.save(img_bio, format="JPEG", quality=85, optimize=True)
                 img_bytes = img_bio.getvalue()
                 
                 # Create new PDF page from image

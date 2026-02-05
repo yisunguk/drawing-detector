@@ -259,8 +259,10 @@ async def analyze_document_sync(
             
             print(f"[AnalyzeSync] Analyzing pages {page_range}...")
             
-            # Retry logic (from Streamlit)
+            # Retry logic with High-Accuracy Fallback
             max_retries = 3
+            chunks = None
+            
             for retry in range(max_retries):
                 try:
                     chunks = doc_intel_service.analyze_document(
@@ -268,31 +270,62 @@ async def analyze_document_sync(
                         page_range=page_range,
                         high_res=False  # Default to standard OCR
                     )
-                    
                     print(f"[DI] analyze_document done, chunks: {len(chunks)}")
+                    break # Success
                     
-                    # Apply P&ID Topology Processing
-                    from app.services.pid_processor import pid_processor
-                    enriched_chunks = []
-                    for chunk in chunks:
-                        try:
-                            print(f"[PID] processing page: {chunk.get('page_number')}")
-                            enriched = pid_processor.process_chunk(chunk)
-                            
-                            # Format for LLM (Append to Content)
-                            topology_text = pid_processor.format_to_text(enriched)
-                            if topology_text:
-                                enriched['content'] += topology_text
-                                
-                            enriched_chunks.append(enriched)
-                        except Exception as e:
-                            print(f"[AnalyzeSync] PID Processing Warning for page {chunk.get('page_number')}: {e}")
-                            enriched_chunks.append(chunk) # Fallback to original
-                            
-                    all_chunks.extend(enriched_chunks)
-                    print(f"[AnalyzeSync] Chunk {page_range} complete: {len(chunks)} pages")
-                    break
                 except Exception as e:
+                    # Check for "Too Large" error for High-Accuracy Fallback
+                    error_msg = str(e).lower()
+                    if "too large" in error_msg or "invalidcontentlength" in error_msg:
+                        print(f"[AnalyzeSync] Large Image detected. Initiating High-Accuracy Fallback via Blob Storage...")
+                        try:
+                            # 1. Optimize (High Quality)
+                            optimized_bytes = doc_intel_service.create_optimized_pdf_bytes(
+                                blob_url=blob_url, page_range=page_range, dpi=150, max_dimension=3000
+                            )
+                            
+                            # 2. Upload to Temp Blob
+                            import uuid
+                            fb_filename = f"fallback_{uuid.uuid4()}.pdf"
+                            fb_blob_client = container_client.get_blob_client(f"temp/{fb_filename}")
+                            fb_blob_client.upload_blob(optimized_bytes, overwrite=True)
+                            print(f"[AnalyzeSync] Uploaded optimized PDF to temp/{fb_filename}")
+                            
+                            # 3. Generate SAS for Fallback
+                            fb_sas = generate_blob_sas(
+                                 account_name=account_name,
+                                 container_name=settings.AZURE_BLOB_CONTAINER_NAME,
+                                 blob_name=f"temp/{fb_filename}",
+                                 account_key=account_key,
+                                 permission=BlobSasPermissions(read=True),
+                                 expiry=datetime.utcnow() + timedelta(hours=1)
+                            )
+                            fb_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/temp/{fb_filename}?{fb_sas}"
+                            
+                            # 4. Analyze New Blob
+                            chunks = doc_intel_service.analyze_document(
+                                blob_url=fb_url, page_range=None, high_res=False
+                            )
+                            print(f"[AnalyzeSync] Fallback analysis done, chunks: {len(chunks)}")
+                            
+                            # 5. Fix Page Numbers (Map 1..N back to page_range)
+                            if page_range and "-" in str(page_range):
+                                try:
+                                    start_p = int(str(page_range).split('-')[0])
+                                    for ch in chunks:
+                                        ch["page_number"] = start_p + (ch["page_number"] - 1)
+                                except: pass
+                                
+                            # 6. Delete Temp Blob
+                            try: fb_blob_client.delete_blob()
+                            except: pass
+                            
+                            break # Fallback Success
+                            
+                        except Exception as fb_e:
+                            print(f"[AnalyzeSync] High-Acc Fallback Failed: {fb_e}")
+                            # Continue to standard retry logic
+                    
                     if retry == max_retries - 1:
                         print(f"[AnalyzeSync] Chunk {page_range} failed after {max_retries} retries: {e}")
                         raise
@@ -301,6 +334,30 @@ async def analyze_document_sync(
                     wait_time = 5 * (retry + 1)
                     print(f"[AnalyzeSync] Retry {retry + 1}/{max_retries} for {page_range} (waiting {wait_time}s)")
                     time.sleep(wait_time)
+            
+            # Apply P&ID Topology Processing (if chunks obtained)
+            if chunks:
+                from app.services.pid_processor import pid_processor
+                enriched_chunks = []
+                for chunk in chunks:
+                    try:
+                        print(f"[PID] processing page: {chunk.get('page_number')}")
+                        enriched = pid_processor.process_chunk(chunk)
+                        
+                        # Format for LLM (Append to Content)
+                        topology_text = pid_processor.format_to_text(enriched)
+                        if topology_text:
+                            enriched['content'] += topology_text
+                            
+                        enriched_chunks.append(enriched)
+                    except Exception as e:
+                        print(f"[AnalyzeSync] PID Processing Warning for page {chunk.get('page_number')}: {e}")
+                        enriched_chunks.append(chunk) # Fallback to original
+                        
+                all_chunks.extend(enriched_chunks)
+                print(f"[AnalyzeSync] Chunk {page_range} complete: {len(chunks)} pages")
+                    
+
         
         print(f"[AnalyzeSync] Analysis complete: {len(all_chunks)} pages processed")
         
