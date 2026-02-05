@@ -330,7 +330,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                                         }
                                     }}
                                 >
-                                    {msg.content.replace(/\[\[(.*?)\]\]/g, (match, p1) => {
+                                    {msg.content.replace(/(`*)\[\[(.*?)\]\]\1/g, (match, backticks, p1) => {
                                         // Handle pipe character for table safety and cleaner display
                                         // [[Keyword|Page]] -> Keyword (Page)
                                         const cleanText = p1.includes('|') ? p1.split('|')[0].trim() + " (" + p1.split('|')[1].trim() + ")" : p1;
