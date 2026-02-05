@@ -1489,14 +1489,21 @@ const App = () => {
     }, []);
 
     const getPanRange = () => {
-        if (!canvasSize.width || !containerSize.width) return { min: 50, max: 50 };
+        // Expanded range to allow moving the drawing further (not just edge-to-edge)
+        if (!canvasSize.width || !containerSize.width) return { minX: 0, maxX: 100, minY: 0, maxY: 100 };
         const cw = canvasSize.width * zoom;
         const ch = canvasSize.height * zoom;
-        // Calculate max overhang % (how much we can shift to see the edge)
-        // If Image > Container: Shift = (Image - Container) / 2 / Image * 100
-        const overX = Math.max(0, (cw - containerSize.width) / 2 / cw * 100);
-        const overY = Math.max(0, (ch - containerSize.height) / 2 / ch * 100);
-        return { minX: 50 - overX, maxX: 50 + overX, minY: 50 - overY, maxY: 50 + overY };
+
+        // Allow panning so that at least 10% of the drawing is still visible
+        const paddingX = (containerSize.width * 0.4) / cw * 100;
+        const paddingY = (containerSize.height * 0.4) / ch * 100;
+
+        return {
+            minX: 50 - (50 + paddingX),
+            maxX: 50 + (50 + paddingX),
+            minY: 50 - (50 + paddingY),
+            maxY: 50 + (50 + paddingY)
+        };
     };
     const panRange = getPanRange();
     const selectedCenter = getSelectedCenter();
@@ -1848,70 +1855,74 @@ const App = () => {
 
 
 
-                {/* Canvas */}
+                {/* Canvas Container */}
                 <div
                     ref={containerRef}
-                    className={`flex-1 overflow-hidden bg-[#f0ede6] relative flex items-center justify-center ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                    className={`flex-1 overflow-auto bg-[#f0ede6] relative ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} overflow-scroll scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent`}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
                 >
-                    {activeDoc ? (
-                        <>
-                            {isLoading && (
-                                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#f0ede6]/90 backdrop-blur-sm">
-                                    <Loader2 size={48} className="animate-spin text-[#d97757] mb-4" />
-                                    <h3 className="text-lg font-medium text-[#333333] mb-2">도면을 렌더링 중입니다</h3>
-                                    <p className="text-sm text-[#888888]">잠시만 기다려 주세요...</p>
-                                </div>
-                            )}
-                            <div style={{ transform: `scale(${zoom}) translate(${(50 - (isNaN(panX) ? 50 : panX))}%, ${(50 - (isNaN(panY) ? 50 : panY))}%)`, transformOrigin: 'center center' }} className="relative shadow-xl transition-transform duration-75 ease-out">
-                                <canvas ref={canvasRef} className="block bg-white" />
-
-                                {canvasSize.width > 0 && (currentPageData?.layout || currentPageData?.lines) && (
-                                    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
-                                        {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
-                                            <polygon key={i} points={getPolygonPoints(r)} fill="rgba(250,204,21,0.2)" stroke="rgba(250,204,21,0.6)" strokeWidth="2" />
-                                        ))}
-                                        {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && selectedResult.polygon && (
-                                            <>
-                                                <polygon points={getPolygonPoints(selectedResult)} fill="rgba(217,119,87,0.2)" stroke="#d97757" strokeWidth="3" />
-                                                <circle cx={selectedCenter.cx} cy={selectedCenter.cy} r="15" fill="none" stroke="#d97757" strokeWidth="2" opacity="0.8" />
-                                                <line x1={selectedCenter.cx - 20} y1={selectedCenter.cy} x2={selectedCenter.cx + 20} y2={selectedCenter.cy} stroke="#d97757" strokeWidth="2" />
-                                                <line x1={selectedCenter.cx} y1={selectedCenter.cy - 20} x2={selectedCenter.cx} y2={selectedCenter.cy + 20} stroke="#d97757" strokeWidth="2" />
-                                            </>
-                                        )}
-                                    </svg>
+                    {/* Measurement Inner for Scrollbars */}
+                    <div
+                        style={{
+                            width: activeDoc ? (canvasSize.width * zoom + (containerSize.width || 0)) : '100%',
+                            height: activeDoc ? (canvasSize.height * zoom + (containerSize.height || 0)) : '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            position: 'relative'
+                        }}
+                    >
+                        {activeDoc ? (
+                            <>
+                                {isLoading && (
+                                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#f0ede6]/90 backdrop-blur-sm">
+                                        <Loader2 size={48} className="animate-spin text-[#d97757] mb-4" />
+                                        <h3 className="text-lg font-medium text-[#333333] mb-2">도면을 렌더링 중입니다</h3>
+                                        <p className="text-sm text-[#888888]">잠시만 기다려 주세요...</p>
+                                    </div>
                                 )}
+                                <div style={{ transform: `scale(${zoom}) translate(${(50 - (isNaN(panX) ? 50 : panX))}%, ${(50 - (isNaN(panY) ? 50 : panY))}%)`, transformOrigin: 'center center' }} className="relative shadow-xl transition-transform duration-75 ease-out">
+                                    <canvas ref={canvasRef} className="block bg-white" />
+
+                                    {canvasSize.width > 0 && (currentPageData?.layout || currentPageData?.lines) && (
+                                        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
+                                            {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
+                                                <polygon key={i} points={getPolygonPoints(r)} fill="rgba(250,204,21,0.2)" stroke="rgba(250,204,21,0.6)" strokeWidth="2" />
+                                            ))}
+                                            {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && selectedResult.polygon && (
+                                                <>
+                                                    <polygon points={getPolygonPoints(selectedResult)} fill="rgba(217,119,87,0.2)" stroke="#d97757" strokeWidth="3" />
+                                                    <circle cx={selectedCenter.cx} cy={selectedCenter.cy} r="15" fill="none" stroke="#d97757" strokeWidth="2" opacity="0.8" />
+                                                    <line x1={selectedCenter.cx - 20} y1={selectedCenter.cy} x2={selectedCenter.cx + 20} y2={selectedCenter.cy} stroke="#d97757" strokeWidth="2" />
+                                                    <line x1={selectedCenter.cx} y1={selectedCenter.cy - 20} x2={selectedCenter.cx} y2={selectedCenter.cy + 20} stroke="#d97757" strokeWidth="2" />
+                                                </>
+                                            )}
+                                        </svg>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            <div className="text-center p-10 bg-white rounded-2xl shadow-sm border border-[#e5e1d8]">
+                                <div className="bg-[#f4f1ea] p-4 rounded-full inline-block mb-4">
+                                    <FileText size={48} className="text-[#d97757]" />
+                                </div>
+                                <h3 className="text-lg font-serif font-bold text-[#333333] mb-2">선택된 도면이 없습니다</h3>
+                                <p className="text-[#666666] mb-6 text-sm">시작하려면 도면을 등록해주세요.</p>
+                                <div className="flex gap-3 justify-center">
+                                    <button onClick={() => initiateUpload('pdf')} className="px-5 py-2.5 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-2"><Plus size={16} /> 도면 업로드</button>
+                                </div>
                             </div>
-                        </>
-                    ) : (
-                        <div className="text-center p-10 bg-white rounded-2xl shadow-sm border border-[#e5e1d8]">
-                            <div className="bg-[#f4f1ea] p-4 rounded-full inline-block mb-4">
-                                <FileText size={48} className="text-[#d97757]" />
-                            </div>
-                            <h3 className="text-lg font-serif font-bold text-[#333333] mb-2">선택된 도면이 없습니다</h3>
-                            <p className="text-[#666666] mb-6 text-sm">시작하려면 도면을 등록해주세요.</p>
-                            <div className="flex gap-3 justify-center">
-                                <button onClick={() => initiateUpload('pdf')} className="px-5 py-2.5 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-2"><Plus size={16} /> 도면 업로드</button>
-                            </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
 
-                {/* Nav */}
+                {/* Navigation Bar replaced with more discreet info if needed, or removed for native scroll feel */}
                 {activeDoc && (
-                    <div className="h-12 bg-white border-t border-[#e5e1d8] px-6 flex items-center gap-6 shadow-[0_-2px_10px_rgba(0,0,0,0.02)] z-10">
-                        <div className="flex items-center gap-3 flex-1">
-                            <span className="text-xs font-bold text-[#888888] w-4">X</span>
-                            <input type="range" min={panRange.minX} max={panRange.maxX} step="0.5" value={panX} onChange={(e) => setPanX(+e.target.value)} className="flex-1 h-1.5 bg-[#f0ede6] rounded-full cursor-pointer accent-[#d97757]" />
-                        </div>
-                        <div className="flex items-center gap-3 flex-1">
-                            <span className="text-xs font-bold text-[#888888] w-4">Y</span>
-                            <input type="range" min={panRange.minY} max={panRange.maxY} step="0.5" value={panY} onChange={(e) => setPanY(+e.target.value)} className="flex-1 h-1.5 bg-[#f0ede6] rounded-full cursor-pointer accent-[#d97757]" />
-                        </div>
-                        <button onClick={() => { setPanX(50); setPanY(50); }} className="px-4 py-1.5 bg-[#f4f1ea] hover:bg-[#e5e1d8] text-[#555555] rounded-md text-xs font-medium transition-colors"><Move size={14} className="inline mr-1.5" />Center</button>
+                    <div className="h-2 bg-white/50 backdrop-blur-sm relative z-10">
+                        {/* Native scrollbars above provide the "bars" the user requested */}
                     </div>
                 )}
 
@@ -1922,7 +1933,6 @@ const App = () => {
                 </div>
             </div>
 
-            {/* Right Sidebar (Chat) */}
             {/* Right Sidebar (Chat) */}
             <div
                 className={`border-l border-[#e5e1d8] bg-white overflow-hidden flex flex-col relative ${!isResizing ? 'transition-[width] duration-300' : ''}`}
