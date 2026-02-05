@@ -110,55 +110,7 @@ async def get_upload_sas(filename: str, username: str = None):
         print(f"SAS Gen Failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/start")
-async def start_robust_analysis(
-    filename: str = Body(...),
-    total_pages: int = Body(...),
-    category: str = Body("drawings")
-):
-    """
-    Initiates chunked background analysis using robust_analysis_manager.
-    Frontend should have already uploaded file to temp/{filename} via SAS.
-    """
-    try:
-        print(f"[StartAnalysis] Received: {filename}, {total_pages} pages, category={category}")
-        
-        # 1. Verify file exists in temp/
-        container_client = get_container_client()
-        blob_name = f"temp/{filename}"
-        blob_client = container_client.get_blob_client(blob_name)
-        
-        if not blob_client.exists():
-            print(f"[StartAnalysis] File not found: {blob_name}")
-            raise HTTPException(status_code=404, detail=f"File not found in temp/: {filename}")
-        
-        # 2. Initialize Status
-        from app.services.status_manager import status_manager
-        status_manager.init_status(filename, total_pages, category)
-        print(f"[StartAnalysis] Status initialized for {filename}")
-        
-        # 3. Start Background Task
-        from app.services.robust_analysis_manager import robust_analysis_manager
-        
-        asyncio.create_task(
-            robust_analysis_manager.run_analysis_loop(
-                filename=filename,
-                blob_name=blob_name,
-                total_pages=total_pages,
-                category=category
-            )
-        )
-        
-        print(f"[StartAnalysis] Background task created for {filename}")
-        return {"status": "started", "filename": filename, "total_pages": total_pages}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"[StartAnalysis] Failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+# Removed duplicate /start endpoint - using the one with BackgroundTasks below
 
 
 @router.post("/analyze-sync")
