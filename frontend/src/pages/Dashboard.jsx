@@ -1070,6 +1070,7 @@ const App = () => {
     const confirmAnalysis = async () => {
         setShowAnalysisConfirmModal(false);
         const uploads = [...pendingUploads];
+        console.log(`[BatchAnalysis] Processing ${uploads.length} files:`, uploads.map(u => u.file.name));
         setPendingUploads([]);
 
         for (let i = 0; i < uploads.length; i++) {
@@ -1085,6 +1086,7 @@ const App = () => {
 
     const handleFilesUpload = async (e, type) => {
         const files = Array.from(e.target.files);
+        const newPending = [];
 
         // Helper to read file as Promise
         const readFile = (file, readAs) => new Promise((resolve, reject) => {
@@ -1102,8 +1104,8 @@ const App = () => {
             if (type === 'pdf') {
                 try {
                     const result = await readFile(file, 'arrayBuffer');
-                    // Calculate color index based on current documents + index in loop
-                    const colorIndex = (documents.length + files.indexOf(file)) % DOC_COLORS.length;
+                    // Calculate color index correctly for batches
+                    const colorIndex = (documents.length + newPending.length) % DOC_COLORS.length;
 
                     // Clone ArrayBuffer to prevent detached buffer error
                     const clonedBuffer = result.slice(0);
