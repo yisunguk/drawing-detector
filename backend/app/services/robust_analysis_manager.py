@@ -9,102 +9,112 @@ from datetime import datetime, timedelta
 from app.core.config import settings
 import urllib.parse
 import os
+import json
 
 class RobustAnalysisManager:
     """
     Manages robust document analysis (Production Grade):
     - Uses Azure Form Recognizer SDK (via AzureDIService) for stable URL analysis.
-    - Implements Adaptive Chunking: Starts with 20 pages, splits recursively on failure.
-    - Strictly avoids image rendering fallback for DI.
-    - Saves progress via StatusManager.
+    - Optimized: Supports Local File Caching + Parallel Processing.
+    - STRICTLY avoids sequential bottlenecks.
+    - Saves progress incrementally via StatusManager.
     """
     
     def __init__(self):
-        # Initial chunk size recommended for stability
-        self.INITIAL_CHUNK_SIZE = 20
+        # Increased chunk size for efficiency (User Preference: 50)
+        self.CHUNK_SIZE = 50
 
-    async def run_analysis_loop(self, filename: str, blob_name: str, total_pages: int, category: str):
+    async def run_analysis_loop(self, filename: str, blob_name: str, total_pages: int, category: str, local_file_path: str = None):
         """
-        Executes the Adaptive Analysis Loop.
+        Executes the Optimized Analysis Loop.
         """
         try:
-            print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages}, Blob: {blob_name})")
+            print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages}, Local: {local_file_path})")
             
-            # 1. Generate SAS URL
-            container_client = get_container_client()
-            account_name = container_client.account_name
-            account_key = None
-            
-            # Credential extraction logic
-            if hasattr(container_client.credential, 'account_key'):
-                account_key = container_client.credential.account_key
-            elif isinstance(container_client.credential, dict) and 'account_key' in container_client.credential:
-                account_key = container_client.credential['account_key']
-            else:
-                conn_str = settings.AZURE_BLOB_CONNECTION_STRING
-                if conn_str:
-                    for part in conn_str.split(';'):
-                        if 'AccountKey=' in part:
-                            account_key = part.split('AccountKey=')[1]
-                            break
-            
-            sas_token = None
-            if account_key:
-                sas_token = generate_blob_sas(
-                    account_name=account_name,
-                    container_name=settings.AZURE_BLOB_CONTAINER_NAME,
-                    blob_name=blob_name,
-                    account_key=account_key,
-                    permission=BlobSasPermissions(read=True),
-                    expiry=datetime.utcnow() + timedelta(hours=4) # Extended expiry for large jobs
-                )
-            elif settings.AZURE_BLOB_SAS_TOKEN:
-                 sas_token = settings.AZURE_BLOB_SAS_TOKEN.strip()
-                 if sas_token.startswith("?"): sas_token = sas_token[1:]
-
-            if not sas_token:
-                raise Exception("Could not generate SAS token")
+            blob_url = None
+            if not local_file_path:
+                # Only need SAS if no local file
+                # 1. Generate SAS URL
+                container_client = get_container_client()
+                account_name = container_client.account_name
+                account_key = None
                 
-            # Use safe quoting to preserve directory structure but encode components
-            encoded_blob_name = urllib.parse.quote(blob_name, safe="/~()-_.")
-            blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{encoded_blob_name}?{sas_token}"
-            # WARNING: Do NOT double-encode or replace spaces manually, quote() handles it.
-            
-            print(f"[RobustAnalysis] SAS URL Ready: {blob_url[:60]}... (Safe Encoded)")
+                # Credential extraction logic
+                if hasattr(container_client.credential, 'account_key'):
+                    account_key = container_client.credential.account_key
+                elif isinstance(container_client.credential, dict) and 'account_key' in container_client.credential:
+                    account_key = container_client.credential['account_key']
+                else:
+                    conn_str = settings.AZURE_BLOB_CONNECTION_STRING
+                    if conn_str:
+                        for part in conn_str.split(';'):
+                            if 'AccountKey=' in part:
+                                account_key = part.split('AccountKey=')[1]
+                                break
+                
+                sas_token = None
+                if account_key:
+                    sas_token = generate_blob_sas(
+                        account_name=account_name,
+                        container_name=settings.AZURE_BLOB_CONTAINER_NAME,
+                        blob_name=blob_name,
+                        account_key=account_key,
+                        permission=BlobSasPermissions(read=True),
+                        expiry=datetime.utcnow() + timedelta(hours=4)
+                    )
+                elif settings.AZURE_BLOB_SAS_TOKEN:
+                     sas_token = settings.AZURE_BLOB_SAS_TOKEN.strip()
+                     if sas_token.startswith("?"): sas_token = sas_token[1:]
+    
+                if not sas_token:
+                    raise Exception("Could not generate SAS token")
+                    
+                encoded_blob_name = urllib.parse.quote(blob_name, safe="/~()-_.")
+                blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{encoded_blob_name}?{sas_token}"
+                print(f"[RobustAnalysis] SAS URL Ready: {blob_url[:60]}...")
 
             # 2. Check Progress
             status = status_manager.get_status(filename)
             completed_chunks = set(status.get("completed_chunks", [])) if status else set()
             
-            # 3. Build Initial Pending Chunks (Standard Size)
-            # Note: We only queue standard chunks. Adaptive splitting happens inside _process_chunk
-            total_chunks = (total_pages + self.INITIAL_CHUNK_SIZE - 1) // self.INITIAL_CHUNK_SIZE
+            # 3. Build Pending Chunks
+            total_chunks = (total_pages + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE
             pending_chunks = []
             
-            # Let's map all completed pages
-            completed_pages = set()
-            for c_str in completed_chunks:
-                s, e = map(int, c_str.split('-'))
-                for p in range(s, e + 1):
-                    completed_pages.add(p)
-            
             for i in range(total_chunks):
-                start_page = i * self.INITIAL_CHUNK_SIZE + 1
-                end_page = min((i + 1) * self.INITIAL_CHUNK_SIZE, total_pages)
+                start_page = i * self.CHUNK_SIZE + 1
+                end_page = min((i + 1) * self.CHUNK_SIZE, total_pages)
+                page_range = f"{start_page}-{end_page}"
                 
-                # Check if this entire range is already processed (page by page)
-                range_pages = set(range(start_page, end_page + 1))
-                if not range_pages.issubset(completed_pages):
-                    pending_chunks.append(f"{start_page}-{end_page}")
+                if page_range not in completed_chunks:
+                    pending_chunks.append(page_range)
             
-            print(f"[RobustAnalysis] {len(pending_chunks)} initial chunks to process")
+            print(f"[RobustAnalysis] {len(pending_chunks)} chunks to process (out of {total_chunks})")
+            print(f"[RobustAnalysis] Pending list: {pending_chunks}")
             
-            # 4. Process chunks (Sequential)
-            for page_range in pending_chunks:
-                await self._process_chunk_adaptive(filename, blob_url, page_range)
+            # 4. Process chunks in PARALLEL batches
+            parallel_workers = 5  # Max parallel requests
             
-            # 5. Finalize
-            # Reload status to confirm everything is done
+            for batch_start in range(0, len(pending_chunks), parallel_workers):
+                batch = pending_chunks[batch_start:batch_start + parallel_workers]
+                print(f"[RobustAnalysis] ========== Processing batch {batch_start//parallel_workers + 1}: {batch} ==========")
+                
+                # Create tasks for this batch
+                tasks = [
+                    self._process_chunk(filename, blob_name, blob_url, local_file_path, page_range, category)
+                    for page_range in batch
+                ]
+                
+                # Wait for batch
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Check results
+                for i, res in enumerate(results):
+                    if isinstance(res, Exception):
+                        print(f"[RobustAnalysis] Chunk {batch[i]} FAILED: {res}")
+                        # We don't abort the whole loop, just log
+            
+            # 5. Finalize (Cleanup only, indexing is done incrementally)
             await self.finalize_analysis(filename, category, blob_name, total_pages)
 
         except Exception as e:
@@ -113,101 +123,55 @@ class RobustAnalysisManager:
             traceback.print_exc()
             self._mark_error(filename, f"Critical System Error: {str(e)}")
 
-    async def _process_chunk_adaptive(self, filename: str, blob_url: str, page_range: str):
+    async def _process_chunk(self, filename: str, blob_name: str, blob_url: str, local_file_path: str, page_range: str, category: str):
         """
-        Adaptive Chunk Processing:
-        Tries to process the range.
-        If it fails (due to timeout, size, etc), it splits the range in half and retries recursively.
-        Base case: 1 page (cannot split further).
+        Processes a single chunk:
+        1. Analyze (using cached file if available)
+        2. Save JSON
+        3. Index to Azure Search (INCREMENTAL)
         """
-        # Check if already done (optimization for resume)
-        status = status_manager.get_status(filename)
-        if status and page_range in status.get("completed_chunks", []):
-            print(f"[Adaptive] Chunk {page_range} already marked complete. Skipping.")
-            return
-
-        start, end = map(int, page_range.split('-'))
-        page_count = end - start + 1
-        
         try:
-            print(f"[Adaptive] Processing chunk {page_range} (Size: {page_count})...")
+            print(f"[Chunk] Processing {page_range}...")
             
-            # Call Azure DI (Blocking call wrapped in thread)
-            # Use the STABLE AzureDIService (Form Recognizer SDK)
+            # 1. Analyze
+            from app.services.doc_intel_service import get_doc_intel_service
+            doc_service = get_doc_intel_service()
+            
             loop = asyncio.get_running_loop()
             
-            # We use a lambda to call the synchronous service
+            # Run blocking analysis in executor
             chunks = await loop.run_in_executor(
                 None,
-                lambda: azure_di_service.analyze_document_from_url(
-                    document_url=blob_url,
-                    pages=page_range
+                lambda: doc_service.analyze_via_rendering(
+                    blob_url=blob_url,
+                    local_file_path=local_file_path,
+                    page_range=page_range
                 )
             )
             
-            # Success! Save it.
+            # 2. Save JSON
             self._save_chunk_result(filename, page_range, chunks)
-            return
+            
+            # 3. Index Immediately (User Request)
+            try:
+                from app.services.azure_search import azure_search_service
+                print(f"[Chunk] Indexing {len(chunks)} pages for {page_range}...")
+                azure_search_service.index_documents(filename, category, chunks, blob_name=blob_name)
+            except Exception as e:
+                print(f"[Chunk] Indexing Warning for {page_range}: {e}")
+                # Don't fail the chunk just because indexing failed, progress is saved
+                
+            return True
 
         except Exception as e:
-            error_msg = str(e).lower()
-            print(f"[Adaptive] Error processing {page_range}: {str(e)[:200]}...")
-            
-            # Decision: Retry, Split, or Fail?
-            
-            # If it's a single page, we can't split.
-            if page_count <= 1:
-                print(f"[Adaptive] Failed on single page {page_range}. Checking skip criteria...")
-                
-                # Broaden Skip Logic:
-                # If it's a Client Error (4xx), it's likely a data issue (Invalid content, size, format).
-                # Since we cannot split further and cannot render images (User Policy), we MUST SKIP.
-                should_skip = False
-                
-                if isinstance(e, HttpResponseError):
-                    # 400 Bad Request (InvalidRequest, InvalidContentLength)
-                    # 401/403 Forbidden (Check later, but single page fail usually means resource issue)
-                    # 422 Unprocessable Entity
-                    if e.status_code and 400 <= e.status_code < 500:
-                        should_skip = True
-                
-                # Fallback string check
-                if not should_skip:
-                     if "invalidcontentlength" in error_msg or "invalidrequest" in error_msg or "image is too large" in error_msg:
-                        should_skip = True
-                
-                if should_skip:
-                    print(f"[Adaptive] SKIPPING page {page_range} due to non-recoverable error: {error_msg[:100]}")
-                    # Log skip? Ideally yes.
-                    # Just return to continue loop.
-                    return
-                
-                raise e
-            
-            # Split Strategy
-            mid = start + (page_count // 2) - 1
-            range_a = f"{start}-{mid}"
-            range_b = f"{mid+1}-{end}"
-            
-            print(f"[Adaptive] Splitting {page_range} -> {range_a}, {range_b}")
-            
-            # Recursively process halves
-            # We await individually to ensure order and error handling
-            try:
-                await self._process_chunk_adaptive(filename, blob_url, range_a)
-                await self._process_chunk_adaptive(filename, blob_url, range_b)
-                
-            except Exception as child_e:
-                # If a child fails (and couldn't be resolved), we escalate
-                raise child_e
+            print(f"[Chunk] Failed {page_range}: {e}")
+            raise e
 
     def _save_chunk_result(self, filename, page_range, chunks):
         from app.services.blob_storage import get_container_client
         container_client = get_container_client()
         part_name = f"temp/json/{filename}_part_{page_range}.json"
         
-        # Format might differ between services, but this saves whatever dict we got
-        import json
         json_content = json.dumps(chunks, ensure_ascii=False, indent=2)
         
         blob_client = container_client.get_blob_client(part_name)
@@ -215,11 +179,10 @@ class RobustAnalysisManager:
         
         # Update Status Manager
         status_manager.update_chunk_progress(filename, page_range)
-        print(f"[Adaptive] Saved result for {page_range}")
+        print(f"[Chunk] Saved JSON for {page_range}")
 
     def _mark_error(self, filename, message):
         try:
-            import json
             status = status_manager.get_status(filename)
             if status:
                 status["status"] = "error"
@@ -231,6 +194,7 @@ class RobustAnalysisManager:
     async def finalize_analysis(self, filename: str, category: str, blob_name: str, total_pages: int):
         """
         Merges results and cleans up.
+        NOTE: Indexing is already done incrementally!
         """
         try:
             print(f"[RobustAnalysis] Finalizing {filename}...")
@@ -239,25 +203,20 @@ class RobustAnalysisManager:
             status = status_manager.get_status(filename)
             chunks_list = status.get("completed_chunks", [])
             
-            # Collect all completed pages
+            # Collect all completed pages for Final JSON
             completed_pages = []
             for c in chunks_list:
                 part_name = f"temp/json/{filename}_part_{c}.json"
                 blob_client = container_client.get_blob_client(part_name)
                 if blob_client.exists():
                     data = blob_client.download_blob().readall()
-                    import json
                     partial_json = json.loads(data)
                     completed_pages.extend(partial_json)
                     blob_client.delete_blob() # Cleanup temp
             
-            # Verify completeness
-            unique_processed_pages = {p.get("page_number") for p in completed_pages}
-            print(f"[RobustAnalysis] Assembled {len(unique_processed_pages)} unique pages out of {total_pages}")
-            
             completed_pages.sort(key=lambda x: x.get("page_number", 0))
 
-            # Move/Copy PDF to final location
+            # Move PDF
             parts = blob_name.split('/')
             final_blob_name = ""
             if "temp" in parts:
@@ -266,26 +225,21 @@ class RobustAnalysisManager:
                 final_blob_name = "/".join(parts)
             else:
                  final_blob_name = f"{category}/{filename}"
-
-            print(f"[RobustAnalysis] Moving {blob_name} -> {final_blob_name}")
+            
             source_blob = container_client.get_blob_client(blob_name)
             dest_blob = container_client.get_blob_client(final_blob_name)
             
             if source_blob.exists():
                 dest_blob.start_copy_from_url(source_blob.url)
-                # Simple poll for copy
                 for _ in range(60):
                     props = dest_blob.get_blob_properties()
                     if props.copy.status == 'success':
                         source_blob.delete_blob()
                         break
-                    elif props.copy.status == 'failed':
-                         print("Blob copy failed")
-                         break
                     await asyncio.sleep(0.5)
 
             # Save Final JSON
-            # Infer JSON name from blob path structure
+            # Infer JSON name
             json_parts = blob_name.split('/')
             if "temp" in json_parts:
                 json_parts[json_parts.index("temp")] = "json"
@@ -296,19 +250,10 @@ class RobustAnalysisManager:
                  json_blob_name = f"json/{os.path.splitext(filename)[0]}.json"
                  
             json_client = container_client.get_blob_client(json_blob_name)
-            import json
             final_json_content = json.dumps(completed_pages, ensure_ascii=False, indent=2)
             json_client.upload_blob(final_json_content, overwrite=True)
-            print(f"[RobustAnalysis] JSON Saved: {json_blob_name}")
+            print(f"[RobustAnalysis] Unified JSON Saved: {json_blob_name}")
             
-            # Indexing
-            try:
-                from app.services.azure_search import azure_search_service
-                print(f"[RobustAnalysis] Indexing {len(completed_pages)} pages...")
-                azure_search_service.index_documents(filename, category, completed_pages)
-            except Exception as e:
-                print(f"[RobustAnalysis] Indexing Failed (Non-blocking): {e}")
-
             status_manager.mark_completed(filename)
             print(f"[RobustAnalysis] Finalization Complete.")
             

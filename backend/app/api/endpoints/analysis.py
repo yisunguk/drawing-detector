@@ -462,7 +462,8 @@ async def start_robust_analysis_task(
             filename=filename,
             blob_name=blob_name,
             total_pages=total_pages,
-            category=category
+            category=category,
+            local_file_path=local_file_path
         )
         
         return {"status": "started", "message": "Analysis loop started in background"}

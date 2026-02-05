@@ -25,7 +25,7 @@ class AzureSearchService:
         else:
             logger.warning("Azure Search credentials not found.")
 
-    def index_documents(self, filename: str, category: str, pages_data: list):
+    def index_documents(self, filename: str, category: str, pages_data: list, blob_name: str = None):
         """
         Uploads analyzed pages to Azure AI Search.
         """
@@ -36,9 +36,16 @@ class AzureSearchService:
         documents = []
         for page in pages_data:
             # Create a unique ID for each page
-            # Base64 encode filename + page to ensure safe ID
+            # MATCH USER LOGIC: base64(blob_path + page_number)
             page_num = page.get("page_number", 0)
-            doc_id_raw = f"{filename}_{page_num}"
+            
+            if blob_name:
+                # User provided logic preference
+                doc_id_raw = f"{blob_name}_page_{page_num}"
+            else:
+                # Fallback
+                doc_id_raw = f"{filename}_{page_num}"
+                
             doc_id = base64.urlsafe_b64encode(doc_id_raw.encode()).decode().strip("=")
 
             # Prepare the document for indexing
@@ -51,7 +58,9 @@ class AzureSearchService:
                 "page": str(page_num),
                 "title": page.get("도면명(TITLE)", "") or filename,
                 "category": category,
-                "drawing_no": page.get("도면번호(DWG. NO.)", "")
+                "drawing_no": page.get("도면번호(DWG. NO.)", ""),
+                "blob_path": blob_name, # Store blob path for reference
+                "metadata_storage_path": f"https://{self.client.endpoint.split('//')[1].split('.')[0]}.blob.core.windows.net/drawings/{blob_name}" if blob_name else ""
             }
             documents.append(doc)
 
