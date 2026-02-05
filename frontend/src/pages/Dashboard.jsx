@@ -1273,9 +1273,15 @@ const App = () => {
                 const jsonCandidates = [];
 
                 // Priority 1: Parallel 'json' folder (if in 'drawings' folder)
-                if (file.path.toLowerCase().includes('drawings')) {
-                    jsonCandidates.push(file.path.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
-                    jsonCandidates.push(file.path.replace(/drawings/i, 'json') + '.json');
+                // Priority 1: Parallel 'json' folder (if in 'drawings' or 'documents' folder)
+                const decodedPath = decodeURIComponent(file.path);
+
+                if (decodedPath.toLowerCase().includes('drawings')) {
+                    jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                    jsonCandidates.push(decodedPath.replace(/drawings/i, 'json') + '.json');
+                } else if (decodedPath.toLowerCase().includes('documents')) {
+                    jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                    jsonCandidates.push(decodedPath.replace(/documents/i, 'json') + '.json');
                 }
 
                 // Priority 2: Same directory
