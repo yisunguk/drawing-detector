@@ -1,8 +1,13 @@
 import json
+import logging
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError
 from app.core.config import settings
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class AzureDIService:
     def __init__(self):
@@ -10,7 +15,7 @@ class AzureDIService:
         self.key = settings.AZURE_FORM_RECOGNIZER_KEY
         
         if not self.endpoint or not self.key:
-            print("Warning: Azure Document Intelligence credentials not configured.")
+            logger.warning("Warning: Azure Document Intelligence credentials not configured.")
             self.client = None
         else:
             self.client = DocumentAnalysisClient(
@@ -23,7 +28,7 @@ class AzureDIService:
             raise Exception("Azure Document Intelligence client not initialized")
 
         try:
-            print(f"[AzureDIService] Analyzing URL: {document_url[:60]}... Pages={pages}")
+            logger.info(f"[AzureDIService] Analyzing URL: {document_url[:60]}... Pages={pages}")
             # Stable SDK v3.3 uses begin_analyze_document_from_url
             poller = self.client.begin_analyze_document_from_url(
                 "prebuilt-layout", 
@@ -35,15 +40,15 @@ class AzureDIService:
             return self._format_result(result)
             
         except HttpResponseError as e:
-            print("[DI] HttpResponseError:", str(e))
-            # Diagnostic: Print details to understand InvalidRequest / InvalidContentLength
+            logger.error(f"[DI] HttpResponseError: {str(e)}")
+            # Diagnostic: Log details to understand InvalidRequest / InvalidContentLength
             try:
                 if hasattr(e, 'response'):
-                     print("[DI] response headers:", dict(e.response.headers))
-                     print("[DI] response status:", e.response.status_code)
-                     print("[DI] response text:", e.response.text())
+                     logger.error(f"[DI] response headers: {dict(e.response.headers)}")
+                     logger.error(f"[DI] response status: {e.response.status_code}")
+                     logger.error(f"[DI] response text: {e.response.text()}")
             except Exception as inner_e:
-                print(f"[DI] Failed to log response details: {inner_e}")
+                logger.error(f"[DI] Failed to log response details: {inner_e}")
             
             # Re-raise to let RobustAnalysisManager handle chunk splitting
             raise e
