@@ -1596,11 +1596,15 @@ const App = () => {
             return;
         }
 
-        // 3. Fallback to searching the term, potentially restricted to context page
-        if (targetPage && activeDoc && targetPage <= activeDoc.totalPages) {
-            // If we have a target page, jump there first
+        // 3. Fallback to searching the term
+        // Force 'all' scope to ensure we find content across documents
+        setSearchScope('all');
+
+        if (targetPage) {
+            // Prioritize results on this page, but don't jump yet
             setSearchPreferPage(targetPage);
-            goToPage(targetPage);
+        } else {
+            setSearchPreferPage(null);
         }
 
         setSearchTerm(cleanText);
