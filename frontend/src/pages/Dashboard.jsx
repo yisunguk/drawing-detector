@@ -926,19 +926,19 @@ const App = () => {
     // --- Analysis State ---
     const [analysisState, setAnalysisState] = useState({ isAnalyzing: false, progress: 0, status: '' });
     const [showAnalysisConfirmModal, setShowAnalysisConfirmModal] = useState(false);
-    const [pendingFile, setPendingFile] = useState(null);
-    const [pendingDocId, setPendingDocId] = useState(null);
+    const [pendingUploads, setPendingUploads] = useState([]); // Array of { file, docId }
 
 
 
     // --- Analysis ---
-    const analyzeLocalDocument = async (file, docId) => {
+    const analyzeLocalDocument = async (file, docId, index = null, total = null) => {
+        const prefix = (index !== null && total > 1) ? `[${index + 1}/${total}] ` : '';
         try {
             const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
             const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
 
             // Step 1: Request SAS URL
-            setAnalysisState({ isAnalyzing: true, progress: 5, status: '업로드 채널 확보 중...' });
+            setAnalysisState({ isAnalyzing: true, progress: 5, status: `${prefix}업로드 채널 확보 중...` });
 
             // Encode filename to handle spaces/special characters safely
             const uName = userProfile?.name || currentUser?.displayName;
@@ -949,7 +949,7 @@ const App = () => {
             const { upload_url, blob_name } = await sasRes.json();
 
             // Step 2: Direct Upload to Azure (Bypassing Backend)
-            setAnalysisState({ isAnalyzing: true, progress: 10, status: '클라우드 스토리지로 직접 전송 중...' });
+            setAnalysisState({ isAnalyzing: true, progress: 10, status: `${prefix}클라우드 스토리지로 직접 전송 중...` });
 
             await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
@@ -962,7 +962,7 @@ const App = () => {
                         setAnalysisState(prev => ({
                             ...prev,
                             progress: 10 + Math.round(percentComplete),
-                            status: `클라우드로 전송 중... (${Math.round((e.loaded / e.total) * 100)}%)`
+                            status: `${prefix}클라우드로 전송 중... (${Math.round((e.loaded / e.total) * 100)}%)`
                         }));
                     }
                 };
@@ -979,13 +979,13 @@ const App = () => {
             });
 
             // Step 3: Start Robust Analysis (Backend Background Task)
-            setAnalysisState({ isAnalyzing: true, progress: 20, status: '분석 요청 중...' });
+            setAnalysisState({ isAnalyzing: true, progress: 20, status: `${prefix}분석 요청 중...` });
 
             // Call synchronous analysis endpoint (Streamlit-proven flow)
             // This will block until analysis is complete
             const totalPages = documents.find(d => d.id === docId)?.totalPages || 1;
 
-            setAnalysisState({ isAnalyzing: true, progress: 30, status: `서버에서 분석 중... (총 ${totalPages} 페이지)` });
+            setAnalysisState({ isAnalyzing: true, progress: 30, status: `${prefix}서버에서 분석 중... (총 ${totalPages} 페이지)` });
 
             const syncRes = await fetch(`${API_URL}/api/v1/analyze/analyze-sync`, {
                 method: 'POST',
@@ -1067,18 +1067,20 @@ const App = () => {
     // pollAnalysisStatus function removed - no longer needed with synchronous endpoint
 
 
-    const confirmAnalysis = () => {
+    const confirmAnalysis = async () => {
         setShowAnalysisConfirmModal(false);
-        if (pendingFile && pendingDocId) {
-            analyzeLocalDocument(pendingFile, pendingDocId);
-            setPendingDocId(null);
-        };
+        const uploads = [...pendingUploads];
+        setPendingUploads([]);
+
+        for (let i = 0; i < uploads.length; i++) {
+            const { file, docId } = uploads[i];
+            await analyzeLocalDocument(file, docId, i, uploads.length);
+        }
     };
 
     const cancelAnalysis = () => {
         setShowAnalysisConfirmModal(false);
-        setPendingFile(null);
-        setPendingDocId(null);
+        setPendingUploads([]);
     };
 
     const handleFilesUpload = async (e, type) => {
@@ -1113,18 +1115,13 @@ const App = () => {
                     setActivePage(1);
                     setRotation(0);
 
-                    // Ask for confirmation nicely ONLY if it's a PDF
-                    setPendingFile(file);
-                    setPendingDocId(id);
-                    setShowAnalysisConfirmModal(true);
-
-                    await new Promise(r => setTimeout(r, 50));
-
+                    // Add to pending batch
+                    newPending.push({ file, docId: id });
                 } catch (err) {
                     console.error("Error reading file:", file.name, err);
                 }
             } else if (type === 'json' && activeDocId) {
-                // ... logic same ...
+                // ... same ...
                 try {
                     const result = await readFile(file, 'text');
                     const json = JSON.parse(result);
@@ -1133,6 +1130,11 @@ const App = () => {
                     console.error("Error parsing JSON:", file.name, err);
                 }
             }
+        }
+
+        if (newPending.length > 0) {
+            setPendingUploads(prev => [...prev, ...newPending]);
+            setShowAnalysisConfirmModal(true);
         }
 
         // Modal Trigger... 
@@ -2111,7 +2113,7 @@ const App = () => {
 
             {/* Analysis Confirmation Modal */}
             {
-                showAnalysisConfirmModal && pendingFile && (
+                showAnalysisConfirmModal && pendingUploads.length > 0 && (
                     <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[70]">
                         <div className="bg-white rounded-xl shadow-2xl p-6 w-[450px] border border-[#e5e1d8] animate-in fade-in zoom-in duration-200">
                             <div className="text-center mb-6">
@@ -2119,7 +2121,11 @@ const App = () => {
                                     <Monitor size={24} className="text-[#0078d4]" />
                                 </div>
                                 <h3 className="text-lg font-bold text-[#333333] mb-1">AI 도면 분석을 시작할까요?</h3>
-                                <p className="text-sm font-medium text-[#333333] mb-2">{pendingFile.name}</p>
+                                <p className="text-sm font-medium text-[#333333] mb-2">
+                                    {pendingUploads.length > 1
+                                        ? `${pendingUploads[0].file.name} 외 ${pendingUploads.length - 1}개`
+                                        : pendingUploads[0]?.file.name}
+                                </p>
                                 <p className="text-xs text-[#666666] bg-[#f9fafb] p-3 rounded-lg border border-[#e5e7eb]">
                                     <span className="font-bold text-[#d97757]">💡 팁:</span> 분석을 진행하면 도면의 텍스트, 기호, 장비 태그를 자동으로 인식하여 <span className="font-bold">검색 및 하이라이트</span> 기능을 사용할 수 있습니다.<br /><br />
                                     300페이지 이상의 대용량 도면은 분석에 시간이 소요될 수 있습니다.
