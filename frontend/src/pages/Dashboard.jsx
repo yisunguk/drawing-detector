@@ -1035,14 +1035,19 @@ const App = () => {
                 }
 
                 // 2. Fallback: Construct path from blob_name
-                // blob_name example: "username/drawings/filename.pdf"
+                // blob_name example: "username/drawings/filename.pdf" or "username/documents/filename.pdf"
                 if (blob_name) {
-                    // Parallel json folder
+                    // Always try to look in the parallel 'json' folder (backend standard)
+                    // Method A: Replace parent folder (drawings/documents) with 'json'
                     if (blob_name.toLowerCase().includes('drawings')) {
                         jsonCandidates.push(blob_name.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
                         jsonCandidates.push(blob_name.replace(/drawings/i, 'json') + '.json');
+                    } else if (blob_name.toLowerCase().includes('documents')) {
+                        jsonCandidates.push(blob_name.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                        jsonCandidates.push(blob_name.replace(/documents/i, 'json') + '.json');
                     }
-                    // Same directory
+
+                    // Method B: Same directory (just in case)
                     jsonCandidates.push(blob_name.replace(/\.pdf$/i, '.json'));
                     jsonCandidates.push(blob_name + '.json');
                 }
