@@ -66,6 +66,7 @@ async def analyze_local_file(
 # --- Batch Indexing Endpoints ---
 
 @router.get("/upload-sas")
+@router.get("/upload-url")
 async def get_upload_sas(filename: str, username: str = None):
     """
     Generate a Write-enabled SAS URL for frontend direct upload.
