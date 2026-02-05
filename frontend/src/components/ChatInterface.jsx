@@ -20,8 +20,13 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
+    const prevMessagesLength = useRef(messages.length);
+
     useEffect(() => {
-        scrollToBottom();
+        if (messages.length > prevMessagesLength.current) {
+            scrollToBottom();
+        }
+        prevMessagesLength.current = messages.length;
     }, [messages]);
 
     // Reset chat when document changes or scope changes
