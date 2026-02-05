@@ -466,7 +466,8 @@ const App = () => {
                 const x2 = line2.polygon[0], y2 = line2.polygon[1];
                 const dx = Math.abs(x1 - x2), dy = y2 - y1;
 
-                if (dx < 0.15 && dy > 0.02 && dy < 0.2) {
+                // Relaxed constraints for better grouping of N7/1" style tags
+                if (dx < 0.2 && dy > 0.005 && dy < 0.3) {
                     const content2 = line2.content.trim();
                     if (/^[\d/]+"?$/.test(content2) || /^\d/.test(content2)) {
                         bubbles.push({
