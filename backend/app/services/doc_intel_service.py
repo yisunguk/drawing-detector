@@ -246,9 +246,13 @@ class DocumentIntelligenceService:
                 # Convert to PIL for easy JPEG compression (strip alpha to save space)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 
+                # [Optimization] Convert to Grayscale to reduce size (3 channels -> 1 channel)
+                # Azure DI binary upload limit is 4MB. 5.85MB -> < 2MB expected.
+                img = img.convert("L")
+                
                 # Save to JPEG bytes
                 img_bio = io.BytesIO()
-                img.save(img_bio, format="JPEG", quality=70, optimize=True)
+                img.save(img_bio, format="JPEG", quality=60, optimize=True)
                 img_bytes = img_bio.getvalue()
                 
                 # Create new PDF page from image
