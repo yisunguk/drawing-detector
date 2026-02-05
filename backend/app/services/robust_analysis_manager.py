@@ -81,12 +81,6 @@ class RobustAnalysisManager:
             total_chunks = (total_pages + self.INITIAL_CHUNK_SIZE - 1) // self.INITIAL_CHUNK_SIZE
             pending_chunks = []
             
-            # "Smart Resume": We need to see if a range is fully covered by completed_chunks
-            # Since completed_chunks might contain split ranges (e.g. "1-10", "11-20"),
-            # we check if the standard range is done.
-            # Simplified: We rely on the _process_chunk logic to skip if already done?
-            # Or we check coverage.
-            
             # Let's map all completed pages
             completed_pages = set()
             for c_str in completed_chunks:
@@ -163,14 +157,13 @@ class RobustAnalysisManager:
             
             # If it's a single page, we can't split.
             if page_count <= 1:
-                print(f"[Adaptive] Failed on single page {page_range}. Cannot split further.")
-                # We could try 1-2 standard retries here before giving up?
-                # For now, let's propagate error to mark the job as failed?
-                # Or maybe just log error for this page and continue?
-                # User preference: "Adaptive Retry... if fail 1-1...". 
-                # Let's re-raise to fail the job (or mark partial error?).
-                # Re-raising ensures we know something went wrong.
-                raise e
+                print(f"[Adaptive] Failed on single page {page_range}. SKIPPING (No Image Fallback).")
+                # Strictly NO Image Rendering as per USER Request
+                # We Log this as an error but do NOT crash the job.
+                # We mark this specific chunk (1 page) as "skipped/failed" in some way effectively 
+                # by simply returning without raising.
+                # This allows the loop to continue to the next chunk.
+                return
             
             # Split Strategy
             mid = start + (page_count // 2) - 1
@@ -184,10 +177,6 @@ class RobustAnalysisManager:
             try:
                 await self._process_chunk_adaptive(filename, blob_url, range_a)
                 await self._process_chunk_adaptive(filename, blob_url, range_b)
-                
-                # Note: We do NOT save 'page_range' (the big one) to status_manager here.
-                # Because we saved range_a and range_b separately.
-                # finalize_analysis will assemble them fine.
                 
             except Exception as child_e:
                 # If a child fails (and couldn't be resolved), we escalate
