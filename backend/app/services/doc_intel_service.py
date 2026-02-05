@@ -177,74 +177,106 @@ class DocumentIntelligenceService:
 
     def _optimize_pdf_content(self, blob_url: str, page_range: str, dpi: int = 96, max_dimension: int = 2000) -> bytes:
         """
-        Downloads PDF, renders requested pages as images (downsampled), and creates a new PDF.
+        Downloads PDF to temp file, renders requested pages as images (downsampled), and creates a new PDF.
         Returns the bytes of the new PDF.
         """
         import requests
         import fitz # PyMuPDF
         import io
+        import tempfile
+        import os
         from PIL import Image
 
-        # 1. Download original PDF
-        response = requests.get(blob_url, stream=True)
-        response.raise_for_status()
+        print(f"[Fallback] Downloading PDF from URL to temp file...")
         
-        # Load entire PDF into memory (robustness tradeoff)
-        # For GB-sized files, we might need more complex streaming, but Image limit usually implies
-        # the dimensions are huge, not necessarily the file size (though usually related).
-        pdf_bytes = io.BytesIO(response.content)
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        
-        new_doc = fitz.open() # output PDF
-        
-        # 2. Parse Page Range
-        # format: "1-5", "1,3,5" or None
-        target_pages = []
-        if not page_range:
-            target_pages = range(len(doc))
-        elif "-" in str(page_range):
-            start, end = map(int, str(page_range).split('-'))
-            target_pages = range(start - 1, end) # 0-indexed
-        else:
-            # Handle "1" or "1,2"
-            parts = str(page_range).split(',')
-            for p in parts:
-                target_pages.append(int(p) - 1)
-        
-        # 3. Render and Add
-        for p_idx in target_pages:
-            if p_idx < 0 or p_idx >= len(doc): continue
+        tmp_path = None
+        try:
+            # 1. Download original PDF to Temp File (Streamed)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                tmp_path = tmp_file.name
+                with requests.get(blob_url, stream=True) as r:
+                    r.raise_for_status()
+                    for chunk in r.iter_content(chunk_size=8192):
+                        tmp_file.write(chunk)
             
-            page = doc.load_page(p_idx)
+            print(f"[Fallback] Downloaded to {tmp_path} ({os.path.getsize(tmp_path)/1024/1024:.2f} MB)")
+
+            # Open from disk
+            doc = fitz.open(tmp_path)
+            new_doc = fitz.open() # output PDF
             
-            # Calculate resize scale
-            # Default 72 DPI. Target 96 DPI = 1.33x
-            # But check dimension limit
-            rect = page.rect
-            scale = dpi / 72.0
+            # 2. Parse Page Range
+            # format: "1-5", "1,3,5" or None
+            target_pages = []
+            if not page_range:
+                target_pages = range(len(doc))
+            elif "-" in str(page_range):
+                start, end = map(int, str(page_range).split('-'))
+                target_pages = range(start - 1, end) # 0-indexed
+            else:
+                # Handle "1" or "1,2"
+                parts = str(page_range).split(',')
+                for p in parts:
+                    target_pages.append(int(p) - 1)
             
-            if rect.width * scale > max_dimension or rect.height * scale > max_dimension:
-                scale = min(max_dimension / rect.width, max_dimension / rect.height)
+            print(f"[Fallback] Processing {len(target_pages)} pages...")
+
+            # 3. Render and Add
+            for i, p_idx in enumerate(target_pages):
+                if p_idx < 0 or p_idx >= len(doc): continue
                 
-            mat = fitz.Matrix(scale, scale)
-            pix = page.get_pixmap(matrix=mat)
+                # Log progress every 5 pages
+                if i % 5 == 0:
+                    print(f"[Fallback] Optimizing page {p_idx+1} ({i+1}/{len(target_pages)})")
+
+                page = doc.load_page(p_idx)
+                
+                # Calculate resize scale
+                # Default 72 DPI. Target 96 DPI = 1.33x
+                # But check dimension limit
+                rect = page.rect
+                scale = dpi / 72.0
+                
+                if rect.width * scale > max_dimension or rect.height * scale > max_dimension:
+                    scale = min(max_dimension / rect.width, max_dimension / rect.height)
+                    
+                mat = fitz.Matrix(scale, scale)
+                pix = page.get_pixmap(matrix=mat)
+                
+                # Convert to PIL for easy JPEG compression (strip alpha to save space)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                
+                # Save to JPEG bytes
+                img_bio = io.BytesIO()
+                img.save(img_bio, format="JPEG", quality=70, optimize=True)
+                img_bytes = img_bio.getvalue()
+                
+                # Create new PDF page from image
+                img_page = new_doc.new_page(width=pix.width, height=pix.height)
+                img_page.insert_image(img_page.rect, stream=img_bytes)
+                
+            # 4. Save
+            print(f"[Fallback] Rebuilding final PDF...")
+            output_bio = io.BytesIO()
+            new_doc.save(output_bio)
             
-            # Convert to PIL for easy JPEG compression
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            final_bytes = output_bio.getvalue()
+            print(f"[Fallback] Optimized PDF size: {len(final_bytes)/1024/1024:.2f} MB")
+            return final_bytes
             
-            # Save to JPEG bytes
-            img_bio = io.BytesIO()
-            img.save(img_bio, format="JPEG", quality=70, optimize=True)
-            img_bytes = img_bio.getvalue()
-            
-            # Create new PDF page from image
-            img_page = new_doc.new_page(width=pix.width, height=pix.height)
-            img_page.insert_image(img_page.rect, stream=img_bytes)
-            
-        # 4. Save
-        output_bio = io.BytesIO()
-        new_doc.save(output_bio)
-        return output_bio.getvalue()
+        except Exception as e:
+            print(f"[Fallback] Error optimizing PDF: {e}")
+            raise e
+        finally:
+            # Cleanup temp file
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                    print(f"[Fallback] Cleaned up temp file")
+                except:
+                    pass
+            if 'doc' in locals(): doc.close()
+            if 'new_doc' in locals(): new_doc.close()
 
     def _extract_page_content(self, page: Any, full_result: Any) -> Dict[str, Any]:
         """
