@@ -1037,19 +1037,22 @@ const App = () => {
                 // 2. Fallback: Construct path from blob_name
                 // blob_name example: "username/drawings/filename.pdf" or "username/documents/filename.pdf"
                 if (blob_name) {
+                    const decodedBlobName = decodeURIComponent(blob_name);
+                    console.log("[ContextFix] Fallback using decoded blob_name:", decodedBlobName);
+
                     // Always try to look in the parallel 'json' folder (backend standard)
                     // Method A: Replace parent folder (drawings/documents) with 'json'
-                    if (blob_name.toLowerCase().includes('drawings')) {
-                        jsonCandidates.push(blob_name.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
-                        jsonCandidates.push(blob_name.replace(/drawings/i, 'json') + '.json');
-                    } else if (blob_name.toLowerCase().includes('documents')) {
-                        jsonCandidates.push(blob_name.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
-                        jsonCandidates.push(blob_name.replace(/documents/i, 'json') + '.json');
+                    if (decodedBlobName.toLowerCase().includes('drawings')) {
+                        jsonCandidates.push(decodedBlobName.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                        jsonCandidates.push(decodedBlobName.replace(/drawings/i, 'json') + '.json');
+                    } else if (decodedBlobName.toLowerCase().includes('documents')) {
+                        jsonCandidates.push(decodedBlobName.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                        jsonCandidates.push(decodedBlobName.replace(/documents/i, 'json') + '.json');
                     }
 
                     // Method B: Same directory (just in case)
-                    jsonCandidates.push(blob_name.replace(/\.pdf$/i, '.json'));
-                    jsonCandidates.push(blob_name + '.json');
+                    jsonCandidates.push(decodedBlobName.replace(/\.pdf$/i, '.json'));
+                    jsonCandidates.push(decodedBlobName + '.json');
                 }
 
                 console.log("[ContextFix] Attempting to fetch derived JSON from candidates:", jsonCandidates);
