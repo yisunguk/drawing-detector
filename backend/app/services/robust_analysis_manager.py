@@ -43,13 +43,16 @@ class RobustAnalysisManager:
                     pending_chunks.append(page_range)
             
             print(f"[RobustAnalysis] {len(pending_chunks)} chunks to process (out of {total_chunks})")
+            print(f"[RobustAnalysis] Pending chunks: {pending_chunks}")
+            print(f"[RobustAnalysis] Completed chunks: {list(completed_chunks)[:5]}... ({len(completed_chunks)} total)")
             
             # 3. Process chunks in PARALLEL batches
-            parallel_workers = 3  # Process 3 chunks simultaneously
+            parallel_workers = 5  # Process 5 chunks simultaneously (increased from 3)
             
             for batch_start in range(0, len(pending_chunks), parallel_workers):
                 batch = pending_chunks[batch_start:batch_start + parallel_workers]
-                print(f"[RobustAnalysis] Processing batch: {batch}")
+                print(f"[RobustAnalysis] ========== Processing batch {batch_start//parallel_workers + 1}: {batch} ==========")
+
                 
                 # Create tasks for this batch
                 tasks = [
