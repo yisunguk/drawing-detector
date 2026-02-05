@@ -401,7 +401,8 @@ class DocumentIntelligenceService:
                 # We reuse the specific byte analyzer method if available, or call client directly
                 poller = self.client.begin_analyze_document(
                     "prebuilt-layout", 
-                    document=img_bytes,
+                    body=img_bytes,
+                    content_type="application/octet-stream",
                     features=[DocumentAnalysisFeature.BARCODES, DocumentAnalysisFeature.STYLE_FONT]
                 )
                 result = poller.result()
