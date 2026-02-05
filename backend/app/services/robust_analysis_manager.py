@@ -31,9 +31,6 @@ class RobustAnalysisManager:
         try:
             print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages}, Local: {local_file_path})")
             
-        try:
-            print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages}, Local: {local_file_path})")
-            
             # ALWAYS Generate SAS URL for Azure DI (Azure-to-Azure transfer is faster/stable)
             container_client = get_container_client()
             account_name = container_client.account_name
