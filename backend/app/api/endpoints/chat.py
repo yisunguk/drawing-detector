@@ -63,9 +63,9 @@ async def chat(request: ChatRequest):
                     context_text += f"\n=== Document: {source} (Page {page}) ===\n"
                     context_text += content + "\n"
         
-        # Truncate context if too long
-        if len(context_text) > 20000:
-            context_text = context_text[:20000] + "...(truncated)"
+        # Truncate context if too long (increased to 100k for multi-file support)
+        if len(context_text) > 100000:
+            context_text = context_text[:100000] + "...(truncated)"
 
         # 3. Call Azure OpenAI
         system_prompt = """You are a design expert who understands drawing information. You act as an analyst who finds, compares, and reviews all information in provided drawings like Drawing 1, Drawing 2, etc. You must help designers reduce design risks. Use Markdown formats (tables, bullet points, bold text).
