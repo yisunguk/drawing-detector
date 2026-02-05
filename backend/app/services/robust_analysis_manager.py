@@ -157,13 +157,32 @@ class RobustAnalysisManager:
             
             # If it's a single page, we can't split.
             if page_count <= 1:
-                print(f"[Adaptive] Failed on single page {page_range}. SKIPPING (No Image Fallback).")
-                # Strictly NO Image Rendering as per USER Request
-                # We Log this as an error but do NOT crash the job.
-                # We mark this specific chunk (1 page) as "skipped/failed" in some way effectively 
-                # by simply returning without raising.
-                # This allows the loop to continue to the next chunk.
-                return
+                print(f"[Adaptive] Failed on single page {page_range}. Checking skip criteria...")
+                
+                # Broaden Skip Logic:
+                # If it's a Client Error (4xx), it's likely a data issue (Invalid content, size, format).
+                # Since we cannot split further and cannot render images (User Policy), we MUST SKIP.
+                should_skip = False
+                
+                if isinstance(e, HttpResponseError):
+                    # 400 Bad Request (InvalidRequest, InvalidContentLength)
+                    # 401/403 Forbidden (Check later, but single page fail usually means resource issue)
+                    # 422 Unprocessable Entity
+                    if e.status_code and 400 <= e.status_code < 500:
+                        should_skip = True
+                
+                # Fallback string check
+                if not should_skip:
+                     if "invalidcontentlength" in error_msg or "invalidrequest" in error_msg or "image is too large" in error_msg:
+                        should_skip = True
+                
+                if should_skip:
+                    print(f"[Adaptive] SKIPPING page {page_range} due to non-recoverable error: {error_msg[:100]}")
+                    # Log skip? Ideally yes.
+                    # Just return to continue loop.
+                    return
+                
+                raise e
             
             # Split Strategy
             mid = start + (page_count // 2) - 1
