@@ -423,7 +423,9 @@ async def start_robust_analysis_task(
     """
     try:
         # Match the upload path from upload-sas endpoint
-        blob_name = f"{username}/temp/{filename}" if username else f"temp/{filename}"
+        # FIX: Use actual storage folder (drawings/documents), not temp
+        # temp/ is only used for internal chunk processing
+        blob_name = f"{username}/{category}/{filename}" if username else f"{category}/{filename}"
         
         # Verify file exists
         container_client = get_container_client()

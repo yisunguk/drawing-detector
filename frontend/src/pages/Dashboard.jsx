@@ -1082,13 +1082,17 @@ const App = () => {
                     console.log("[ContextFix] Fallback using decoded blob_name:", decodedBlobName);
 
                     // Always try to look in the parallel 'json' folder (backend standard)
-                    // Method A: Replace parent folder (drawings/documents) with 'json'
+                    // Method A: Replace parent folder (drawings/documents/temp) with 'json'
                     if (decodedBlobName.toLowerCase().includes('drawings')) {
                         jsonCandidates.push(decodedBlobName.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
                         jsonCandidates.push(decodedBlobName.replace(/drawings/i, 'json') + '.json');
                     } else if (decodedBlobName.toLowerCase().includes('documents')) {
                         jsonCandidates.push(decodedBlobName.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
                         jsonCandidates.push(decodedBlobName.replace(/documents/i, 'json') + '.json');
+                    } else if (decodedBlobName.toLowerCase().includes('temp')) {
+                        // FIX: Backend saves JSON to /json/ folder, not /temp/
+                        jsonCandidates.push(decodedBlobName.replace(/temp/i, 'json').replace(/\.pdf$/i, '.json'));
+                        jsonCandidates.push(decodedBlobName.replace(/temp/i, 'json') + '.json');
                     }
 
                     // Method B: Same directory (just in case)
