@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Search, ZoomIn, ZoomOut, RotateCcw, RotateCw, X, Plus, FileText, ChevronRight, ChevronLeft, Download, Grid3X3, List, Loader2, Check, Copy, Move, FileCheck, FileX, Cloud, Monitor, Folder, File, MessageSquare, Files, LogOut, User, Trash2 } from 'lucide-react';
+import { Search, ZoomIn, ZoomOut, RotateCcw, RotateCw, X, Plus, FileText, ChevronRight, ChevronLeft, Download, Grid3X3, List, Loader2, Check, Copy, Move, FileCheck, FileX, Cloud, Monitor, Folder, File, MessageSquare, Files, LogOut, User, Trash2, Mail } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import ChatInterface from '../components/ChatInterface';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot, orderBy, limit, serverTimestamp } from 'firebase/firestore';
 import MessageModal from '../components/MessageModal';
+import InboxModal from '../components/InboxModal';
 import { VERSION } from '../version';
 
 import { BlobServiceClient } from '@azure/storage-blob';
@@ -75,6 +76,7 @@ const App = () => {
     const [newMessagePopup, setNewMessagePopup] = useState(null);
     const isFirstRun = useRef(true);
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
+    const [isInboxModalOpen, setIsInboxModalOpen] = useState(false);
     const [shareMessageData, setShareMessageData] = useState(null);
 
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
@@ -1033,6 +1035,13 @@ const App = () => {
                     if (statusData.status === 'completed') {
                         isComplete = true;
                         result = statusData; // success
+                        // FORCE UI SYNC: Ensure we show 100% at the end
+                        setAnalysisState(prev => ({
+                            ...prev,
+                            progress: 100,
+                            status: "✅ 분석 완료! 결과 정리는 중..."
+                        }));
+                        setCompletedPages(totalPages);
                     } else if (statusData.status === 'error') {
                         throw new Error(statusData.error_message || "Analysis failed on server");
                     } else {
@@ -1456,16 +1465,13 @@ const App = () => {
     };
 
     // Auto-pan to selected result
-    /* 
-    // Auto-pan disabled per user request ("도면은 가운대 고정해줘")
     useEffect(() => {
         if (!selectedResult || !selectedResult.polygon || !activeDoc || !canvasSize.width) return;
-        if (selectedResult.docId !== activeDocId) return;
 
-        // Get center point of the polygon
+        // 1. Calculate Center
         const p = selectedResult.polygon;
-        const lw = selectedResult.layoutWidth || 1; 
-        const lh = selectedResult.layoutHeight || 1;
+        const lw = selectedResult.layoutWidth || canvasSize.width || 1;
+        const lh = selectedResult.layoutHeight || canvasSize.height || 1;
 
         const cx = (p[0] + p[2]) / 2;
         const cy = (p[1] + p[5]) / 2;
@@ -1473,27 +1479,46 @@ const App = () => {
         let perX = (cx / lw) * 100;
         let perY = (cy / lh) * 100;
 
+        // 2. Clamp
         perX = Math.max(0, Math.min(100, perX));
         perY = Math.max(0, Math.min(100, perY));
 
+        console.log(`[Targeting] Pan to ${perX.toFixed(1)}%, ${perY.toFixed(1)}%`);
+
+        // 3. Apply (No Zoom, just Pan)
         setPanX(perX);
         setPanY(perY);
-    }, [selectedResult, activeDocId, activeDoc, canvasSize]);
-    */
+
+    }, [selectedResult, activeDoc, canvasSize]);
 
     const getPolygonPoints = (result) => {
-        if (!canvasSize.width || !result.layoutWidth || !result.layoutHeight || !result.polygon || result.polygon.length < 8) return "";
+        if (!result || !result.polygon) return "";
+
+        // Debug Log
+        if (result === selectedResult) {
+            console.log("[PolygonDebug] processing:", result.content, result.polygon, "LW:", result.layoutWidth, "Canvas:", canvasSize.width);
+        }
+
+        // Relaxes Validation: Allow missing layoutWidth (will fallback)
+        if (!canvasSize.width || result.polygon.length < 8) {
+            // console.warn("[PolygonDebug] Invalid data for polygon generation");
+            return "";
+        }
+
         const p = result.polygon;
-        const lw = result.layoutWidth;
-        const lh = result.layoutHeight;
+        const lw = result.layoutWidth || canvasSize.width;
+        const lh = result.layoutHeight || canvasSize.height;
         const needScale = Math.abs(lw - canvasSize.width) > 5;
 
+        // Ensure points are numbers
+        const nP = p.map(Number);
+
         if (!needScale) {
-            return `${p[0]},${p[1]} ${p[2]},${p[3]} ${p[4]},${p[5]} ${p[6]},${p[7]}`;
+            return `${nP[0]},${nP[1]} ${nP[2]},${nP[3]} ${nP[4]},${nP[5]} ${nP[6]},${nP[7]}`;
         } else {
             const sx = canvasSize.width / lw;
             const sy = canvasSize.height / lh;
-            return `${p[0] * sx},${p[1] * sy} ${p[2] * sx},${p[3] * sy} ${p[4] * sx},${p[5] * sy} ${p[6] * sx},${p[7] * sy}`;
+            return `${nP[0] * sx},${nP[1] * sy} ${nP[2] * sx},${nP[3] * sy} ${nP[4] * sx},${nP[5] * sy} ${nP[6] * sx},${nP[7] * sy}`;
         }
     };
 
@@ -1958,6 +1983,23 @@ const App = () => {
                                 All
                             </button>
                         </div>
+
+                        <div className="w-px h-4 bg-[#e5e1d8]"></div>
+
+                        {/* Inbox Button */}
+                        <button
+                            onClick={() => setIsInboxModalOpen(true)}
+                            className="relative p-1.5 text-[#666666] hover:bg-[#fff8f0] hover:text-[#d97757] rounded-lg transition-colors border border-transparent hover:border-[#f5d0b5]"
+                            title="메시지 함"
+                        >
+                            <Mail size={16} />
+                            {unreadMessages.length > 0 && (
+                                <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#d97757] border-2 border-[#fff8f0] rounded-full flex items-center justify-center text-[8px] font-bold text-white shadow-sm">
+                                    {unreadMessages.length > 9 ? '9+' : unreadMessages.length}
+                                </span>
+                            )}
+                        </button>
+
                         <div className="w-px h-4 bg-[#e5e1d8]"></div>
 
                         {/* Unified Progress Indicator */}
@@ -2031,10 +2073,18 @@ const App = () => {
                                         ))}
                                         {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && selectedResult.polygon && (
                                             <>
-                                                <polygon points={getPolygonPoints(selectedResult)} fill="rgba(217,119,87,0.2)" stroke="#d97757" strokeWidth="3" />
-                                                <circle cx={selectedCenter.cx} cy={selectedCenter.cy} r="15" fill="none" stroke="#d97757" strokeWidth="2" opacity="0.8" />
-                                                <line x1={selectedCenter.cx - 20} y1={selectedCenter.cy} x2={selectedCenter.cx + 20} y2={selectedCenter.cy} stroke="#d97757" strokeWidth="2" />
-                                                <line x1={selectedCenter.cx} y1={selectedCenter.cy - 20} x2={selectedCenter.cx} y2={selectedCenter.cy + 20} stroke="#d97757" strokeWidth="2" />
+                                                {/* Active Selection: High-Contrast Yellow Highlight */}
+                                                <polygon points={getPolygonPoints(selectedResult)} fill="rgba(255, 235, 59, 0.5)" stroke="#f59e0b" strokeWidth="4" />
+
+                                                {/* Animated Target Indicator (Optional, can act as 'here it is') */}
+                                                <circle cx={selectedCenter.cx} cy={selectedCenter.cy} r="20" fill="none" stroke="#f59e0b" strokeWidth="3" opacity="0.8">
+                                                    <animate attributeName="r" values="20;30;20" dur="2s" repeatCount="indefinite" />
+                                                    <animate attributeName="opacity" values="0.8;0.4;0.8" dur="2s" repeatCount="indefinite" />
+                                                </circle>
+
+                                                {/* Crosshair (Yellow/Amber) */}
+                                                <line x1={selectedCenter.cx - 30} y1={selectedCenter.cy} x2={selectedCenter.cx + 30} y2={selectedCenter.cy} stroke="#f59e0b" strokeWidth="2" strokeDasharray="4" />
+                                                <line x1={selectedCenter.cx} y1={selectedCenter.cy - 30} x2={selectedCenter.cx} y2={selectedCenter.cy + 30} stroke="#f59e0b" strokeWidth="2" strokeDasharray="4" />
                                             </>
                                         )}
                                     </svg>
@@ -2395,6 +2445,11 @@ const App = () => {
                 }}
                 shareData={shareMessageData}
                 senderName={userProfile?.name}
+            />
+
+            <InboxModal
+                isOpen={isInboxModalOpen}
+                onClose={() => setIsInboxModalOpen(false)}
             />
         </div >
     );
