@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, User, Send, Loader2, MessageSquare, AlertCircle, Search, CheckCircle2, Circle } from 'lucide-react';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 import { collection, query, getDocs, addDoc, serverTimestamp, writeBatch, doc } from 'firebase/firestore';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../contexts/AuthContext';
 
 const MessageModal = ({ isOpen, onClose, shareData = null, initialRecipientId = null, senderName = null }) => {
@@ -10,6 +11,7 @@ const MessageModal = ({ isOpen, onClose, shareData = null, initialRecipientId = 
     const [selectedUserIds, setSelectedUserIds] = useState([]);
     const [userSearch, setUserSearch] = useState('');
     const [message, setMessage] = useState('');
+    const [attachments, setAttachments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [fetchingUsers, setFetchingUsers] = useState(false);
     const [status, setStatus] = useState('idle'); // idle, sending, success, error
@@ -72,15 +74,54 @@ const MessageModal = ({ isOpen, onClose, shareData = null, initialRecipientId = 
         }
     };
 
+    const handlePaste = (e) => {
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                e.preventDefault();
+                const blob = items[i].getAsFile();
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    setAttachments(prev => [...prev, {
+                        file: blob,
+                        preview: event.target.result,
+                        type: 'image'
+                    }]);
+                };
+                reader.readAsDataURL(blob);
+            }
+        }
+    };
+
+    const removeAttachment = (index) => {
+        setAttachments(prev => prev.filter((_, i) => i !== index));
+    };
+
     const handleSend = async (e) => {
         e.preventDefault();
-        if (selectedUserIds.length === 0 || (!message.trim() && !shareData) || loading) return;
+        if (selectedUserIds.length === 0 || (!message.trim() && !shareData && attachments.length === 0) || loading) return;
 
         setLoading(true);
         setStatus('sending');
         setSendProgress({ current: 0, total: selectedUserIds.length });
 
         try {
+            // Upload attachments first
+            const uploadedRefUrls = [];
+            if (attachments.length > 0) {
+                for (const att of attachments) {
+                    const filename = `msg_att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    const storageRef = ref(storage, `messages/${currentUser.uid}/${filename}`);
+                    await uploadString(storageRef, att.preview, 'data_url');
+                    const downloadURL = await getDownloadURL(storageRef);
+                    uploadedRefUrls.push({
+                        url: downloadURL,
+                        type: 'image',
+                        name: 'pasted_image.png'
+                    });
+                }
+            }
+
             const batch = writeBatch(db);
             const finalSenderName = senderName || currentUser.displayName || 'User';
 
@@ -103,6 +144,7 @@ const MessageModal = ({ isOpen, onClose, shareData = null, initialRecipientId = 
                         filename: shareData.filename || null,
                         docId: shareData.docId || null
                     } : null,
+                    attachments: uploadedRefUrls,
                     timestamp: serverTimestamp(),
                     read: false
                 });
@@ -114,6 +156,7 @@ const MessageModal = ({ isOpen, onClose, shareData = null, initialRecipientId = 
 
             setStatus('success');
             setMessage('');
+            setAttachments([]);
             setTimeout(() => {
                 setStatus('idle');
                 onClose();
@@ -256,12 +299,32 @@ const MessageModal = ({ isOpen, onClose, shareData = null, initialRecipientId = 
                             <MessageSquare size={14} className="text-[#d97757]" />
                             메세지 내용
                         </label>
+
+                        {/* Attachments Preview */}
+                        {attachments.length > 0 && (
+                            <div className="flex gap-2 mb-2 overflow-x-auto pb-2">
+                                {attachments.map((att, idx) => (
+                                    <div key={idx} className="relative w-20 h-20 border border-[#e5e1d8] rounded-lg overflow-hidden shrink-0 group">
+                                        <img src={att.preview} alt="attached" className="w-full h-full object-cover" />
+                                        <button
+                                            type="button"
+                                            onClick={() => removeAttachment(idx)}
+                                            className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
                         <textarea
                             value={message}
                             onChange={(e) => setMessage(e.target.value)}
-                            placeholder="전달하실 말씀을 입력해주세요..."
+                            onPaste={handlePaste}
+                            placeholder="전달하실 말씀을 입력해주세요... (이미지를 붙여넣으려면 Ctrl+V)"
                             className="w-full h-32 px-4 py-3 bg-white border border-[#dcd8d0] rounded-xl text-sm focus:ring-2 focus:ring-[#d97757]/20 focus:border-[#d97757] outline-none transition-all resize-none placeholder:text-[#a0a0a0] shadow-inner"
-                            required={!shareData}
+                            required={!shareData && attachments.length === 0}
                         />
                     </div>
 
@@ -307,7 +370,7 @@ const MessageModal = ({ isOpen, onClose, shareData = null, initialRecipientId = 
                         </button>
                         <button
                             type="submit"
-                            disabled={selectedUserIds.length === 0 || (!message.trim() && !shareData) || loading || status === 'success'}
+                            disabled={selectedUserIds.length === 0 || (!message.trim() && !shareData && attachments.length === 0) || loading || status === 'success'}
                             className="flex-[2] px-8 py-2.5 bg-[#d97757] hover:bg-[#c05535] text-white rounded-xl text-sm font-bold shadow-lg shadow-[#d97757]/20 transition-all disabled:opacity-50 disabled:shadow-none flex items-center justify-center gap-2"
                         >
                             {loading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}

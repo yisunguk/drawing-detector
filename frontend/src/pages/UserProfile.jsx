@@ -4,8 +4,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 import { doc, getDoc, updateDoc, collection, query, orderBy, getDocs, addDoc, serverTimestamp, where, writeBatch, onSnapshot } from 'firebase/firestore';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import MessageModal from '../components/MessageModal';
 import { updateProfile, updatePassword } from 'firebase/auth';
 import { ArrowLeft, User, History, Save, Building, Mail, Loader2, MessageSquare, Lock, ChevronDown, ChevronUp, FileText, ChevronLeft, ChevronRight, Share2, Check, Send, X, List, Users } from 'lucide-react';
@@ -46,6 +47,7 @@ const UserProfile = () => {
 
 
     const [feedbackContent, setFeedbackContent] = useState('');
+    const [feedbackAttachments, setFeedbackAttachments] = useState([]);
     const [feedbackStatus, setFeedbackStatus] = useState('idle');
     const [adminFeedbacks, setAdminFeedbacks] = useState([]);
     const [selectedFeedback, setSelectedFeedback] = useState(null); // For Admin Modal
@@ -147,13 +149,52 @@ const UserProfile = () => {
         setIsMessageModalOpen(true);
     };
 
+    const handlePaste = (e) => {
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                e.preventDefault();
+                const blob = items[i].getAsFile();
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    setFeedbackAttachments(prev => [...prev, {
+                        file: blob,
+                        preview: event.target.result,
+                        type: 'image'
+                    }]);
+                };
+                reader.readAsDataURL(blob);
+            }
+        }
+    };
+
+    const removeAttachment = (index) => {
+        setFeedbackAttachments(prev => prev.filter((_, i) => i !== index));
+    };
+
     const handleSubmitFeedback = async (e) => {
         e.preventDefault();
-        if (!feedbackContent.trim()) return;
+        if (!feedbackContent.trim() && feedbackAttachments.length === 0) return;
 
         setFeedbackStatus('submitting');
         try {
-            // Capture Screenshot
+            // Upload attachments first
+            const uploadedRefUrls = [];
+            if (feedbackAttachments.length > 0) {
+                for (const att of feedbackAttachments) {
+                    const filename = `feedback_att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    const storageRef = ref(storage, `feedback/${currentUser.uid}/${filename}`);
+                    await uploadString(storageRef, att.preview, 'data_url');
+                    const downloadURL = await getDownloadURL(storageRef);
+                    uploadedRefUrls.push({
+                        url: downloadURL,
+                        type: 'image',
+                        name: 'pasted_image.png'
+                    });
+                }
+            }
+
+            // Capture Screenshot (Automatic)
             let screenshot = null;
             try {
                 const canvas = await html2canvas(document.body, {
@@ -168,12 +209,13 @@ const UserProfile = () => {
             }
 
             await addDoc(collection(db, 'feedback'), {
-                content: feedbackContent,
+                content: feedbackContent.trim(),
                 userId: currentUser.uid,
                 userEmail: currentUser.email,
                 timestamp: serverTimestamp(),
                 status: 'unread',
-                screenshot: screenshot // Save base64 string
+                screenshot: screenshot, // Save base64 string
+                attachments: uploadedRefUrls || []
             });
 
             // Log Feedback Activity
@@ -181,6 +223,7 @@ const UserProfile = () => {
 
             setFeedbackStatus('success');
             setFeedbackContent('');
+            setFeedbackAttachments([]);
             setTimeout(() => setFeedbackStatus('idle'), 3000);
         } catch (error) {
             console.error("Error submitting feedback:", error);
@@ -747,6 +790,17 @@ const UserProfile = () => {
                                                                 {msg.content}
                                                             </div>
 
+                                                            {/* Attachments Display */}
+                                                            {msg.attachments && msg.attachments.length > 0 && (
+                                                                <div className="flex gap-2 mb-4 overflow-x-auto">
+                                                                    {msg.attachments.map((att, idx) => (
+                                                                        <a key={idx} href={att.url} target="_blank" rel="noopener noreferrer" className="block border border-[#e5e1d8] rounded-lg overflow-hidden shrink-0 hover:border-[#d97757] transition-colors">
+                                                                            <img src={att.url} alt="attachment" className="w-24 h-24 object-cover" />
+                                                                        </a>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+
                                                             {msg.shareData && (
                                                                 <div className="bg-[#fcfaf7] border border-[#e5e1d8] rounded-xl p-4 mb-4">
                                                                     <div className="flex items-center gap-2 mb-3">
@@ -817,18 +871,37 @@ const UserProfile = () => {
 
                                 <form onSubmit={handleSubmitFeedback} className="space-y-4">
                                     <div>
+                                        {/* Attachments Preview */}
+                                        {feedbackAttachments.length > 0 && (
+                                            <div className="flex gap-2 mb-2 overflow-x-auto pb-2">
+                                                {feedbackAttachments.map((att, idx) => (
+                                                    <div key={idx} className="relative w-20 h-20 border border-[#e5e1d8] rounded-lg overflow-hidden shrink-0 group">
+                                                        <img src={att.preview} alt="attached" className="w-full h-full object-cover" />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeAttachment(idx)}
+                                                            className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        >
+                                                            <X size={12} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
                                         <textarea
                                             value={feedbackContent}
                                             onChange={(e) => setFeedbackContent(e.target.value)}
-                                            placeholder="피드백 내용을 입력해주세요..."
+                                            onPaste={handlePaste}
+                                            placeholder="피드백 내용을 입력해주세요... (이미지를 붙여넣으려면 Ctrl+V)"
                                             className="w-full h-40 p-4 bg-white border border-[#dcd8d0] rounded-lg text-[#333333] focus:ring-2 focus:ring-[#d97757]/20 focus:border-[#d97757] transition-all resize-none text-sm placeholder:text-[#a0a0a0]"
-                                            required
+                                            required={feedbackAttachments.length === 0}
                                         />
                                     </div>
 
                                     <button
                                         type="submit"
-                                        disabled={feedbackStatus === 'submitting' || !feedbackContent.trim()}
+                                        disabled={feedbackStatus === 'submitting' || (!feedbackContent.trim() && feedbackAttachments.length === 0)}
                                         className="flex items-center justify-center gap-2 w-full py-2.5 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg font-medium transition-colors disabled:opacity-70"
                                     >
                                         {feedbackStatus === 'submitting' ? (
