@@ -1096,19 +1096,15 @@ const App = () => {
                     // Method A: Replace parent folder (drawings/documents/temp) with 'json'
                     if (decodedBlobName.toLowerCase().includes('drawings')) {
                         jsonCandidates.push(decodedBlobName.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
-                        jsonCandidates.push(decodedBlobName.replace(/drawings/i, 'json') + '.json');
                     } else if (decodedBlobName.toLowerCase().includes('documents')) {
                         jsonCandidates.push(decodedBlobName.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
-                        jsonCandidates.push(decodedBlobName.replace(/documents/i, 'json') + '.json');
                     } else if (decodedBlobName.toLowerCase().includes('temp')) {
-                        // FIX: Backend saves JSON to /json/ folder, not /temp/
+                        // Backend saves JSON to /json/ folder (temp -> json)
                         jsonCandidates.push(decodedBlobName.replace(/temp/i, 'json').replace(/\.pdf$/i, '.json'));
-                        jsonCandidates.push(decodedBlobName.replace(/temp/i, 'json') + '.json');
                     }
 
                     // Method B: Same directory (just in case)
                     jsonCandidates.push(decodedBlobName.replace(/\.pdf$/i, '.json'));
-                    jsonCandidates.push(decodedBlobName + '.json');
                 }
 
                 console.log("[ContextFix] Attempting to fetch derived JSON from candidates:", jsonCandidates);
