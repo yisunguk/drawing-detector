@@ -1037,17 +1037,28 @@ const App = () => {
                         throw new Error(statusData.error_message || "Analysis failed on server");
                     } else {
                         // Update Progress
-                        // statusData example: { completed_chunks: ["1-10", "11-20"], ... }
-                        // Estimate progress
-                        const chunksDone = (statusData.completed_chunks || []).length;
-                        // Estimate total chunks (approx 10 pages per chunk)
-                        const estimatedChunks = Math.ceil(totalPages / 10);
-                        const progress = 20 + Math.round((chunksDone / estimatedChunks) * 70);
+                        // statusData example: { completed_chunks: ["1-50", "51-100"], total_pages: 166, ... }
+                        // Calculate actual progress based on completed pages
+                        const completedChunks = statusData.completed_chunks || [];
+
+                        // Backend uses CHUNK_SIZE = 50 pages (defined in robust_analysis_manager.py)
+                        const CHUNK_SIZE = 50;
+
+                        // Calculate actual completed pages from chunk ranges
+                        let completedPages = 0;
+                        for (const chunkRange of completedChunks) {
+                            const [start, end] = chunkRange.split('-').map(Number);
+                            completedPages += (end - start + 1);
+                        }
+
+                        // Progress based on actual completed pages
+                        const actualProgress = (totalPages > 0) ? Math.round((completedPages / totalPages) * 100) : 0;
+                        const displayProgress = 20 + Math.round((actualProgress / 100) * 70); // Scale to 20-90%
 
                         setAnalysisState(prev => ({
                             ...prev,
-                            progress: Math.min(progress, 90),
-                            status: `${prefix}서버에서 분석 중... (${chunksDone}/${estimatedChunks} 구간 완료)`
+                            progress: Math.min(displayProgress, 90),
+                            status: `${prefix}서버에서 분석 중... (${completedPages}/${totalPages} 페이지 완료)`
                         }));
                     }
                 }
