@@ -120,43 +120,146 @@ class RobustAnalysisManager:
             traceback.print_exc()
             self._mark_error(filename, f"Critical System Error: {str(e)}")
 
-    async def _process_chunk(self, filename: str, blob_name: str, blob_url: str, local_file_path: str, page_range: str, category: str):
+    async def _process_chunk(self, filename: str, blob_name: str, master_blob_url: str, local_file_path: str, page_range: str, category: str):
         """
         Processes a single chunk:
-        1. Analyze (Using URL-based analysis for stability)
-        2. Save JSON
-        3. Index to Azure Search (INCREMENTAL)
+        1. Split PDF locally (create a small temporary PDF for just this chunk).
+        2. Upload small PDF to Blob Storage (temp/).
+        3. Analyze the small PDF URL (avoiding 'Image too large' on master file).
+        4. Save JSON & Index.
+        5. Cleanup small PDF.
         """
+        chunk_blob_name = None
         try:
             print(f"[Chunk] Processing {page_range}...")
             
-            # 1. Analyze (Use Azure DI directly via URL - Server-to-Server)
-            # This avoids "Image too large" errors from manual rendering
-            from app.services.azure_di import azure_di_service
-
-            loop = asyncio.get_running_loop()
+            # --- STRATEGY C: Split & Upload & Analyze (Bypasses Main File Size Limits) ---
             
-            # Run blocking analysis in executor
+            # 1. Create Small PDF for Chunk
+            import fitz
+            import io
+            
+            start, end = map(int, page_range.split('-'))
+            # 1-based to 0-based
+            start_idx = start - 1
+            end_idx = end - 1
+            
+            # Use local cached file (Must exist from /start endpoint)
+            if not local_file_path or not os.path.exists(local_file_path):
+                 raise Exception(f"Local cache missing for {filename}")
+            
+            chunk_pdf_bytes = None
+            with fitz.open(local_file_path) as master_doc:
+                # Validate range
+                if start_idx >= len(master_doc):
+                    print(f"[Chunk] Range {page_range} out of bounds (max {len(master_doc)}). Skipping.")
+                    return True
+                
+                real_end_idx = min(end_idx, len(master_doc) - 1)
+                
+                with fitz.open() as new_doc:
+                    new_doc.insert_pdf(master_doc, from_page=start_idx, to_page=real_end_idx)
+                    chunk_pdf_bytes = new_doc.tobytes()
+            
+            # 2. Upload Small PDF to Blob
+            container_client = get_container_client()
+            chunk_blob_name = f"temp/chunks/{filename}_{page_range}.pdf"
+            blob_client = container_client.get_blob_client(chunk_blob_name)
+            
+            # Run upload in executor to avoid blocking loop
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, lambda: blob_client.upload_blob(chunk_pdf_bytes, overwrite=True))
+            
+            # 3. Generate SAS for Small PDF
+            # Reuse logic or simple generation if we have key
+            chunk_sas_token = None
+            account_name = container_client.account_name
+            account_key = None
+            
+            # Extract key again (Safety) - ideally reusable but robust
+            if hasattr(container_client.credential, 'account_key'):
+                account_key = container_client.credential.account_key
+            elif isinstance(container_client.credential, dict) and 'account_key' in container_client.credential:
+                account_key = container_client.credential['account_key']
+            else:
+                 # Fallback to env connection string parsing
+                 conn_str = settings.AZURE_BLOB_CONNECTION_STRING
+                 if conn_str:
+                     for part in conn_str.split(';'):
+                         if 'AccountKey=' in part:
+                             account_key = part.split('AccountKey=')[1]
+                             break
+            
+            if account_key:
+                chunk_sas_token = generate_blob_sas(
+                    account_name=account_name,
+                    container_name=settings.AZURE_BLOB_CONTAINER_NAME,
+                    blob_name=chunk_blob_name,
+                    account_key=account_key,
+                    permission=BlobSasPermissions(read=True, delete=True),
+                    expiry=datetime.utcnow() + timedelta(hours=1)
+                )
+            elif settings.AZURE_BLOB_SAS_TOKEN:
+                 chunk_sas_token = settings.AZURE_BLOB_SAS_TOKEN.strip().lstrip('?')
+            
+            encoded_chunk_name = urllib.parse.quote(chunk_blob_name, safe="/~()-_.")
+            chunk_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{encoded_chunk_name}?{chunk_sas_token}"
+            
+            # 4. Analyze Small PDF URL
+            # Note: We pass pages=None because the file represents EXACTLY the chunk we want.
+            # Use '1-{count}' relative to the small file? NO, better to pass None (analyze whole small file)
+            # BUT: The result page numbers will start from 1. 
+            # We need to offset them back to `start`.
+            
+            from app.services.azure_di import azure_di_service
+            
             chunks = await loop.run_in_executor(
                 None,
                 lambda: azure_di_service.analyze_document_from_url(
-                    document_url=blob_url,
-                    pages=page_range
+                    document_url=chunk_url,
+                    pages=None # Analyze whole small file
                 )
             )
             
-            # 2. Save JSON
+            # 5. Fix Page Numbers (Offset)
+            # If the small PDF has pages 1..50, and it corresponds to 501..550
+            # we need to add 500 to the page number.
+            for page in chunks:
+                original_num = int(page.get("page_number", 0))
+                corrected_num = start + original_num - 1 # 1-based logic
+                page["page_number"] = corrected_num
+                page["page"] = str(corrected_num) # Update other fields if necessary
+            
+            # 6. Save JSON
             self._save_chunk_result(filename, page_range, chunks)
             
-            # 3. Index Immediately (User Request)
+            # 7. Index
             try:
                 from app.services.azure_search import azure_search_service
                 print(f"[Chunk] Indexing {len(chunks)} pages for {page_range}...")
                 azure_search_service.index_documents(filename, category, chunks, blob_name=blob_name)
             except Exception as e:
                 print(f"[Chunk] Indexing Warning for {page_range}: {e}")
+
+            # 8. Cleanup Chunk PDF
+            # await loop.run_in_executor(None, blob_client.delete_blob)
+            # Use fire-and-forget or await? Await to be clean.
+            try:
+                blob_client.delete_blob()
+            except:
+                pass 
                 
             return True
+
+        except Exception as e:
+            print(f"[Chunk] Failed {page_range}: {e}")
+            # Try cleanup if failed
+            if chunk_blob_name:
+                try:
+                    container_client = get_container_client()
+                    container_client.get_blob_client(chunk_blob_name).delete_blob()
+                except: pass
+            raise e
 
         except Exception as e:
             print(f"[Chunk] Failed {page_range}: {e}")
