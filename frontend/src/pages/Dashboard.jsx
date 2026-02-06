@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Search, ZoomIn, ZoomOut, RotateCcw, RotateCw, X, Plus, FileText, ChevronRight, ChevronLeft, Download, Grid3X3, List, Loader2, Check, Copy, Move, FileCheck, FileX, Cloud, Monitor, Folder, File, MessageSquare, Files, LogOut, User, Trash2, Mail } from 'lucide-react';
+import { Search, ZoomIn, ZoomOut, RotateCcw, RotateCw, X, Plus, FileText, ChevronRight, ChevronLeft, Download, Grid3X3, List, Loader2, Check, Copy, Move, FileCheck, FileX, Cloud, Monitor, Folder, File, MessageSquare, Files, LogOut, User, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import ChatInterface from '../components/ChatInterface';
@@ -7,6 +7,7 @@ import { db } from '../firebase';
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot, orderBy, limit, serverTimestamp } from 'firebase/firestore';
 import MessageModal from '../components/MessageModal';
 import InboxModal from '../components/InboxModal';
+import { Mail } from 'lucide-react';
 import { VERSION } from '../version';
 
 import { BlobServiceClient } from '@azure/storage-blob';
@@ -1989,10 +1990,11 @@ const App = () => {
                         {/* Inbox Button */}
                         <button
                             onClick={() => setIsInboxModalOpen(true)}
-                            className="relative p-1.5 text-[#666666] hover:bg-[#fff8f0] hover:text-[#d97757] rounded-lg transition-colors border border-transparent hover:border-[#f5d0b5]"
+                            className="relative flex items-center gap-1.5 p-1.5 px-3 text-[#666666] hover:bg-[#fff8f0] hover:text-[#d97757] rounded-lg transition-colors border border-transparent hover:border-[#f5d0b5]"
                             title="메시지 함"
                         >
                             <Mail size={16} />
+                            <span className="text-xs font-bold">메시지</span>
                             {unreadMessages.length > 0 && (
                                 <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#d97757] border-2 border-[#fff8f0] rounded-full flex items-center justify-center text-[8px] font-bold text-white shadow-sm">
                                     {unreadMessages.length > 9 ? '9+' : unreadMessages.length}
