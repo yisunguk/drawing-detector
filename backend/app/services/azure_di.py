@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 class AzureDIService:
     def __init__(self):
-        self.endpoint = settings.AZURE_FORM_RECOGNIZER_ENDPOINT
-        self.key = settings.AZURE_FORM_RECOGNIZER_KEY
+        self.endpoint = settings.AZURE_DOC_INTEL_ENDPOINT
+        self.key = settings.AZURE_DOC_INTEL_KEY
         
         if not self.endpoint or not self.key:
             logger.warning("Warning: Azure Document Intelligence credentials not configured.")
