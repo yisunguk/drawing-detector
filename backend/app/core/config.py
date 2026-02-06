@@ -23,18 +23,11 @@ class Settings(BaseSettings):
     AZURE_BLOB_SAS_TOKEN: str = ""
     AZURE_BLOB_CONTAINER_NAME: str = "blob-leesunguk"
     
-    # Azure Document Intelligence Settings
+    # Azure Document Intelligence Settings (Paid Tier)
     AZURE_FORM_RECOGNIZER_ENDPOINT: str = ""
     AZURE_FORM_RECOGNIZER_KEY: str = ""
-    
-    # Aliases for Document Intelligence (code uses AZURE_DOC_INTEL_*)
-    @property
-    def AZURE_DOC_INTEL_ENDPOINT(self) -> str:
-        return self.AZURE_FORM_RECOGNIZER_ENDPOINT
-    
-    @property
-    def AZURE_DOC_INTEL_KEY(self) -> str:
-        return self.AZURE_FORM_RECOGNIZER_KEY
+    AZURE_DOC_INTEL_ENDPOINT: str = ""  # Paid Tier (50MB Standard, 500MB Premium)
+    AZURE_DOC_INTEL_KEY: str = ""
 
     # Azure AI Search Settings
     AZURE_SEARCH_ENDPOINT: str = ""

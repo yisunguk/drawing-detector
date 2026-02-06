@@ -21,10 +21,12 @@ class RobustAnalysisManager:
     """
     
     def __init__(self):
-        # CRITICAL: Azure DI Free Tier has 4MB limit
-        # 50 pages = ~11.7MB (FAILS)
-        # 10 pages = ~2.34MB (WORKS)
-        self.CHUNK_SIZE = 10
+        # PAID TIER: Azure DI Standard has 50MB limit
+        # With 234KB/page average:
+        # 50 pages = ~11.7MB (WORKS for Paid Tier)
+        # 200 pages = ~46.8MB (WORKS for Paid Tier)
+        # Using 50 for balanced throughput/reliability
+        self.CHUNK_SIZE = 50
 
     async def run_analysis_loop(self, filename: str, blob_name: str, total_pages: int, category: str, local_file_path: str = None):
         """
