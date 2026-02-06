@@ -60,7 +60,7 @@ class AzureSearchService:
                 "category": category,
                 "drawing_no": page.get("도면번호(DWG. NO.)", ""),
                 "blob_path": blob_name, # Store blob path for reference
-                "metadata_storage_path": f"https://{self.client.endpoint.split('//')[1].split('.')[0]}.blob.core.windows.net/drawings/{blob_name}" if blob_name else ""
+                "metadata_storage_path": f"https://{self.endpoint.split('//')[1].split('.')[0]}.blob.core.windows.net/drawings/{blob_name}" if blob_name and self.endpoint else ""
             }
             documents.append(doc)
 
