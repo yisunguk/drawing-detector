@@ -21,8 +21,10 @@ class RobustAnalysisManager:
     """
     
     def __init__(self):
-        # Increased chunk size for efficiency (User Preference: 50)
-        self.CHUNK_SIZE = 50
+        # CRITICAL: Azure DI Free Tier has 4MB limit
+        # 50 pages = ~11.7MB (FAILS)
+        # 10 pages = ~2.34MB (WORKS)
+        self.CHUNK_SIZE = 10
 
     async def run_analysis_loop(self, filename: str, blob_name: str, total_pages: int, category: str, local_file_path: str = None):
         """
