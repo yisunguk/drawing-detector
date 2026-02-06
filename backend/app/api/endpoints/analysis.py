@@ -433,6 +433,73 @@ async def start_robust_analysis_task(
         if not blob_client.exists():
             raise HTTPException(status_code=404, detail=f"File not found: {blob_name}")
         
+        # ===== AUTO RE-ANALYSIS: Check for existing JSON and validate =====
+        import json as json_module
+        import os
+        
+        # Determine expected JSON path
+        json_filename = os.path.splitext(filename)[0] + ".json"
+        json_path = f"{username}/json/{json_filename}" if username else f"json/{json_filename}"
+        
+        json_blob = container_client.get_blob_client(json_path)
+        should_reanalyze = False
+        
+        if json_blob.exists():
+            print(f"[StartAnalysis] Existing JSON found: {json_path}")
+            
+            # Download and validate
+            try:
+                json_data = json_blob.download_blob().readall()
+                existing_pages = json_module.loads(json_data)
+                
+                # VALIDATION CHECKS
+                if not existing_pages or len(existing_pages) == 0:
+                    print(f"[StartAnalysis] ⚠️ JSON is EMPTY - forcing re-analysis")
+                    should_reanalyze = True
+                elif len(existing_pages) < total_pages:
+                    print(f"[StartAnalysis] ⚠️ Incomplete JSON: {len(existing_pages)}/{total_pages} pages - forcing re-analysis")
+                    should_reanalyze = True
+                else:
+                    print(f"[StartAnalysis] ✅ Valid JSON exists with {len(existing_pages)} pages")
+                    # For now, still allow re-analysis. Change to False to skip re-analysis
+                    should_reanalyze = False
+                    
+            except Exception as e:
+                print(f"[StartAnalysis] ⚠️ Failed to validate JSON: {e} - forcing re-analysis")
+                should_reanalyze = True
+        
+        # Cleanup corrupted files if needed
+        if should_reanalyze:
+            print(f"[StartAnalysis] 🧹 Cleaning up corrupted analysis files...")
+            
+            # 1. Delete final JSON
+            try:
+                json_blob.delete_blob()
+                print(f"[StartAnalysis] Deleted corrupted JSON: {json_path}")
+            except Exception as e:
+                print(f"[StartAnalysis] Note: Could not delete JSON (may not exist): {e}")
+            
+            # 2. Delete temp chunk JSONs (pattern: temp/json/{filename}_part_*)
+            temp_json_prefix = f"{username}/temp/json/" if username else "temp/json/"
+            base_filename = os.path.splitext(filename)[0]
+            try:
+                blob_list = container_client.list_blobs(name_starts_with=temp_json_prefix)
+                deleted_count = 0
+                for blob in blob_list:
+                    # Only delete chunks for this specific file
+                    if base_filename in blob.name and "_part_" in blob.name:
+                        container_client.get_blob_client(blob.name).delete_blob()
+                        deleted_count += 1
+                if deleted_count > 0:
+                    print(f"[StartAnalysis] Deleted {deleted_count} temp chunk JSON files")
+            except Exception as e:
+                print(f"[StartAnalysis] Cleanup warning: {e}")
+            
+            # 3. Reset status in status_manager
+            status_manager.reset_status(filename)
+            print(f"[StartAnalysis] Reset analysis status for fresh start")
+        # ===== END AUTO RE-ANALYSIS =====
+        
         # Download PDF to /tmp (ONCE)
         import tempfile
         import os

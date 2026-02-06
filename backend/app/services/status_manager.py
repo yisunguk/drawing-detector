@@ -62,5 +62,20 @@ class StatusManager:
         blob_client = self._get_blob_client(filename)
         blob_client.upload_blob(json.dumps(status), overwrite=True)
         # We might want to delete the status file eventually, but keeping it for now is safe.
+    
+    def reset_status(self, filename):
+        """
+        Resets the status for a file to allow re-analysis.
+        Deletes the status blob to force fresh initialization.
+        """
+        blob_client = self._get_blob_client(filename)
+        try:
+            if blob_client.exists():
+                blob_client.delete_blob()
+                print(f"[StatusManager] Reset status for {filename} (deleted status blob)")
+            else:
+                print(f"[StatusManager] No existing status for {filename}")
+        except Exception as e:
+            print(f"[StatusManager] Warning: Failed to reset status for {filename}: {e}")
 
 status_manager = StatusManager()
