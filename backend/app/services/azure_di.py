@@ -37,7 +37,27 @@ class AzureDIService:
             )
             result = poller.result()
             
-            return self._format_result(result)
+            # CRITICAL: Validate result before formatting
+            if not result:
+                raise Exception("Azure DI returned null result")
+            
+            if not hasattr(result, 'pages') or not result.pages:
+                logger.error(f"[DI] ❌ CRITICAL: Result has no pages! URL: {document_url[:60]}")
+                logger.error(f"[DI] Result type: {type(result)}")
+                if hasattr(result, '__dict__'):
+                    logger.error(f"[DI] Result attributes: {list(result.__dict__.keys())}")
+                raise Exception(f"Azure DI returned ZERO pages - API call failed silently")
+            
+            logger.info(f"[DI] ✅ Extracted {len(result.pages)} pages successfully")
+            
+            formatted = self._format_result(result)
+            
+            # CRITICAL: Validate formatted output
+            if not formatted or len(formatted) == 0:
+                raise Exception(f"_format_result returned empty list despite {len(result.pages)} raw pages")
+            
+            logger.info(f"[DI] ✅ Formatted {len(formatted)} pages with data")
+            return formatted
             
         except HttpResponseError as e:
             logger.error(f"[DI] HttpResponseError: {str(e)}")
@@ -52,6 +72,9 @@ class AzureDIService:
             
             # Re-raise to let RobustAnalysisManager handle chunk splitting
             raise e
+        except Exception as e:
+            logger.error(f"[DI] Analysis failed: {e}")
+            raise  # Always re-raise to prevent silent failures
 
     def analyze_document_from_bytes(self, file_content: bytes) -> list:
         if not self.client:

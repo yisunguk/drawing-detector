@@ -217,6 +217,12 @@ class RobustAnalysisManager:
             
             from app.services.azure_di import azure_di_service
             
+            # Diagnostic logging before Azure DI call
+            print(f"[Chunk] Calling Azure DI for {page_range}...")
+            print(f"[Chunk] Chunk blob: {chunk_blob_name}")
+            print(f"[Chunk] Chunk size: {len(chunk_pdf_bytes) / 1024 / 1024:.2f} MB")
+            print(f"[Chunk] Chunk URL: {chunk_url[:100]}...")
+            
             chunks = await loop.run_in_executor(
                 None,
                 lambda: azure_di_service.analyze_document_from_url(
@@ -224,6 +230,18 @@ class RobustAnalysisManager:
                     pages=None # Analyze whole small file
                 )
             )
+            
+            # CRITICAL: Validate chunks are not empty
+            if not chunks or len(chunks) == 0:
+                error_msg = f"Azure DI returned ZERO pages for {page_range}. API call succeeded but extracted no data!"
+                print(f"[Chunk] ❌ {error_msg}")
+                raise Exception(error_msg)
+            
+            print(f"[Chunk] ✅ Azure DI extracted {len(chunks)} pages for {page_range}")
+            if chunks and len(chunks) > 0:
+                first_page = chunks[0]
+                content_preview = first_page.get('content', '')[:100] if isinstance(first_page, dict) else ''
+                print(f"[Chunk] First page: page_number={first_page.get('page_number') if isinstance(first_page, dict) else 'N/A'}, content_length={len(str(content_preview))}")
             
             # 5. Fix Page Numbers (Offset)
             # If the small PDF has pages 1..50, and it corresponds to 501..550
