@@ -1533,43 +1533,15 @@ const App = () => {
     };
 
     // Auto-pan to selected result
+    // Auto-pan to selected result
     useEffect(() => {
-        if (!selectedResult || !selectedResult.polygon || !activeDoc) return;
+        if (!selectedResult || !activeDoc) return;
 
-        // FIX: Remove canvasSize dependency to stop jitter on resize/load.
-        // Strictly use OCR Page Width (stable) for calculation.
-        const pageIndex = (selectedResult.pageNum || 1) - 1;
-        const pageData = activeDoc.ocrData?.analyzeResult?.pages?.[pageIndex];
+        // FIX: Force 'Fit to Screen' and Center for maximum stability as requested.
+        // This prevents any jitter/movement and ensures the whole page is visible for context.
+        fitToScreen();
 
-        // If we don't have stable dimensions yet, DO NOT PAN.
-        // Waiting for OCR data prevents the "random move" phase.
-        if (!pageData && !selectedResult.layoutWidth) return;
-
-        const lw = selectedResult.layoutWidth || pageData.width;
-        const lh = selectedResult.layoutHeight || pageData.height;
-
-        const p = selectedResult.polygon;
-        const cx = (p[0] + p[2]) / 2;
-        const cy = (p[1] + p[5]) / 2;
-
-        let perX = (cx / lw) * 100;
-        let perY = (cy / lh) * 100;
-
-        // 2. Clamp
-        perX = Math.max(0, Math.min(100, perX));
-        perY = Math.max(0, Math.min(100, perY));
-
-        // Jitter Prevention: If target is very close to current, don't move
-        if (Math.abs(perX - panX) < 0.5 && Math.abs(perY - panY) < 0.5) return;
-
-        console.log(`[Targeting] Pan to ${perX.toFixed(1)}%, ${perY.toFixed(1)}%`);
-
-        // 3. Apply
-        setPanX(perX);
-        setPanY(perY);
-
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedResult, activeDoc]);
+    }, [selectedResult, activeDoc, fitToScreen]);
 
     const getPolygonPoints = (result) => {
         if (!result || !result.polygon) return "";
