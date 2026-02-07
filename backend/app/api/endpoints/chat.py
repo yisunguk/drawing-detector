@@ -96,9 +96,6 @@ async def chat(
                 select=["content", "source", "page", "title", "category", "user_id", "blob_path"]
             )
             
-            # Build context from search results
-            results_list = list(search_results)
-            
             # Build context from search results (Search-to-JSON)
             results_list = list(search_results)
             
@@ -125,16 +122,12 @@ async def chat(
                     if blob_path:
                         # Strategy 1: Infer from blob_path (Best)
                         # e.g. "User/drawings/file.pdf" -> "User/json/file.json"
-                        # Try replacing category folder with 'json'
-                        
-                        # Handle specific categories we know: 'drawings', 'spec', etc.
-                        # Or just replace the parent folder of the file?
+                        # e.g. "User/documents/file.pdf" -> "User/json/file.json"
                         
                         path_parts = blob_path.split('/')
                         if len(path_parts) >= 2:
-                             # Assume structure: User/Category/File.pdf
-                             # Construct: User/json/File.json
                              user_dir = path_parts[0]
+                             category_dir = path_parts[1] # e.g. 'drawings', 'documents', 'spec'
                              filename_raw = path_parts[-1]
                              
                              # Check extension
@@ -142,9 +135,22 @@ async def chat(
                              if base_name.lower().endswith('.pdf'):
                                  base_name = base_name[:-4]
 
+                             # Candidate 1: User/json/File.json
                              candidates.append(f"{user_dir}/json/{base_name}.json")
-                             candidates.append(f"{user_dir}/json/{filename_raw}.json") # .pdf.json
-                             candidates.append(f"{user_dir}/json/{filename_raw}.pdf.json") # explicit .pdf.json
+                             candidates.append(f"{user_dir}/json/{filename_raw}.json")
+                             candidates.append(f"{user_dir}/json/{filename_raw}.pdf.json")
+                             
+                             # Candidate 2: Try replacing category dir directly (e.g. User/documents -> User/json)
+                             if category_dir != 'json':
+                                json_path_1 = blob_path.replace(f"/{category_dir}/", "/json/")
+                                # Adjust extension
+                                if json_path_1.lower().endswith('.pdf'):
+                                    candidates.append(json_path_1[:-4] + ".json")
+                                    candidates.append(json_path_1 + ".json") # .pdf.json
+                                else:
+                                    candidates.append(json_path_1 + ".json")
+
+                    # Strategy 2: Fallback to token user_id
 
                     # Strategy 2: Fallback to token user_id (Old method)
                     result_user_id = result.get('user_id', safe_user_id)
