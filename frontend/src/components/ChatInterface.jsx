@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Bot, User, Loader2, Sparkles, AlertCircle, RefreshCcw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../services/logging';
@@ -191,7 +191,16 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
         }
 
         try {
-            const context = formatContext();
+            // Use local context ONLY for active document to ensure strict scoping.
+            // For 'active', we send the full text (truncated by backend if needed).
+            // For 'all' (global), we send NULL to trigger the Backend's Azure AI Search (RAG).
+            // This prevents the "Context Stuffing" limit which was cutting off the 2nd document.
+            let context = null;
+            if (chatScope === 'active') {
+                context = formatContext();
+            } else {
+                console.log("[Chat] Scope is 'all'. Using Backend RAG (Azure Search).");
+            }
 
             // Use environment variable for API URL
             // Development: http://127.0.0.1:8000
@@ -199,7 +208,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
 
             // Hardcoded fallback for production
             // Hardcoded fallback for production
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
             const rawBase = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
             const baseApi = rawBase.replace(/\/$/, "");
 
@@ -210,15 +219,45 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
 
             console.log('Chat debug:', { baseApi, API_URL, envUrl: import.meta.env.VITE_API_URL });
 
+            // Prepare headers
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            // For "All Documents" scope, add Authorization header with Firebase ID token
+            if (chatScope === 'all') {
+                const user = auth.currentUser;
+                if (!user) {
+                    console.error("User not authenticated for All Documents scope");
+                    setMessages(prev => [...prev, {
+                        role: 'assistant',
+                        content: '❌ 인증이 필요합니다. 로그인 후 다시 시도해주세요.'
+                    }]);
+                    setIsLoading(false);
+                    return;
+                }
+
+                try {
+                    const idToken = await user.getIdToken();
+                    headers['Authorization'] = `Bearer ${idToken}`;
+                    console.log('[Chat] Added Authorization header for user:', user.displayName || user.email);
+                } catch (error) {
+                    console.error("Failed to get ID token:", error);
+                    setMessages(prev => [...prev, {
+                        role: 'assistant',
+                        content: '❌ 인증 토큰을 가져오는데 실패했습니다.'
+                    }]);
+                    setIsLoading(false);
+                    return;
+                }
+            }
 
             const response = await fetch(API_URL, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: headers,
                 body: JSON.stringify({
                     query: userMessage,
-                    context: context,
+                    context: context, // Null enables RAG
                     filename: activeDoc?.name // Optional, for logging or fallback
                 }),
             });

@@ -33,6 +33,14 @@ class AzureSearchService:
             logger.warning("Search client is not initialized. Skipping indexing.")
             return
 
+        # Extract user_id from blob_name
+        # Example: "관리자/drawings/file.pdf" → user_id = "관리자"
+        user_id = "unknown"
+        if blob_name:
+            parts = blob_name.split('/')
+            if len(parts) > 0:
+                user_id = parts[0]  # First folder = user name
+
         documents = []
         for page in pages_data:
             # Create a unique ID for each page
@@ -53,6 +61,7 @@ class AzureSearchService:
             # Common RAG fields: id, content, title, source, page_number
             doc = {
                 "id": doc_id,
+                "user_id": user_id,  # NEW: For user isolation
                 "content": page.get("content", ""),
                 "source": filename,
                 "page": str(page_num),

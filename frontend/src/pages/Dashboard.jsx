@@ -261,6 +261,13 @@ const App = () => {
                     del('sidebarWidth')
                 ]);
 
+                // Clear LocalStorage Chat History (ChatInterface)
+                Object.keys(localStorage).forEach(key => {
+                    if (key.startsWith('chat_history_')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+
                 // 3. Reload
                 window.location.reload();
             } catch (error) {
@@ -588,7 +595,22 @@ const App = () => {
 
             const dataSource = doc.ocrData || doc.pdfTextData;
             if (!dataSource) return;
-            const pages = Array.isArray(dataSource) ? dataSource : [dataSource];
+
+            // Robustly extract pages array from different Azure DI formats
+            let pages = [];
+            if (Array.isArray(dataSource)) {
+                pages = dataSource;
+            } else if (dataSource.analyzeResult?.pages) {
+                pages = dataSource.analyzeResult.pages;
+            } else if (dataSource.analyzeResult?.readResults) {
+                // Support for older Azure API (v2.0/2.1)
+                pages = dataSource.analyzeResult.readResults;
+            } else if (dataSource.pages) {
+                pages = dataSource.pages;
+            } else {
+                // Should not happen for valid OCR data, but treat as single page or unknown
+                pages = [dataSource];
+            }
 
             const hasOcrStructure = pages.some(p => p?.layout?.lines || p?.lines);
 
@@ -598,12 +620,35 @@ const App = () => {
                     if (lines.length === 0) return;
 
                     const pageNum = pageData.page_number || idx + 1;
-                    const layoutWidth = pageData.layout?.width || pageData.metadata?.width || pageData.width || 0;
-                    const layoutHeight = pageData.layout?.height || pageData.metadata?.height || pageData.height || 0;
+                    let layoutWidth = pageData.layout?.width || pageData.metadata?.width || pageData.width || 0;
+                    let layoutHeight = pageData.layout?.height || pageData.metadata?.height || pageData.height || 0;
+
+                    // Fix: Auto-detect dimensions if missing (handles Azure DI 'Inch' vs 'Pixel' mismatch)
+                    if (layoutWidth <= 0 || layoutHeight <= 0) {
+                        lines.forEach(line => {
+                            const p = line.polygon || line.boundingBox;
+                            if (Array.isArray(p)) {
+                                for (let i = 0; i < p.length; i += 2) {
+                                    if (p[i] > layoutWidth) layoutWidth = p[i];
+                                    if (p[i + 1] > layoutHeight) layoutHeight = p[i + 1];
+                                }
+                            }
+                        });
+                        // Add buffer for margins
+                        if (layoutWidth > 0) layoutWidth *= 1.05;
+                        if (layoutHeight > 0) layoutHeight *= 1.05;
+                    }
 
                     lines.forEach(line => {
                         const lineContent = line?.content || line?.text;
                         if (!lineContent || typeof lineContent !== 'string') return;
+
+                        // Normalize polygon (Azure v3 uses 'polygon', v2 uses 'boundingBox')
+                        let linePolygon = line.polygon || line.boundingBox || [];
+                        // Flatten nested arrays if necessary (e.g. [[x,y], [x,y]] -> [x,y,x,y])
+                        if (Array.isArray(linePolygon) && Array.isArray(linePolygon[0])) {
+                            linePolygon = linePolygon.flat();
+                        }
 
                         let score = calculateScore(lineContent, rawSearch);
 
@@ -632,7 +677,7 @@ const App = () => {
                             if (filters[type]) {
                                 results.push({
                                     content: lineContent,
-                                    polygon: line.polygon ? [...line.polygon] : [],
+                                    polygon: [...linePolygon],
                                     docId: doc.id,
                                     docName: doc.name,
                                     pageNum,
@@ -682,7 +727,11 @@ const App = () => {
     }, [searchTerm, documents, activeDocId, searchScope, filters, parseInstrumentBubbles, searchPreferPage]);
 
     const handlePageInputChange = (e) => {
-        setInputPage(e.target.value);
+        const val = e.target.value;
+        // Allow empty string (clearing input) or positive integers only
+        if (val === '' || /^\d+$/.test(val)) {
+            setInputPage(val);
+        }
     };
 
     const handlePageInputKeyDown = (e) => {
@@ -1971,6 +2020,8 @@ const App = () => {
                                 <div className="flex items-center text-xs font-semibold text-[#333333]">
                                     <input
                                         type="number"
+                                        min="1"
+                                        max={activeDoc.totalPages || 1}
                                         className="w-10 text-center bg-transparent focus:bg-white border-b border-transparent focus:border-[#d97757] outline-none transition-all p-0.5 appearance-none"
                                         value={inputPage}
                                         onChange={handlePageInputChange}

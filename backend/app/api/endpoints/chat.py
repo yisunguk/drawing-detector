@@ -1,8 +1,10 @@
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Header
 from pydantic import BaseModel
 from typing import List, Optional
+import re
 from openai import AzureOpenAI
 from app.core.config import settings
+from app.core.firebase_admin import verify_id_token
 
 router = APIRouter()
 
@@ -14,6 +16,18 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
 
+def validate_and_sanitize_user_id(user_id: str) -> str:
+    """
+    Validate user_id format and sanitize for Azure Search filter.
+    Prevents filter injection attacks.
+    """
+    # Allow: Korean, English, numbers, underscore, hyphen
+    if not re.match(r'^[a-zA-Z0-9가-힣_-]+$', user_id):
+        raise HTTPException(status_code=400, detail="Invalid user_id format")
+    
+    # Escape single quotes (OData standard)
+    return user_id.replace("'", "''")
+
 # Initialize Azure OpenAI Client
 client = AzureOpenAI(
     azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
@@ -22,7 +36,10 @@ client = AzureOpenAI(
 )
 
 @router.post("/", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    authorization: Optional[str] = Header(None)
+):
     try:
         context_text = ""
 
@@ -40,11 +57,39 @@ async def chat(request: ChatRequest):
                     detail="Azure Search is not configured. Please set AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY."
                 )
             
-            print(f"[Chat] Searching Azure Search for: {request.query}")
+            # Extract and verify Firebase token from Authorization header
+            if not authorization or not authorization.startswith('Bearer '):
+                raise HTTPException(
+                    status_code=401,
+                    detail="Missing or invalid Authorization header. Use: Authorization: Bearer <token>"
+                )
             
-            # Query the index
+            id_token = authorization.replace('Bearer ', '')
+            
+            try:
+                decoded_token = verify_id_token(id_token)
+                # Get user_id from displayName or email
+                user_id = decoded_token.get('displayName') or decoded_token.get('email', '').split('@')[0]
+                
+                if not user_id:
+                    raise HTTPException(status_code=401, detail="Could not extract user_id from token")
+                
+                # Validate and sanitize user_id for filter safety
+                safe_user_id = validate_and_sanitize_user_id(user_id)
+                
+                print(f"[Chat] Authenticated user: {safe_user_id}")
+                
+            except ValueError as e:
+                raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Auth error: {str(e)}")
+            
+            print(f"[Chat] Searching Azure Search for user '{safe_user_id}': {request.query}")
+            
+            # Query the index with user filter (USER ISOLATION)
             search_results = azure_search_service.client.search(
                 search_text=request.query,
+                filter=f"user_id eq '{safe_user_id}'",  # Only this user's documents
                 top=5,  # Retrieve top 5 most relevant chunks
                 select=["content", "source", "page", "title", "category"]
             )
