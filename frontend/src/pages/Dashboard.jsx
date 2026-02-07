@@ -1534,13 +1534,21 @@ const App = () => {
 
     // Auto-pan to selected result
     useEffect(() => {
-        if (!selectedResult || !selectedResult.polygon || !activeDoc || !canvasSize.width) return;
+        if (!selectedResult || !selectedResult.polygon || !activeDoc) return;
 
-        // 1. Calculate Center
+        // FIX: Remove canvasSize dependency to stop jitter on resize/load.
+        // Strictly use OCR Page Width (stable) for calculation.
+        const pageIndex = (selectedResult.pageNum || 1) - 1;
+        const pageData = activeDoc.ocrData?.analyzeResult?.pages?.[pageIndex];
+
+        // If we don't have stable dimensions yet, DO NOT PAN.
+        // Waiting for OCR data prevents the "random move" phase.
+        if (!pageData && !selectedResult.layoutWidth) return;
+
+        const lw = selectedResult.layoutWidth || pageData.width;
+        const lh = selectedResult.layoutHeight || pageData.height;
+
         const p = selectedResult.polygon;
-        const lw = selectedResult.layoutWidth || canvasSize.width || 1;
-        const lh = selectedResult.layoutHeight || canvasSize.height || 1;
-
         const cx = (p[0] + p[2]) / 2;
         const cy = (p[1] + p[5]) / 2;
 
@@ -1551,13 +1559,17 @@ const App = () => {
         perX = Math.max(0, Math.min(100, perX));
         perY = Math.max(0, Math.min(100, perY));
 
+        // Jitter Prevention: If target is very close to current, don't move
+        if (Math.abs(perX - panX) < 0.5 && Math.abs(perY - panY) < 0.5) return;
+
         console.log(`[Targeting] Pan to ${perX.toFixed(1)}%, ${perY.toFixed(1)}%`);
 
-        // 3. Apply (No Zoom, just Pan)
+        // 3. Apply
         setPanX(perX);
         setPanY(perY);
 
-    }, [selectedResult, activeDoc, canvasSize]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedResult, activeDoc]);
 
     const getPolygonPoints = (result) => {
         if (!result || !result.polygon) return "";
@@ -1574,8 +1586,12 @@ const App = () => {
         }
 
         const p = result.polygon;
-        const lw = result.layoutWidth || canvasSize.width;
-        const lh = result.layoutHeight || canvasSize.height;
+        // FIX: Use OCR Page Width
+        const pageIndex = (result.pageNum || 1) - 1;
+        const pageData = activeDoc?.ocrData?.analyzeResult?.pages?.[pageIndex];
+        const lw = result.layoutWidth || pageData?.width || canvasSize.width;
+        const lh = result.layoutHeight || pageData?.height || canvasSize.height;
+
         const needScale = Math.abs(lw - canvasSize.width) > 5;
 
         // Ensure points are numbers
@@ -1593,8 +1609,12 @@ const App = () => {
     const getSelectedCenter = () => {
         if (!selectedResult || !canvasSize.width || !selectedResult.polygon) return null;
         const p = selectedResult.polygon;
-        const lw = selectedResult.layoutWidth;
-        const lh = selectedResult.layoutHeight;
+        // FIX: Use OCR Page Width
+        const pageIndex = (selectedResult.pageNum || 1) - 1;
+        const pageData = activeDoc?.ocrData?.analyzeResult?.pages?.[pageIndex];
+        const lw = selectedResult.layoutWidth || pageData?.width || canvasSize.width;
+        const lh = selectedResult.layoutHeight || pageData?.height || canvasSize.height;
+
         const needScale = Math.abs(lw - canvasSize.width) > 1;
 
         let cx, cy;

@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "D:\Projects\Drawing_detecter\backend\check_index_users.py", line 10, in <module>
+    print(f"\n\u2705 Total documents in index: {len(results)}\n")
+UnicodeEncodeError: 'cp949' codec can't encode character '\u2705' in position 2: illegal multibyte sequence

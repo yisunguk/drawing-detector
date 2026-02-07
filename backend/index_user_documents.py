@@ -1,10 +1,11 @@
 """
-Index all existing analyzed documents from Azure Blob Storage into Azure Search.
+Index documents for a specific user from Azure Blob Storage into Azure Search.
 
-This script:
-1. Lists all JSON files from the blob container
-2. Downloads and parses each JSON file
-3. Indexes the page content using azure_search_service
+Usage:
+    python index_user_documents.py <user_name>
+    
+Example:
+    python index_user_documents.py gulflng
 """
 
 import os
@@ -29,8 +30,6 @@ def get_container_client():
 
 def extract_category_from_path(blob_path: str) -> str:
     """Extract category from blob path"""
-    # User-based structure: "admin/json/file.json" or "admin/drawings/file.pdf"
-    # We'll use folder structure: drawings -> drawings, json -> documents
     parts = blob_path.split('/')
     
     if len(parts) >= 2:
@@ -45,8 +44,15 @@ def extract_category_from_path(blob_path: str) -> str:
     return "uncategorized"
 
 def main():
+    if len(sys.argv) < 2:
+        print("❌ Usage: python index_user_documents.py <user_name>")
+        print("   Example: python index_user_documents.py gulflng")
+        return
+    
+    user_name = sys.argv[1]
+    
     print("=" * 60)
-    print("Azure Search Document Indexer")
+    print(f"Azure Search Document Indexer - User: {user_name}")
     print("=" * 60)
     
     # Check if search client is available
@@ -62,11 +68,12 @@ def main():
     # Connect to blob storage
     container_client = get_container_client()
     print(f"✅ Connected to Blob Storage: {settings.AZURE_BLOB_CONTAINER_NAME}")
+    print(f"🔍 Filtering for user: {user_name}/")
     print()
     
-    # List all JSON files
-    print("📋 Listing JSON files from blob storage...")
-    blob_list = container_client.list_blobs()
+    # List all JSON files for this user
+    print(f"📋 Listing JSON files for user '{user_name}'...")
+    blob_list = container_client.list_blobs(name_starts_with=f"{user_name}/")
     
     json_files = []
     for blob in blob_list:
@@ -75,6 +82,11 @@ def main():
     
     print(f"Found {len(json_files)} JSON files to index")
     print()
+    
+    if len(json_files) == 0:
+        print(f"⚠️  No files found for user '{user_name}'")
+        print(f"   Make sure the blob path starts with: {user_name}/")
+        return
     
     # Index each file
     indexed_count = 0
@@ -102,7 +114,7 @@ def main():
             category = extract_category_from_path(blob_name)
             
             # Index documents
-            print(f"  📤 Indexing {len(pages_data)} pages...")
+            print(f"  📤 Indexing {len(pages_data)} pages with user_id='{user_name}'...")
             azure_search_service.index_documents(
                 filename=filename.replace('.json', '.pdf'),  # Convert to PDF filename
                 category=category,
@@ -124,7 +136,7 @@ def main():
     
     # Summary
     print("=" * 60)
-    print("📊 Indexing Summary")
+    print(f"📊 Indexing Summary for user '{user_name}'")
     print("=" * 60)
     print(f"Total files found: {len(json_files)}")
     print(f"Successfully indexed: {indexed_count}")
@@ -132,7 +144,8 @@ def main():
     print()
     
     if indexed_count > 0:
-        print("✅ Indexing complete! You can now use 'All Documents' scope in chat.")
+        print(f"✅ Indexing complete for user '{user_name}'!")
+        print(f"   User can now search their documents with 'All Documents' scope.")
     else:
         print("⚠️  No documents were indexed. Please check the errors above.")
 
