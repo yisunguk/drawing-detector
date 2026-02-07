@@ -98,9 +98,11 @@ async def chat(
             
             # Build context from search results (Search-to-JSON)
             results_list = list(search_results)
+            print(f"[Chat] Raw Search Results Count: {len(results_list)}")
             
             if not results_list:
                 context_text = "No relevant documents found in the index."
+                print("[Chat] No results found in Azure Search.")
             else:
                 from app.services.blob_storage import get_container_client
                 import json
@@ -111,9 +113,13 @@ async def chat(
                 # Cache fetched JSONs to avoid repeated downloads for same file
                 json_cache = {} 
                 
-                for result in results_list:
+                for idx, result in enumerate(results_list):
                     source_filename = result.get('source', 'Unknown')
                     target_page = int(result.get('page', 0))
+                    result_user_id = result.get('user_id', safe_user_id)
+                    blob_path = result.get('blob_path')
+                    
+                    print(f"[Chat] Processing Result #{idx+1}: {source_filename} (Page {target_page}) | BlobPath: {blob_path} | User: {result_user_id}")
                     
                     # Robust Path Derivation using 'blob_path' from Index
                     blob_path = result.get('blob_path')
