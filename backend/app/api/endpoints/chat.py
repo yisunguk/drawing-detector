@@ -70,8 +70,8 @@ async def chat(
             
             try:
                 decoded_token = verify_id_token(id_token)
-                # Get user_id from displayName or email
-                user_id = decoded_token.get('displayName') or decoded_token.get('email', '').split('@')[0]
+                # Get user_id from name (displayName in token is 'name') or email
+                user_id = decoded_token.get('name') or decoded_token.get('email', '').split('@')[0]
                 
                 if not user_id:
                     raise HTTPException(status_code=401, detail="Could not extract user_id from token")
