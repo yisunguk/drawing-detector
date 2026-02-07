@@ -545,7 +545,10 @@ const App = () => {
             }
 
             if (cleanContent.startsWith(cleanSearch)) return 80;
-            if (cleanContent.includes(cleanSearch)) return 60;
+
+            // Stricter Includes: Only allow if search term is long enough (>= 4 chars)
+            // This prevents short terms like "gen" from matching "oxygen" (noise)
+            if (cleanSearch.length >= 4 && cleanContent.includes(cleanSearch)) return 60;
 
             return 0;
         };
@@ -2131,9 +2134,10 @@ const App = () => {
 
                                 {canvasSize.width > 0 && (currentPageData?.layout || currentPageData?.lines) && (
                                     <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
-                                        {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
+                                        {/* User Request: Show ONLY the selected result highlight (removed clutter) */}
+                                        {/* {searchResults.filter(r => r.docId === activeDocId && r.pageNum === activePage && r !== selectedResult && r.polygon).map((r, i) => (
                                             <polygon key={i} points={getPolygonPoints(r)} fill="rgba(250,204,21,0.2)" stroke="rgba(250,204,21,0.6)" strokeWidth="2" />
-                                        ))}
+                                        ))} */}
                                         {selectedResult && selectedResult.docId === activeDocId && selectedResult.pageNum === activePage && selectedCenter && selectedResult.polygon && (
                                             <>
                                                 {/* Active Selection: High-Contrast Yellow Highlight */}
