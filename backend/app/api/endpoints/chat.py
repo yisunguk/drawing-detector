@@ -93,7 +93,7 @@ async def chat(
                 search_text=request.query,
                 filter=f"user_id eq '{safe_user_id}'",  # Only this user's documents
                 top=5,  # Retrieve top 5 most relevant chunks
-                select=["content", "source", "page", "title", "category"]
+                select=["content", "source", "page", "title", "category", "user_id", "blob_path"]
             )
             
             # Build context from search results
@@ -117,21 +117,43 @@ async def chat(
                 for result in results_list:
                     source_filename = result.get('source', 'Unknown')
                     target_page = int(result.get('page', 0))
-                    result_user_id = result.get('user_id', safe_user_id) # Use result's user_id if available
                     
-                    # 1. Determine JSON Path Candidates
-                    # Candidate A: {user_id}/json/{filename}.json
-                    # Candidate B: {user_id}/json/{filename}.pdf.json
+                    # Robust Path Derivation using 'blob_path' from Index
+                    blob_path = result.get('blob_path')
+                    candidates = []
                     
-                    # Remove .pdf extension if present for Candidate A base
+                    if blob_path:
+                        # Strategy 1: Infer from blob_path (Best)
+                        # e.g. "User/drawings/file.pdf" -> "User/json/file.json"
+                        # Try replacing category folder with 'json'
+                        
+                        # Handle specific categories we know: 'drawings', 'spec', etc.
+                        # Or just replace the parent folder of the file?
+                        
+                        path_parts = blob_path.split('/')
+                        if len(path_parts) >= 2:
+                             # Assume structure: User/Category/File.pdf
+                             # Construct: User/json/File.json
+                             user_dir = path_parts[0]
+                             filename_raw = path_parts[-1]
+                             
+                             # Check extension
+                             base_name = filename_raw
+                             if base_name.lower().endswith('.pdf'):
+                                 base_name = base_name[:-4]
+
+                             candidates.append(f"{user_dir}/json/{base_name}.json")
+                             candidates.append(f"{user_dir}/json/{filename_raw}.json") # .pdf.json
+                             candidates.append(f"{user_dir}/json/{filename_raw}.pdf.json") # explicit .pdf.json
+
+                    # Strategy 2: Fallback to token user_id (Old method)
+                    result_user_id = result.get('user_id', safe_user_id)
                     base_name = source_filename
                     if base_name.lower().endswith('.pdf'):
-                        base_name = base_name[:-4]
-                        
-                    candidates = [
-                        f"{result_user_id}/json/{base_name}.json",       # Vendor...Check.json
-                        f"{result_user_id}/json/{source_filename}.json"   # Drawing.pdf.json
-                    ]
+                         base_name = base_name[:-4]
+                    
+                    candidates.append(f"{result_user_id}/json/{base_name}.json")
+                    candidates.append(f"{result_user_id}/json/{source_filename}.json")
                     
                     file_json_data = None
                     
@@ -139,24 +161,23 @@ async def chat(
                     for cand in candidates:
                         if cand in json_cache:
                             file_json_data = json_cache[cand]
-                            print(f"[Chat] Hit JSON cache: {cand}")
                             break
                             
                     # If not in cache, try download
                     if not file_json_data:
-                        for blob_path in candidates:
+                        for path in candidates:
                             try:
-                                blob_client = container_client.get_blob_client(blob_path)
+                                blob_client = container_client.get_blob_client(path)
                                 if blob_client.exists():
-                                    print(f"[Chat] Downloading JSON: {blob_path}")
+                                    print(f"[Chat] Downloading JSON: {path}")
                                     download_stream = blob_client.download_blob()
                                     json_text = download_stream.readall()
                                     file_json_data = json.loads(json_text)
-                                    json_cache[blob_path] = file_json_data # Cache it
+                                    json_cache[path] = file_json_data # Cache it with the winning path
+                                    json_cache[cand] = file_json_data # Also cache with the requested candidate to hit faster? (optional)
                                     break
-                            except Exception as e:
-                                print(f"[Chat] Failed to fetch/parse {blob_path}: {e}")
-                                continue
+                            except Exception:
+                                continue # Try next candidate
                     
                     # 2. Extract Page Context
                     if file_json_data:
