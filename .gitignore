@@ -28,3 +28,7 @@ update-secrets-v2.ps1
 setup-cicd-key.ps1
 fix-permissions.ps1
 gcp-sa-key.json
+
+# Firebase Service Account (contains private key)
+backend/firebase-service-account.json
+firebase-service-account.json
