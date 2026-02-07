@@ -27,6 +27,8 @@ const AZURE_SAS_TOKEN = rawSasToken.replace(/^"|"$/g, '');
 
 const AZURE_CONTAINER_URL = `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}?${AZURE_SAS_TOKEN}`;
 
+import { cleanupOldChatHistory } from '../services/historyCleanup';
+
 const classifyTag = (content) => {
     if (/^(\d{1,2}["']?)[-]([A-Z]{1,4})[-]?(\d{3,5})/.test(content)) return 'line';
     if (/^([A-Z]{1,3}G)[-_]?(\d{3,4})$/.test(content)) return 'gauge'; // e.g. PG-1234
@@ -288,6 +290,9 @@ const App = () => {
                     await setDoc(userDocRef, newProfile);
                     setUserProfile(newProfile);
                 }
+
+                // Cleanup old chat history
+                cleanupOldChatHistory(currentUser.uid);
             } catch (err) {
                 console.error("Error syncing user profile:", err);
             }
@@ -950,6 +955,7 @@ const App = () => {
     // --- Analysis State ---
     const [analysisState, setAnalysisState] = useState({ isAnalyzing: false, progress: 0, status: '' });
     const [showAnalysisConfirmModal, setShowAnalysisConfirmModal] = useState(false);
+    const [completedPages, setCompletedPages] = useState(0);
 
 
 
@@ -961,7 +967,7 @@ const App = () => {
             const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
 
             // Step 1: Request SAS URL
-            setAnalysisState({ isAnalyzing: true, progress: 5, status: `${prefix}업로드 채널 확보 중...` });
+            setAnalysisState({ isAnalyzing: true, progress: 0, status: `${prefix}업로드 채널 확보 중...` });
 
             // Encode filename to handle spaces/special characters safely
             const uName = userProfile?.name || currentUser?.displayName;
@@ -972,7 +978,7 @@ const App = () => {
             const { upload_url, blob_name } = await sasRes.json();
 
             // Step 2: Direct Upload to Azure (Bypassing Backend)
-            setAnalysisState({ isAnalyzing: true, progress: 10, status: `${prefix}클라우드 스토리지로 직접 전송 중...` });
+            setAnalysisState({ isAnalyzing: true, progress: 1, status: `${prefix}클라우드 스토리지로 직접 전송 중...` });
 
             await new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
@@ -981,10 +987,10 @@ const App = () => {
 
                 xhr.upload.onprogress = (e) => {
                     if (e.lengthComputable) {
-                        const percentComplete = (e.loaded / e.total) * 80; // Allocate 80% to upload
+                        const percentComplete = (e.loaded / e.total) * 4; // Allocate tiny 4% to upload (visual only)
                         setAnalysisState(prev => ({
                             ...prev,
-                            progress: 10 + Math.round(percentComplete),
+                            progress: 1 + Math.round(percentComplete),
                             status: `${prefix}클라우드로 전송 중... (${Math.round((e.loaded / e.total) * 100)}%)`
                         }));
                     }
@@ -1003,7 +1009,7 @@ const App = () => {
 
             // Step 3: Start Robust Analysis (Backend Background Task)
             // Modified to ASYNC Polling to prevent 504 Timeouts on large files (Robust Mode)
-            setAnalysisState({ isAnalyzing: true, progress: 20, status: `${prefix}분석 요청 중...` });
+            setAnalysisState({ isAnalyzing: true, progress: 5, status: `${prefix}분석 요청 중...` });
             console.log("[Dashboard] Requesting Async Analysis from Backend...");
 
             const totalPages = documents.find(d => d.id === docId)?.totalPages || 1;
@@ -1062,12 +1068,13 @@ const App = () => {
                         }
 
                         // Progress based on actual completed pages
+                        // User Request: 0 pages -> 0% (or very close to 0 start)
                         const actualProgress = (totalPages > 0) ? Math.round((completedPages / totalPages) * 100) : 0;
-                        const displayProgress = 20 + Math.round((actualProgress / 100) * 70); // Scale to 20-90%
+                        const displayProgress = 5 + Math.round((actualProgress / 100) * 95); // 0 pages -> 5% (Analysis Started)
 
                         setAnalysisState(prev => ({
                             ...prev,
-                            progress: Math.min(displayProgress, 90),
+                            progress: Math.min(displayProgress, 99), // Allow up to 99% while waiting for final status
                             status: `${prefix}서버에서 분석 중... (${completedPages}/${totalPages} 페이지 완료)`
                         }));
                     }
@@ -1104,13 +1111,24 @@ const App = () => {
 
                     // Always try to look in the parallel 'json' folder (backend standard)
                     // Method A: Replace parent folder (drawings/documents/temp) with 'json'
+                    // Ensure username is preserved or added if missing in the inferred path
+                    const safeUsername = userProfile?.name || currentUser?.displayName || '';
+
                     if (decodedBlobName.toLowerCase().includes('drawings')) {
+                        // Case: username/drawings/file.pdf -> username/json/file.json
                         jsonCandidates.push(decodedBlobName.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
                     } else if (decodedBlobName.toLowerCase().includes('documents')) {
                         jsonCandidates.push(decodedBlobName.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
                     } else if (decodedBlobName.toLowerCase().includes('temp')) {
                         // Backend saves JSON to /json/ folder (temp -> json)
+                        // If path is just "temp/file.pdf", we need "username/json/file.json" or "json/file.json"
+                        // But backend `finalize` moves it to final struct. 
+                        // If we are here, analysis just finished. Backend returns `json_location` usually.
+                        // If we fallback, try both with and without username
                         jsonCandidates.push(decodedBlobName.replace(/temp/i, 'json').replace(/\.pdf$/i, '.json'));
+                        if (safeUsername) {
+                            jsonCandidates.push(`${safeUsername}/json/${file.name.replace(/\.pdf$/i, '.json')}`);
+                        }
                     }
 
                     // Method B: Same directory (just in case)

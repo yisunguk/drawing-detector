@@ -315,6 +315,7 @@ class RobustAnalysisManager:
         """
         Merges results and cleans up.
         NOTE: Indexing is already done incrementally!
+        PROCESSED SECURELY: Deletes chunks ONLY after final JSON is saved.
         """
         try:
             print(f"[RobustAnalysis] Finalizing {filename}...")
@@ -323,20 +324,27 @@ class RobustAnalysisManager:
             status = status_manager.get_status(filename)
             chunks_list = status.get("completed_chunks", [])
             
-            # Collect all completed pages for Final JSON
+            # 1. Collect all completed pages for Final JSON (Read-Only phase)
             completed_pages = []
+            valid_chunks = [] # Keep track of which chunks were found
+            
             for c in chunks_list:
                 part_name = f"temp/json/{filename}_part_{c}.json"
                 blob_client = container_client.get_blob_client(part_name)
                 if blob_client.exists():
-                    data = blob_client.download_blob().readall()
-                    partial_json = json.loads(data)
-                    completed_pages.extend(partial_json)
-                    blob_client.delete_blob() # Cleanup temp
+                    try:
+                        data = blob_client.download_blob().readall()
+                        partial_json = json.loads(data)
+                        completed_pages.extend(partial_json)
+                        valid_chunks.append(c) # Track found chunks
+                    except Exception as e:
+                        print(f"[RobustAnalysis] Warning: Failed to read chunk {c}: {e}")
+                else:
+                    print(f"[RobustAnalysis] Warning: Chunk blob missing: {part_name}")
             
             completed_pages.sort(key=lambda x: x.get("page_number", 0))
 
-            # Move PDF
+            # 2. Move PDF (Copy then Delete)
             parts = blob_name.split('/')
             final_blob_name = ""
             if "temp" in parts:
@@ -351,14 +359,19 @@ class RobustAnalysisManager:
             
             if source_blob.exists():
                 dest_blob.start_copy_from_url(source_blob.url)
-                for _ in range(60):
+                copy_props = None
+                for _ in range(120): # increased wait to 60s
                     props = dest_blob.get_blob_properties()
-                    if props.copy.status == 'success':
+                    copy_props = props.copy
+                    if copy_props.status == 'success':
                         source_blob.delete_blob()
+                        print(f"[RobustAnalysis] PDF moved to {final_blob_name}")
                         break
+                    elif copy_props.status == 'failed':
+                        raise Exception(f"Copy failed: {copy_props.status_description}")
                     await asyncio.sleep(0.5)
 
-            # Save Final JSON
+            # 3. Save Final JSON
             # Infer JSON name
             json_parts = blob_name.split('/')
             if "temp" in json_parts:
@@ -376,6 +389,17 @@ class RobustAnalysisManager:
             
             status_manager.mark_completed(filename)
             print(f"[RobustAnalysis] Finalization Complete.")
+
+            # 4. Cleanup Chunks (ONLY after successful save)
+            print(f"[RobustAnalysis] Cleaning up {len(valid_chunks)} chunks...")
+            for c in valid_chunks:
+                try:
+                    part_name = f"temp/json/{filename}_part_{c}.json"
+                    container_client.get_blob_client(part_name).delete_blob()
+                except Exception as e:
+                    print(f"[RobustAnalysis] Warning: Failed to cleanup chunk {c}: {e}")
+            
+            print(f"[RobustAnalysis] Cleanup done.")
             
         except Exception as e:
             print(f"[RobustAnalysis] Finalize Failed: {e}")
