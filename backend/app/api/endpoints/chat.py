@@ -21,9 +21,11 @@ def validate_and_sanitize_user_id(user_id: str) -> str:
     Validate user_id format and sanitize for Azure Search filter.
     Prevents filter injection attacks.
     """
-    # Allow: Korean, English, numbers, underscore, hyphen
-    if not re.match(r'^[a-zA-Z0-9가-힣_-]+$', user_id):
-        raise HTTPException(status_code=400, detail="Invalid user_id format")
+    # Allow: Korean, English, numbers, underscore, hyphen, DOT, SPACE, and @
+    # Fix: Added \. and \s to allow emails (john.doe) and names with spaces
+    if not re.match(r'^[a-zA-Z0-9가-힣_\-\. @]+$', user_id):
+        print(f"[Chat] Validation failed for user_id: {user_id}")
+        raise HTTPException(status_code=400, detail=f"Invalid user_id format: {user_id}")
     
     # Escape single quotes (OData standard)
     return user_id.replace("'", "''")
