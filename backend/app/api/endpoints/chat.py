@@ -99,16 +99,97 @@ async def chat(
             # Build context from search results
             results_list = list(search_results)
             
+            # Build context from search results (Search-to-JSON)
+            results_list = list(search_results)
+            
             if not results_list:
                 context_text = "No relevant documents found in the index."
             else:
+                from app.services.blob_storage import get_container_client
+                import json
+                
+                print(f"[Chat] Found {len(results_list)} search results. Fetching JSON contexts...")
+                container_client = get_container_client()
+                
+                # Cache fetched JSONs to avoid repeated downloads for same file
+                json_cache = {} 
+                
                 for result in results_list:
-                    source = result.get('source', 'Unknown')
-                    page = result.get('page', 'N/A')
-                    content = result.get('content', '')
+                    source_filename = result.get('source', 'Unknown')
+                    target_page = int(result.get('page', 0))
+                    result_user_id = result.get('user_id', safe_user_id) # Use result's user_id if available
                     
-                    context_text += f"\n=== Document: {source} (Page {page}) ===\n"
-                    context_text += content + "\n"
+                    # 1. Determine JSON Path Candidates
+                    # Candidate A: {user_id}/json/{filename}.json
+                    # Candidate B: {user_id}/json/{filename}.pdf.json
+                    
+                    # Remove .pdf extension if present for Candidate A base
+                    base_name = source_filename
+                    if base_name.lower().endswith('.pdf'):
+                        base_name = base_name[:-4]
+                        
+                    candidates = [
+                        f"{result_user_id}/json/{base_name}.json",       # Vendor...Check.json
+                        f"{result_user_id}/json/{source_filename}.json"   # Drawing.pdf.json
+                    ]
+                    
+                    file_json_data = None
+                    
+                    # Check Cache first
+                    for cand in candidates:
+                        if cand in json_cache:
+                            file_json_data = json_cache[cand]
+                            print(f"[Chat] Hit JSON cache: {cand}")
+                            break
+                            
+                    # If not in cache, try download
+                    if not file_json_data:
+                        for blob_path in candidates:
+                            try:
+                                blob_client = container_client.get_blob_client(blob_path)
+                                if blob_client.exists():
+                                    print(f"[Chat] Downloading JSON: {blob_path}")
+                                    download_stream = blob_client.download_blob()
+                                    json_text = download_stream.readall()
+                                    file_json_data = json.loads(json_text)
+                                    json_cache[blob_path] = file_json_data # Cache it
+                                    break
+                            except Exception as e:
+                                print(f"[Chat] Failed to fetch/parse {blob_path}: {e}")
+                                continue
+                    
+                    # 2. Extract Page Context
+                    if file_json_data:
+                        # Find the specific page in the JSON
+                        # JSON structure is usually a list of pages
+                        target_page_data = next((p for p in file_json_data if p.get('page_number') == target_page), None)
+                        
+                        if target_page_data:
+                            # Convert structured page data to string context
+                            # We keep it as JSON string to preserve structure for LLM
+                            # Optimize: Remove non-essential heavy fields if needed (like extremely detailed layout?)
+                            # For now, pass relevant fields.
+                            
+                            simplified_page = {
+                                "file": source_filename,
+                                "page": target_page,
+                                "content": target_page_data.get("content", ""),
+                                "tables": target_page_data.get("tables", []), # Crucial for RAG
+                                # "lines": target_page_data.get("lines", []) # Optional: Lines might be too verbose
+                            }
+                            
+                            context_text += f"\n=== JSON Context: {source_filename} (Page {target_page}) ===\n"
+                            context_text += json.dumps(simplified_page, ensure_ascii=False) + "\n"
+                        else:
+                            # Fallback: Page not found in JSON? Use Search Index Content
+                            print(f"[Chat] Page {target_page} not found in JSON. Fallback to index text.")
+                            context_text += f"\n=== Text Context: {source_filename} (Page {target_page}) ===\n"
+                            context_text += result.get('content', '') + "\n"
+                    else:
+                        # Fallback: JSON not found? Use Search Index Content
+                        # print(f"[Chat] JSON not found for {source_filename}. Fallback to index text.")
+                        context_text += f"\n=== Text Context: {source_filename} (Page {target_page}) ===\n"
+                        context_text += result.get('content', '') + "\n"
         
         # Truncate context if too long (increased to 100k for multi-file support)
         if len(context_text) > 100000:
