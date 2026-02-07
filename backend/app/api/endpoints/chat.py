@@ -198,21 +198,70 @@ async def chat(
                         target_page_data = next((p for p in file_json_data if p.get('page_number') == target_page), None)
                         
                         if target_page_data:
-                            # Convert structured page data to string context
-                            # We keep it as JSON string to preserve structure for LLM
-                            # Optimize: Remove non-essential heavy fields if needed (like extremely detailed layout?)
-                            # For now, pass relevant fields.
+                            # Use Rich Markdown Formatting (Mirroring Frontend Logic)
+                            # Instead of raw JSON dump, we reconstruct the document structure.
                             
-                            simplified_page = {
-                                "file": source_filename,
-                                "page": target_page,
-                                "content": target_page_data.get("content", ""),
-                                "tables": target_page_data.get("tables", []), # Crucial for RAG
-                                # "lines": target_page_data.get("lines", []) # Optional: Lines might be too verbose
-                            }
+                            formatted_context = f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
+
+                            # 1. Add Text Lines (if available)
+                            # lines = target_page_data.get('lines', [])
+                            # if lines:
+                            #     for line in lines:
+                            #          content = line.get('content') or line.get('text', '')
+                            #          formatted_context += f"{content}\n"
                             
-                            context_text += f"\n=== JSON Context: {source_filename} (Page {target_page}) ===\n"
-                            context_text += json.dumps(simplified_page, ensure_ascii=False) + "\n"
+                            # Use full content string if lines not granular
+                            content_full = target_page_data.get('content', '')
+                            if content_full:
+                                formatted_context += f"{content_full}\n"
+
+                            # 2. Add Structured Tables (Crucial for Tab 2/Specs)
+                            tables = target_page_data.get('tables', [])
+                            if tables:
+                                formatted_context += f"\n[Structured Tables from Page {target_page}]\n"
+                                for t_idx, table in enumerate(tables):
+                                    formatted_context += f"\nTable {t_idx + 1}:\n"
+                                    
+                                    # Construct Grid
+                                    rows = table.get('rows')
+                                    row_count = table.get('row_count', 0)
+                                    col_count = table.get('column_count', 0)
+                                    
+                                    if rows and isinstance(rows, list):
+                                        # Use pre-built rows if available
+                                        grid = rows
+                                    else:
+                                        # Build from cells
+                                        # fallback if row_count is missing but cells exist
+                                        if row_count == 0 and table.get('cells'):
+                                             max_r = max((c.get('row_index',0) for c in table['cells']), default=0)
+                                             max_c = max((c.get('column_index',0) for c in table['cells']), default=0)
+                                             row_count, col_count = max_r + 1, max_c + 1
+
+                                        grid = [["" for _ in range(col_count)] for _ in range(row_count)]
+                                        
+                                        cells = table.get('cells', [])
+                                        for cell in cells:
+                                            r = cell.get('row_index', 0)
+                                            c = cell.get('column_index', 0)
+                                            if r < row_count and c < col_count:
+                                                clean_content = (cell.get('content') or "").replace("\n", " ")
+                                                grid[r][c] = clean_content
+
+                                    # Render Markdown Table
+                                    if grid:
+                                        # Header
+                                        header_row = grid[0] 
+                                        formatted_context += "| " + " | ".join(header_row) + " |\n"
+                                        formatted_context += "| " + " | ".join(["---"] * len(header_row)) + " |\n"
+                                        
+                                        # Body
+                                        for row in grid[1:]:
+                                            formatted_context += "| " + " | ".join(row) + " |\n"
+                                    
+                                    formatted_context += "\n"
+                            
+                            context_text += formatted_context
                         else:
                             # Fallback: Page not found in JSON? Use Search Index Content
                             print(f"[Chat] Page {target_page} not found in JSON. Fallback to index text.")
