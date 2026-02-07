@@ -1,0 +1,18 @@
+Endpoint: https://enc-dev-mkc-ais-aida-basic.search.windows.net
+Index: pdf-search-index
+
+--- Listing Indexes ---
+ - multimodal-rag-idx-json-v3
+ - multimodal-rag-idx-json-v4
+ - multimodal-rag-idx-json-v5
+ - pdf-search-index
+
+--- Distinct User IDs in Index ---
+Found Users: {'json', '관리자'}
+
+--- Recent Documents (Top 5) ---
+[1] 제2권 입찰제의서_2018.10.22.pdf | User: 관리자 | Blob: 관리자/json/제2권 입찰제의서_2018.10.22.pdf
+[2] 제2권 입찰제의서_2018.10.22.pdf | User: 관리자 | Blob: 관리자/json/제2권 입찰제의서_2018.10.22.pdf
+[3] 제2권 입찰제의서_2018.10.22.pdf | User: 관리자 | Blob: 관리자/json/제2권 입찰제의서_2018.10.22.pdf
+[4] 제2권 입찰제의서_2018.10.22.pdf | User: 관리자 | Blob: 관리자/json/제2권 입찰제의서_2018.10.22.pdf
+[5] 제2권 입찰제의서_2018.10.22.pdf | User: 관리자 | Blob: 관리자/json/제2권 입찰제의서_2018.10.22.pdf

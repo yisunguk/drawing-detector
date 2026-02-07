@@ -71,15 +71,64 @@ async def chat(
             try:
                 decoded_token = verify_id_token(id_token)
                 # Get user_id from name (displayName in token is 'name') or email
-                user_id = decoded_token.get('name') or decoded_token.get('email', '').split('@')[0]
+                # user_id = decoded_token.get('name') or decoded_token.get('email', '').split('@')[0]
                 
-                if not user_id:
-                    raise HTTPException(status_code=401, detail="Could not extract user_id from token")
+                # Get multiple potential user identifiers to robustly match documents
+                # Some docs might be indexed with 'name' (e.g. '이성욱'), others with 'email_prefix' (e.g. 'piere')
+                uid = decoded_token.get('uid')
+                user_name = decoded_token.get('name')
+                email_prefix = decoded_token.get('email', '').split('@')[0]
                 
-                # Validate and sanitize user_id for filter safety
-                safe_user_id = validate_and_sanitize_user_id(user_id)
+                # Fallback: If name not in token, check Firestore (e.g. new user profile update)
+                if not user_name and uid:
+                    try:
+                        from firebase_admin import firestore
+                        db = firestore.client()
+                        user_ref = db.collection('users').document(uid)
+                        user_doc = user_ref.get()
+                        if user_doc.exists:
+                             user_data = user_doc.to_dict()
+                             # Try 'name' or 'displayName' field
+                             user_name = user_data.get('name') or user_data.get('displayName')
+                             if user_name:
+                                 print(f"[Chat] Resolved user name from Firestore: {user_name}")
+                    except Exception as fs_err:
+                        print(f"[Chat] Firestore user lookup failed: {fs_err}")
+
+                # Construct OData filter for Azure Search
+                # (user_id eq '이성욱') or (user_id eq 'piere')
+                filter_clauses = []
                 
-                print(f"[Chat] Authenticated user: {safe_user_id}")
+                # Clause 1: Name (e.g. '이성욱')
+                if user_name:
+                    safe_name = user_name.replace("'", "''")
+                    filter_clauses.append(f"user_id eq '{safe_name}'")
+                
+                # Clause 2: Email Prefix (e.g. 'piere')
+                if email_prefix:
+                    safe_email = email_prefix.replace("'", "''")
+                    # Avoid duplicate clause if name == email_prefix
+                    if safe_email != (user_name or "").replace("'", "''"):
+                        filter_clauses.append(f"user_id eq '{safe_email}'")
+                
+                if not filter_clauses:
+                     raise HTTPException(status_code=401, detail="Could not extract any user identifier from token or database")
+                
+                # Combine with OR
+                user_filter = " or ".join(filter_clauses)
+                print(f"[Chat] Built User Filter: {user_filter}")
+
+                # Use the primary ID for logging/fallback
+                safe_user_id = user_name or email_prefix
+                
+                # Validate and sanitize user_id for filter safety (using the primary ID for logging)
+                # The actual filter is 'user_filter', but we still need a 'safe_user_id' for other parts of the code
+                if safe_user_id:
+                    safe_user_id = validate_and_sanitize_user_id(safe_user_id)
+                else:
+                    safe_user_id = "unknown_user" # Fallback for logging if both name/email_prefix are empty
+
+                print(f"[Chat] Authenticated user (primary ID for logging): {safe_user_id}")
                 
             except ValueError as e:
                 raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
