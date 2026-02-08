@@ -1,0 +1,8 @@
+
+--- Querying: '기계분야' with Filter: user_id eq '이성욱' or user_id eq 'piere' ---
+
+--- Top 20 Search Results for '기계분야' ---
+[1] Page 4 | 제4권 도면(청주).pdf.pdf
+[2] Page 571 | 제3권 2-2편 기술규격서(청주).pdf.pdf
+
+✅ Page 4 IS in the search results.

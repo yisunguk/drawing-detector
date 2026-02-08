@@ -221,7 +221,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
 
             // Prepare headers
             const headers = {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json; charset=UTF-8'
             };
 
             // For "All Documents" scope, add Authorization header with Firebase ID token
@@ -252,13 +252,21 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                 }
             }
 
+            // Prepare doc_ids for restricted "All" scope (Open documents only)
+            let docIds = null;
+            if (chatScope === 'all' && documents && documents.length > 0) {
+                docIds = documents.map(d => d.name);
+                console.log("[Chat] Restricting search to open documents:", docIds);
+            }
+
             const response = await fetch(API_URL, {
                 method: 'POST',
                 headers: headers,
                 body: JSON.stringify({
                     query: userMessage,
                     context: context, // Null enables RAG
-                    filename: activeDoc?.name // Optional, for logging or fallback
+                    filename: activeDoc?.name, // Optional
+                    doc_ids: docIds // New field for restriction
                 }),
             });
 

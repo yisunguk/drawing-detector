@@ -154,6 +154,9 @@ async def chat(
             # NEW: Python-side filtering by doc_ids (avoids Azure OData Korean issues)
             if request.doc_ids and len(request.doc_ids) > 0:
                 print(f"[Chat] Filtering results by doc_ids: {request.doc_ids}")
+                print(f"[Chat] DEBUG - doc_ids repr: {repr(request.doc_ids)}")
+                for idx, doc_id in enumerate(request.doc_ids):
+                    print(f"[Chat] DEBUG - doc_ids[{idx}] = {repr(doc_id)}")
                 filtered_results = []
                 for result in results_list:
                     source_filename = result.get('source', '')

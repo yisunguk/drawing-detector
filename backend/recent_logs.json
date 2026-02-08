@@ -1,0 +1,287 @@
+[
+  {
+    "insertId": "698848c0000444dc101e319d",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T08:26:40.324990805Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "INFO:     169.254.169.126:23230 - \"POST /api/v1/chat/ HTTP/1.1\" 500 Internal Server Error",
+    "timestamp": "2026-02-08T08:26:40.279772Z"
+  },
+  {
+    "insertId": "698848c0000444cf994ca02c",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T08:26:40.324990805Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "Message: Invalid expression: Syntax error: character '\"' is not valid at position 121 in '((user_id eq '???' or user_id eq 'piere') and (source eq '???(3?)' or source eq '?3? 1? ?????(??)')) and (search.ismatch(\"\"???(3?)\"\", \"source\") or search.ismatch(\"\"???(3?).pdf\"\", \"source\") or search.ismatch(\"\"???(3?).pdf.pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??)\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf.pdf\"\", \"source\"))'.",
+    "timestamp": "2026-02-08T08:26:40.279759Z"
+  },
+  {
+    "insertId": "698848c0000444c111cb93b0",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T08:26:40.324990805Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "Error in chat endpoint: () Invalid expression: Syntax error: character '\"' is not valid at position 121 in '((user_id eq '???' or user_id eq 'piere') and (source eq '???(3?)' or source eq '?3? 1? ?????(??)')) and (search.ismatch(\"\"???(3?)\"\", \"source\") or search.ismatch(\"\"???(3?).pdf\"\", \"source\") or search.ismatch(\"\"???(3?).pdf.pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??)\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf.pdf\"\", \"source\"))'.",
+    "timestamp": "2026-02-08T08:26:40.279745Z"
+  },
+  {
+    "insertId": "698848c0000444a2ed12ed4c",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T08:26:40.324990805Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Applied Doc ID Filter (ismatch): search.ismatch(\"\"???(3?)\"\", \"source\") or search.ismatch(\"\"???(3?).pdf\"\", \"source\") or search.ismatch(\"\"???(3?).pdf.pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??)\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf.pdf\"\", \"source\")",
+    "timestamp": "2026-02-08T08:26:40.279714Z"
+  },
+  {
+    "insertId": "698848c00004449d548363c5",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T08:26:40.324990805Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Searching Azure Search for user '???': ????? ?? ?? ???",
+    "timestamp": "2026-02-08T08:26:40.279709Z"
+  },
+  {
+    "insertId": "698848c000044498a47eeec9",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T08:26:40.324990805Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Authenticated user (primary ID for logging): ???",
+    "timestamp": "2026-02-08T08:26:40.279704Z"
+  },
+  {
+    "insertId": "698848c000044493cd110ca7",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T08:26:40.324990805Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Applied Doc ID Filter: source eq '???(3?)' or source eq '?3? 1? ?????(??)'",
+    "timestamp": "2026-02-08T08:26:40.279699Z"
+  },
+  {
+    "insertId": "698848c00004448fd24d3f50",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T08:26:40.324990805Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Built User Filter: user_id eq '???' or user_id eq 'piere'",
+    "timestamp": "2026-02-08T08:26:40.279695Z"
+  },
+  {
+    "insertId": "698848c0000444866c87ef5d",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T08:26:40.324990805Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Resolved user name from Firestore: ???",
+    "timestamp": "2026-02-08T08:26:40.279686Z"
+  },
+  {
+    "insertId": "698848c000044209461544a0",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-08T08:26:40.365891112Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "Message: Invalid expression: Syntax error: character '\"' is not valid at position 121 in '((user_id eq '???' or user_id eq 'piere') and (source eq '???(3?)' or source eq '?3? 1? ?????(??)')) and (search.ismatch(\"\"???(3?)\"\", \"source\") or search.ismatch(\"\"???(3?).pdf\"\", \"source\") or search.ismatch(\"\"???(3?).pdf.pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??)\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf.pdf\"\", \"source\"))'.",
+    "timestamp": "2026-02-08T08:26:40.279049Z"
+  },
+  {
+    "errorGroups": [
+      {
+        "id": "COXlwaefsKeD8QE"
+      }
+    ],
+    "insertId": "698848c0000441f9c7c39bc7",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstderr",
+    "receiveTimestamp": "2026-02-08T08:26:40.365891112Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "ERROR",
+    "textPayload": "Traceback (most recent call last):\n  File \"/app/app/api/endpoints/chat.py\", line 188, in chat\n    results_list = list(search_results)\n                   ^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/azure/search/documents/_paging.py\", line 54, in __next__\n    return next(self._page_iterator)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/azure/core/paging.py\", line 82, in __next__\n    self._response = self._get_next(self.continuation_token)\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/azure/search/documents/_paging.py\", line 131, in _get_next_cb\n    return self._client.documents.search_post(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/azure/core/tracing/decorator.py\", line 119, in wrapper_use_tracer\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.11/site-packages/azure/search/documents/_generated/operations/_documents_operations.py\", line 949, in search_post\n    raise HttpResponseError(response=response, model=error)\nazure.core.exceptions.HttpResponseError: () Invalid expression: Syntax error: character '\"' is not valid at position 121 in '((user_id eq '???' or user_id eq 'piere') and (source eq '???(3?)' or source eq '?3? 1? ?????(??)')) and (search.ismatch(\"\"???(3?)\"\", \"source\") or search.ismatch(\"\"???(3?).pdf\"\", \"source\") or search.ismatch(\"\"???(3?).pdf.pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??)\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf\"\", \"source\") or search.ismatch(\"\"?3? 1? ?????(??).pdf.pdf\"\", \"source\"))'.",
+    "timestamp": "2026-02-08T08:26:40.279033Z"
+  },
+  {
+    "httpRequest": {
+      "latency": "2.442991073s",
+      "protocol": "HTTP/1.1",
+      "referer": "https://drawing-detecter.web.app/",
+      "remoteIp": "115.136.103.47",
+      "requestMethod": "POST",
+      "requestSize": "1962",
+      "requestUrl": "https://drawing-detector-backend-435353955407.us-central1.run.app/api/v1/chat/",
+      "responseSize": "1572",
+      "serverIp": "34.143.78.2",
+      "status": 500,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+    },
+    "insertId": "698848c0000447d16b7fd915",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974cfffaab514e65dc22633847b8710039a5fb4e55955b83da446fe961dc03a4da591e61fb2a0307b95e98f06e74230d7ac7dbbbae21266fd5daf7eec67ebff38a5a568f317e8dd08b669b",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Frequests",
+    "receiveTimestamp": "2026-02-08T08:26:40.324196314Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00179-bjj",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "ERROR",
+    "spanId": "46e4eb747bf81372",
+    "timestamp": "2026-02-08T08:26:37.835963Z",
+    "trace": "projects/drawing-detecter/traces/416d40b48d794f8d66bf01a37372f5f4"
+  }
+]

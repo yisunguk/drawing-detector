@@ -1,0 +1,39 @@
+[
+  {
+    "httpRequest": {
+      "latency": "59.297391318s",
+      "protocol": "HTTP/1.1",
+      "referer": "https://drawing-detecter.web.app/",
+      "remoteIp": "115.136.103.47",
+      "requestMethod": "POST",
+      "requestSize": "1989",
+      "requestUrl": "https://drawing-detector-backend-435353955407.us-central1.run.app/api/v1/chat/",
+      "responseSize": "3476",
+      "serverIp": "34.143.77.2",
+      "status": 200,
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+    },
+    "insertId": "69884dc10006b68047c00f76",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c8767f4c6b0c064394b9390f739e57bd359d6d3b170b56838901e122c4df4468177bc706d5ccd03767c55b7a76dd06a948047c291d9eaccca7138e95091937c66d6883e463dda47e5a32e",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Frequests",
+    "receiveTimestamp": "2026-02-08T08:48:01.445242888Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00181-rnb",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "severity": "INFO",
+    "spanId": "d4f89eec7e9a428d",
+    "timestamp": "2026-02-08T08:47:02.140690Z",
+    "trace": "projects/drawing-detecter/traces/73e0d96440dd2445daa3ca6c18309bdb"
+  }
+]

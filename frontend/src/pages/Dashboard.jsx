@@ -94,6 +94,7 @@ const App = () => {
     const [chatScope, setChatScope] = useState('active');
     const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
     const [pendingUploads, setPendingUploads] = useState([]); // Array of { file, docId }
+    const [autoSelectOnPage, setAutoSelectOnPage] = useState(null); // Page number to auto-select result from
 
     useEffect(() => {
         setInputPage(activePage);
@@ -581,6 +582,7 @@ const App = () => {
         docsToSearch.forEach(doc => {
             // 0. Document Name Match
             const docScore = calculateScore(doc.name, rawSearch);
+
             if (docScore > 0) {
                 results.push({
                     content: doc.name,
@@ -1707,6 +1709,20 @@ const App = () => {
             const parts = keyword.split('|');
             cleanText = parts[0].trim();
             const pageStr = parts[1].trim();
+
+            // Part 3: Document Name (Optional but recommended)
+            if (parts.length > 2) {
+                const docName = parts[2].trim();
+                console.log(`Citation includes docName: ${docName}`);
+                const targetDoc = documents.find(d => d.name === docName);
+                if (targetDoc) {
+                    targetDocId = targetDoc.id;
+                    console.log(`Found target doc ID: ${targetDocId}`);
+                } else {
+                    console.log(`Target doc not found in open documents: ${docName}`);
+                }
+            }
+
             const pageMatch = pageStr.match(/(\d+)/);
             if (pageMatch) {
                 targetPage = parseInt(pageMatch[1]);
@@ -1771,6 +1787,18 @@ const App = () => {
             }
             return;
         }
+        // If we have an explicit page number but no document match, 
+        // assume it refers to the current document and jump there.
+        if (targetPage && activeDoc) {
+            goToPage(targetPage);
+            setSearchPreferPage(targetPage); // Boost ranking for this page
+            if (cleanText && cleanText.length > 1) {
+                setSearchTerm(cleanText);
+                // Queue auto-selection for the best result ON THIS PAGE
+                setAutoSelectOnPage(targetPage);
+            }
+            return;
+        }
 
         // 3. Fallback to searching the term
         // Force 'all' scope to ensure we find content across documents
@@ -1787,13 +1815,28 @@ const App = () => {
         setAutoSelectFirstResult(true);
     };
 
-    // Auto-select first result when triggered by citation click
+    // Auto-select first result when triggered by citation click (Legacy/Fallback)
     useEffect(() => {
         if (autoSelectFirstResult && searchResults.length > 0) {
             handleResultClick(searchResults[0]);
             setAutoSelectFirstResult(false);
         }
     }, [searchResults, autoSelectFirstResult]);
+
+    // Auto-select best result on specific page (Triggered by citation click on Page X)
+    useEffect(() => {
+        if (autoSelectOnPage && searchResults.length > 0) {
+            // Find the first result that matches the target page
+            // Since results are sorted by score, finding the first one on this page is the "best" one on this page.
+            const bestMatch = searchResults.find(r => r.pageNum === autoSelectOnPage);
+
+            if (bestMatch) {
+                console.log(`[Dashboard] Auto-selecting result on page ${autoSelectOnPage}:`, bestMatch);
+                handleResultClick(bestMatch);
+                setAutoSelectOnPage(null); // Reset after selection (Consumption)
+            }
+        }
+    }, [searchResults, autoSelectOnPage]);
 
     return (
         <div className="flex h-screen w-full bg-[#fcfaf7] text-[#333333] font-sans overflow-hidden relative">
