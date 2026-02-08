@@ -138,9 +138,10 @@ async def chat(
             print(f"[Chat] Searching Azure Search for user '{safe_user_id}': {request.query}")
             
             # Query the index with user filter (USER ISOLATION)
+            # Query the index with user filter (USER ISOLATION)
             search_results = azure_search_service.client.search(
                 search_text=request.query,
-                filter=f"user_id eq '{safe_user_id}'",  # Only this user's documents
+                filter=user_filter,  # Use robust OR filter (Name OR Email)
                 top=5,  # Retrieve top 5 most relevant chunks
                 select=["content", "source", "page", "title", "category", "user_id", "blob_path"]
             )

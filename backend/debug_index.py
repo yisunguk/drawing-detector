@@ -43,15 +43,30 @@ try:
 except Exception as e:
     print(f"Filter Error: {e}")
 
-# 3. Try Exact Filter for 'piere'
-target_user_2 = "piere"
-print(f"\n--- Testing Filter: user_id eq '{target_user_2}' ---")
-try:
-    results = client.search(search_text="*", filter=f"user_id eq '{target_user_2}'", top=5)
-    count = 0
-    for r in results:
-        count += 1
-        print(f"Found: {r.get('source')}")
-    print(f"Total Found: {count}")
-except Exception as e:
-    print(f"Filter Error: {e}")
+# 3. Search for "2편" or "Tab 2" documents (No Filter)
+print(f"\n--- Checking for '2편' or 'Tab 2' documents (No Filter) ---")
+# Adjust search text to likely filename parts
+search_terms = ["2편", "기술규격서"] 
+
+with open("index_dump_utf8.txt", "w", encoding="utf-8") as f:
+    for term in search_terms:
+        msg = f"\nSearching for term: '{term}'"
+        print(msg)
+        f.write(msg + "\n")
+        
+        try:
+            results = client.search(search_text=term, top=10, select=["source", "user_id", "blob_path"])
+            count = 0
+            for r in results:
+                count += 1
+                line = f"Found: {r.get('source')} | User: {r.get('user_id')} | Blob: {r.get('blob_path')}"
+                print(line)
+                f.write(line + "\n")
+            
+            if count == 0:
+                print("No documents found.")
+                f.write("No documents found.\n")
+        except Exception as e:
+            print(f"Search Error: {e}")
+            f.write(f"Search Error: {e}\n")
+
