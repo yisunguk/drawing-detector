@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     query: str
     filename: Optional[str] = None
     context: Optional[str] = None
+    doc_ids: Optional[List[str]] = None  # NEW: List of document names to restrict search
 
 class ChatResponse(BaseModel):
     response: str
@@ -149,6 +150,25 @@ async def chat(
             # Build context from search results (Search-to-JSON)
             results_list = list(search_results)
             print(f"[Chat] Raw Search Results Count: {len(results_list)}")
+            
+            # NEW: Python-side filtering by doc_ids (avoids Azure OData Korean issues)
+            if request.doc_ids and len(request.doc_ids) > 0:
+                print(f"[Chat] Filtering results by doc_ids: {request.doc_ids}")
+                filtered_results = []
+                for result in results_list:
+                    source_filename = result.get('source', '')
+                    # Check if source matches any doc_id (handle .pdf and .pdf.pdf variants)
+                    for doc_id in request.doc_ids:
+                        # Match: exact, with .pdf, or with .pdf.pdf
+                        if (source_filename == doc_id or 
+                            source_filename == f"{doc_id}.pdf" or 
+                            source_filename == f"{doc_id}.pdf.pdf" or
+                            source_filename == doc_id.replace('.pdf', '') or
+                            source_filename == f"{doc_id.replace('.pdf', '')}.pdf.pdf"):
+                            filtered_results.append(result)
+                            break
+                results_list = filtered_results
+                print(f"[Chat] Filtered Results Count: {len(results_list)}")
             
             if not results_list:
                 context_text = "No relevant documents found in the index."
