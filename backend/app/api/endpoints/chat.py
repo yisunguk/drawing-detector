@@ -138,12 +138,29 @@ async def chat(
             
             print(f"[Chat] Searching Azure Search for user '{safe_user_id}': {request.query}")
             
-            # Query the index with user filter (USER ISOLATION)
-            # Query the index with user filter (USER ISOLATION)
+            # Apply doc_ids filter to Azure Search query (BEFORE relevance scoring)
+            search_filter = user_filter
+            if request.doc_ids and len(request.doc_ids) > 0:
+                print(f"[Chat] Applying doc_ids filter at Azure Search level: {request.doc_ids}")
+                doc_filter_parts = []
+                for doc_id in request.doc_ids:
+                    # Try exact match and common variants (.pdf, .pdf.pdf)
+                    base_name = doc_id.replace('.pdf', '')  # Remove .pdf if present
+                    # Use search.ismatch to handle Korean characters
+                    doc_filter_parts.append(f"search.ismatch('{base_name}', 'source')")
+                    doc_filter_parts.append(f"search.ismatch('{base_name}.pdf', 'source')")
+                    doc_filter_parts.append(f"search.ismatch('{base_name}.pdf.pdf', 'source')")
+                
+                if doc_filter_parts:
+                    combined_doc_filter = " or ".join(doc_filter_parts)
+                    search_filter = f"({user_filter}) and ({combined_doc_filter})"
+                    print(f"[Chat] Final Azure Search filter: {search_filter[:200]}...")
+            
+            # Query the index with combined filter (USER ISOLATION + DOC_IDS)
             search_results = azure_search_service.client.search(
                 search_text=request.query,
-                filter=user_filter,  # Use robust OR filter (Name OR Email)
-                top=100,  # HIGH: Ensure lower-ranked docs are included before Python filtering by doc_ids
+                filter=search_filter,
+                top=100,  # HIGH: Ensure lower-ranked docs are included
                 select=["content", "source", "page", "title", "category", "user_id", "blob_path"]
             )
             
