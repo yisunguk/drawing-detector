@@ -1,0 +1,882 @@
+[
+  {
+    "insertId": "698856890009e3fa521c8017",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.985807479Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #8: ?3? 1? ?????(??).pdf.pdf (Page 489) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:25:29.648186Z"
+  },
+  {
+    "insertId": "698856890009e3f6a7374de3",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.985807479Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #7: ?3? 1? ?????(??).pdf.pdf (Page 252) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:25:29.648182Z"
+  },
+  {
+    "insertId": "698856890009e3f2f9885c5f",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.985807479Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #6: ?3? 1? ?????(??).pdf.pdf (Page 55) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:25:29.648178Z"
+  },
+  {
+    "insertId": "698856890009e3eebdbd8401",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.985807479Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #5: ?3? 1? ?????(??).pdf.pdf (Page 292) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:25:29.648174Z"
+  },
+  {
+    "insertId": "698856890009e3ea0a9ddb74",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.985807479Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #4: ?3? 1? ?????(??).pdf.pdf (Page 286) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:25:29.648170Z"
+  },
+  {
+    "insertId": "698856890009e3e842244322",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.985807479Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #3: ?3? 1? ?????(??).pdf.pdf (Page 648) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:25:29.648168Z"
+  },
+  {
+    "insertId": "698856890009e3e50f599460",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #2: ?3? 1? ?????(??).pdf.pdf (Page 400) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:25:29.648165Z"
+  },
+  {
+    "insertId": "698856890009e3e252618321",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Downloading JSON: ???/json/?3? 1? ?????(??).pdf.json",
+    "timestamp": "2026-02-08T09:25:29.648162Z"
+  },
+  {
+    "insertId": "698856890009e3df10f6734b",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #1: ?3? 1? ?????(??).pdf.pdf (Page 685) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:25:29.648159Z"
+  },
+  {
+    "insertId": "698856890009e3dbd000156a",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Found 8 search results. Fetching JSON contexts...",
+    "timestamp": "2026-02-08T09:25:29.648155Z"
+  },
+  {
+    "insertId": "698856890009e3d87bb4ba78",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Filtered Results Count: 8",
+    "timestamp": "2026-02-08T09:25:29.648152Z"
+  },
+  {
+    "insertId": "698856890009e3d54c7a2597",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] DEBUG - doc_ids[1] = '?3? 1? ?????(??)'",
+    "timestamp": "2026-02-08T09:25:29.648149Z"
+  },
+  {
+    "insertId": "698856890009e3d2401f5e38",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] DEBUG - doc_ids[0] = '???(3?)'",
+    "timestamp": "2026-02-08T09:25:29.648146Z"
+  },
+  {
+    "insertId": "698856890009e3ce09050111",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] DEBUG - doc_ids repr: ['???(3?)', '?3? 1? ?????(??)']",
+    "timestamp": "2026-02-08T09:25:29.648142Z"
+  },
+  {
+    "insertId": "698856890009e3cbdc90eae3",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Filtering results by doc_ids: ['???(3?)', '?3? 1? ?????(??)']",
+    "timestamp": "2026-02-08T09:25:29.648139Z"
+  },
+  {
+    "insertId": "698856890009e3c840e4cc85",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Raw Search Results Count: 20",
+    "timestamp": "2026-02-08T09:25:29.648136Z"
+  },
+  {
+    "insertId": "698856890009e3c557403606",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Searching Azure Search for user '???': ????? ?? ?? ???",
+    "timestamp": "2026-02-08T09:25:29.648133Z"
+  },
+  {
+    "insertId": "698856890009e3c2deaa9df4",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Authenticated user (primary ID for logging): ???",
+    "timestamp": "2026-02-08T09:25:29.648130Z"
+  },
+  {
+    "insertId": "698856890009e3be27f84d43",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Built User Filter: user_id eq '???' or user_id eq 'piere'",
+    "timestamp": "2026-02-08T09:25:29.648126Z"
+  },
+  {
+    "insertId": "698856890009e3acda1af382",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:25:29.655058213Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Resolved user name from Firestore: ???",
+    "timestamp": "2026-02-08T09:25:29.648108Z"
+  },
+  {
+    "insertId": "698855c5000dd6f759200a19",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:14.245978090Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #8: ?3? 1? ?????(??).pdf.pdf (Page 489) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:22:13.906999Z"
+  },
+  {
+    "insertId": "698855c5000dd6f45065d054",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:14.245978090Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #7: ?3? 1? ?????(??).pdf.pdf (Page 252) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:22:13.906996Z"
+  },
+  {
+    "insertId": "698855c5000dd6f1a39bd729",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:14.245978090Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #6: ?3? 1? ?????(??).pdf.pdf (Page 55) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:22:13.906993Z"
+  },
+  {
+    "insertId": "698855c5000dd6ef98c9d58a",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #5: ?3? 1? ?????(??).pdf.pdf (Page 292) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:22:13.906991Z"
+  },
+  {
+    "insertId": "698855c5000dd6ec4772c899",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #4: ?3? 1? ?????(??).pdf.pdf (Page 286) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:22:13.906988Z"
+  },
+  {
+    "insertId": "698855c5000dd6ea398d5d7a",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #3: ?3? 1? ?????(??).pdf.pdf (Page 648) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:22:13.906986Z"
+  },
+  {
+    "insertId": "698855c5000dd6e7c9656782",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #2: ?3? 1? ?????(??).pdf.pdf (Page 400) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:22:13.906983Z"
+  },
+  {
+    "insertId": "698855c5000dd6e5b91b7669",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Downloading JSON: ???/json/?3? 1? ?????(??).pdf.json",
+    "timestamp": "2026-02-08T09:22:13.906981Z"
+  },
+  {
+    "insertId": "698855c5000dd6e25968aefc",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Processing Result #1: ?3? 1? ?????(??).pdf.pdf (Page 685) | BlobPath: ???/json/?3? 1? ?????(??).pdf.pdf | User: ???",
+    "timestamp": "2026-02-08T09:22:13.906978Z"
+  },
+  {
+    "insertId": "698855c5000dd6df87658a3e",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Found 8 search results. Fetching JSON contexts...",
+    "timestamp": "2026-02-08T09:22:13.906975Z"
+  },
+  {
+    "insertId": "698855c5000dd6ddf529bb00",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Filtered Results Count: 8",
+    "timestamp": "2026-02-08T09:22:13.906973Z"
+  },
+  {
+    "insertId": "698855c5000dd6dbdd76a33f",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] DEBUG - doc_ids[1] = '?3? 1? ?????(??)'",
+    "timestamp": "2026-02-08T09:22:13.906971Z"
+  },
+  {
+    "insertId": "698855c5000dd6d9b9cb7d85",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] DEBUG - doc_ids[0] = '???(3?)'",
+    "timestamp": "2026-02-08T09:22:13.906969Z"
+  },
+  {
+    "insertId": "698855c5000dd6d7b05e2455",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] DEBUG - doc_ids repr: ['???(3?)', '?3? 1? ?????(??)']",
+    "timestamp": "2026-02-08T09:22:13.906967Z"
+  },
+  {
+    "insertId": "698855c5000dd6d4e42c58fd",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Filtering results by doc_ids: ['???(3?)', '?3? 1? ?????(??)']",
+    "timestamp": "2026-02-08T09:22:13.906964Z"
+  },
+  {
+    "insertId": "698855c5000dd6d168dc1563",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Raw Search Results Count: 20",
+    "timestamp": "2026-02-08T09:22:13.906961Z"
+  },
+  {
+    "insertId": "698855c5000dd6cf9b4716b1",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Searching Azure Search for user '???': ????? ?? ?? ???",
+    "timestamp": "2026-02-08T09:22:13.906959Z"
+  },
+  {
+    "insertId": "698855c5000dd6cc217f4d1a",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Authenticated user (primary ID for logging): ???",
+    "timestamp": "2026-02-08T09:22:13.906956Z"
+  },
+  {
+    "insertId": "698855c5000dd6c936bf1dd0",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Built User Filter: user_id eq '???' or user_id eq 'piere'",
+    "timestamp": "2026-02-08T09:22:13.906953Z"
+  },
+  {
+    "insertId": "698855c5000dd6b7e07c6b73",
+    "labels": {
+      "commit-sha": "5441a725d79774b2ec8808e4ff570aee05d324d5",
+      "instanceId": "005eb6974c597293b78ebbcf0336d5915ee268546cb596cbdf19ee6995ca012766b6ccfb8ecba9710a0438a4c266b85f7cdd9542c57ce8f3506a1ce535813cbf55a499ebec1e2a8e0db48cd35ff3da",
+      "managed-by": "github-actions"
+    },
+    "logName": "projects/drawing-detecter/logs/run.googleapis.com%2Fstdout",
+    "receiveTimestamp": "2026-02-08T09:22:13.911677906Z",
+    "resource": {
+      "labels": {
+        "configuration_name": "drawing-detector-backend",
+        "location": "us-central1",
+        "project_id": "drawing-detecter",
+        "revision_name": "drawing-detector-backend-00183-xm5",
+        "service_name": "drawing-detector-backend"
+      },
+      "type": "cloud_run_revision"
+    },
+    "textPayload": "[Chat] Resolved user name from Firestore: ???",
+    "timestamp": "2026-02-08T09:22:13.906935Z"
+  }
+]

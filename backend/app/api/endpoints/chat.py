@@ -143,7 +143,7 @@ async def chat(
             search_results = azure_search_service.client.search(
                 search_text=request.query,
                 filter=user_filter,  # Use robust OR filter (Name OR Email)
-                top=20,  # Increase recall: 5 is too low for table-heavy docs. 20 gives better chance.
+                top=100,  # HIGH: Ensure lower-ranked docs are included before Python filtering by doc_ids
                 select=["content", "source", "page", "title", "category", "user_id", "blob_path"]
             )
             
