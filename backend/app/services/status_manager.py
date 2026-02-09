@@ -53,6 +53,19 @@ class StatusManager:
         blob_client.upload_blob(json.dumps(status), overwrite=True)
         return status
 
+    def mark_finalizing(self, filename):
+        """
+        Updates status to 'finalizing' to indicate chunks are done but cleanup/merging is in progress.
+        """
+        status = self.get_status(filename)
+        if not status:
+            return None
+        
+        status["status"] = "finalizing"
+        blob_client = self._get_blob_client(filename)
+        blob_client.upload_blob(json.dumps(status), overwrite=True)
+        return status
+
     def mark_completed(self, filename, json_location=None):
         status = self.get_status(filename)
         if not status:

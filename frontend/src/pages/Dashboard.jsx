@@ -1108,17 +1108,21 @@ const App = () => {
                             status: "✅ 분석 완료! 결과 정리는 중..."
                         }));
                         setCompletedPages(totalPages);
+                    } else if (statusData.status === 'finalizing') {
+                        setAnalysisState(prev => ({
+                            ...prev,
+                            progress: 99,
+                            status: `${prefix}마무리 작업 중... (파일 정리 및 저장)`
+                        }));
                     } else if (statusData.status === 'error') {
                         throw new Error(statusData.error_message || "Analysis failed on server");
                     } else {
-                        // Update Progress
+                        // Update Progress (in_progress)
                         // statusData example: { completed_chunks: ["1-50", "51-100"], total_pages: 166, ... }
                         // Calculate actual progress based on completed pages
                         const completedChunks = statusData.completed_chunks || [];
 
                         // Backend uses CHUNK_SIZE = 50 pages (defined in robust_analysis_manager.py)
-                        const CHUNK_SIZE = 50;
-
                         // Calculate actual completed pages from chunk ranges
                         let completedPages = 0;
                         for (const chunkRange of completedChunks) {
@@ -1129,11 +1133,13 @@ const App = () => {
                         // Progress based on actual completed pages
                         // User Request: 0 pages -> 0% (or very close to 0 start)
                         const actualProgress = (totalPages > 0) ? Math.round((completedPages / totalPages) * 100) : 0;
-                        const displayProgress = 5 + Math.round((actualProgress / 100) * 95); // 0 pages -> 5% (Analysis Started)
+
+                        // Scale chunk progress 0-100% -> 5-95% (Reserve 5% for finalization)
+                        const displayProgress = 5 + Math.round((actualProgress / 100) * 90);
 
                         setAnalysisState(prev => ({
                             ...prev,
-                            progress: Math.min(displayProgress, 99), // Allow up to 99% while waiting for final status
+                            progress: Math.min(displayProgress, 95), // Cap at 95% strictly until 'finalizing'
                             status: `${prefix}서버에서 분석 중... (${completedPages}/${totalPages} 페이지 완료)`
                         }));
                     }

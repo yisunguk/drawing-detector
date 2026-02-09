@@ -116,6 +116,7 @@ class RobustAnalysisManager:
                         # We don't abort the whole loop, just log
             
             # 5. Finalize (Cleanup only, indexing is done incrementally)
+            status_manager.mark_finalizing(filename)
             await self.finalize_analysis(filename, category, blob_name, total_pages)
 
         except Exception as e:

@@ -203,12 +203,22 @@ async def chat(
                 # Cache fetched JSONs to avoid repeated downloads for same file
                 json_cache = {} 
                 
+                # NEW: Map for Citation Post-processing
+                # Maps Page Number -> Document Name to auto-fix citations
+                page_doc_map = {}
+                
                 for idx, result in enumerate(results_list):
                     source_filename = result.get('source', 'Unknown')
                     target_page = int(result.get('page', 0))
                     result_user_id = result.get('user_id', safe_user_id)
+                    result_user_id = result.get('user_id', safe_user_id)
                     blob_path = result.get('blob_path')
                     
+                    # Store mapping: Page Number -> Document Name
+                    # This allows us to inject the document name into citations later
+                    if target_page > 0:
+                        page_doc_map[target_page] = source_filename
+
                     print(f"[Chat] Processing Result #{idx+1}: {source_filename} (Page {target_page}) | BlobPath: {blob_path} | User: {result_user_id}")
                     
                     # Robust Path Derivation using 'blob_path' from Index
@@ -416,7 +426,37 @@ async def chat(
             messages=messages
         )
 
-        return ChatResponse(response=response.choices[0].message.content)
+        response_content = response.choices[0].message.content
+        
+        # Post-Processing: Inject Document Name into Citations
+        # Transform [[Keyword|Page X]] -> [[Keyword|Page X|DocumentName]]
+        # This fixes the cross-tab navigation issue on the frontend
+        def citation_replacer(match):
+            keyword = match.group(1)
+            try:
+                page_num = int(match.group(2))
+                if page_num in page_doc_map:
+                    doc_name = page_doc_map[page_num]
+                    
+                    # FIX: Handle double extension issue (.pdf.pdf)
+                    # Frontend expects "filename.pdf", so we must normalize
+                    if doc_name.lower().endswith('.pdf.pdf'):
+                        doc_name = doc_name[:-4]  # Remove last .pdf
+                    
+                    # Format: [[Keyword|Page X|DocumentName]]
+                    return f"[[{keyword}|Page {page_num}|{doc_name}]]"
+            except:
+                pass
+            return match.group(0) # Keep original if lookup fails
+
+        try:
+            # Matches: [[Keyword|Page 5]] (Case insensitive for 'Page')
+            response_content = re.sub(r'\[\[(.*?)\|Page\s*(\d+)\]\]', citation_replacer, response_content, flags=re.IGNORECASE)
+            print("[Chat] Post-processed citations with document names.")
+        except Exception as e:
+            print(f"[Chat] Error in citation post-processing: {e}")
+
+        return ChatResponse(response=response_content)
 
     except Exception as e:
         print(f"Error in chat endpoint: {e}")
