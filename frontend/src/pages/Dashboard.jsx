@@ -675,6 +675,11 @@ const App = () => {
                         // Boost items on the page where the citation or user is looking
                         if (score > 0 && pageNum === searchPreferPage) {
                             score += 200; // Significant boost to stay on the correct page
+
+                            // HUGE Boost if it's the Active Document (Citation Target)
+                            if (doc.id === activeDocId) {
+                                score += 2000; // Force to top
+                            }
                         }
 
                         if (score > 0) {
@@ -1793,6 +1798,7 @@ const App = () => {
                 // Don't auto-click result if we already navigated to correct doc/page
                 // But DO queue auto-selection for highlighting if on specific page
                 if (targetPage) {
+                    setSearchPreferPage(targetPage); // Boost ranking for this page
                     setAutoSelectOnPage(targetPage);
                 }
             }
