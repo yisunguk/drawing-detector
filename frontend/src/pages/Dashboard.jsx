@@ -1703,6 +1703,7 @@ const App = () => {
 
         // Parse optional page identifier: [[Keyword|Page 5]] or [[Keyword|P.5]]
         let targetPage = null;
+        let targetDocId = null; // Moved up to avoid TDZ
         let cleanText = keyword;
 
         if (keyword.includes('|')) {
@@ -1747,7 +1748,8 @@ const App = () => {
 
         // 2. Check if it matches a document name (Direct or in Parenthesis)
         // Pattern: "Topic (DocName P.1)" or just "DocName"
-        let targetDocId = null;
+
+        // Check for (DocName P.x) pattern
 
         // Check for (DocName P.x) pattern
         const hintMatch = cleanText.match(/\((.*?)(?:\s+P\.?(\d+))?\)$/i);
