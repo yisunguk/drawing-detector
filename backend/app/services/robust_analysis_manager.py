@@ -25,8 +25,9 @@ class RobustAnalysisManager:
         # With 234KB/page average:
         # 50 pages = ~11.7MB (WORKS for Paid Tier)
         # 200 pages = ~46.8MB (WORKS for Paid Tier)
-        # Using 50 for balanced throughput/reliability
-        self.CHUNK_SIZE = 50
+        # Using 10 for better user feedback (more frequent updates)
+        # Performance impact is minimal due to parallelization
+        self.CHUNK_SIZE = 10
 
     async def run_analysis_loop(self, filename: str, blob_name: str, total_pages: int, category: str, local_file_path: str = None):
         """
@@ -78,6 +79,11 @@ class RobustAnalysisManager:
             status = status_manager.get_status(filename)
             completed_chunks = set(status.get("completed_chunks", [])) if status else set()
             
+            # Optimized for Speed (User Request):
+            # Large chunks (50) for max throughput per request.
+            # High Parallelism (10) to saturate Azure DI capacity.
+            self.CHUNK_SIZE = 50
+            
             # 3. Build Pending Chunks
             total_chunks = (total_pages + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE
             pending_chunks = []
@@ -90,11 +96,11 @@ class RobustAnalysisManager:
                 if page_range not in completed_chunks:
                     pending_chunks.append(page_range)
             
-            print(f"[RobustAnalysis] {len(pending_chunks)} chunks to process (out of {total_chunks})")
+            print(f"[RobustAnalysis] {len(pending_chunks)} chunks to process (out of {total_chunks}) | ChunkSize: {self.CHUNK_SIZE}")
             print(f"[RobustAnalysis] Pending list: {pending_chunks}")
             
             # 4. Process chunks in PARALLEL batches
-            parallel_workers = 5  # Max parallel requests
+            parallel_workers = 10  # High throughput
             
             for batch_start in range(0, len(pending_chunks), parallel_workers):
                 batch = pending_chunks[batch_start:batch_start + parallel_workers]

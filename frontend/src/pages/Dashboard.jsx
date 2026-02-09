@@ -1155,7 +1155,11 @@ const App = () => {
             if (uploadCategory === 'documents') fetchAzureItems('documents');
             else fetchAzureItems('drawings');
 
-            alert(`분석 완료! ${result.total_pages} 페이지 처리가 완료되었습니다.`);
+            // Refresh file list
+            if (uploadCategory === 'documents') fetchAzureItems('documents');
+            else fetchAzureItems('drawings');
+
+            // alert(`분석 완료! ${result.total_pages} 페이지 처리가 완료되었습니다.`); // Removed blocking alert
 
             // --- Context Fix: Fetch the generated JSON and update local state ---
             // --- Context Fix: Fetch the generated JSON and update local state ---
