@@ -1714,7 +1714,12 @@ const App = () => {
             if (parts.length > 2) {
                 const docName = parts[2].trim();
                 console.log(`Citation includes docName: ${docName}`);
-                const targetDoc = documents.find(d => d.name === docName);
+
+                // Relaxed Match: Check if one includes the other (handles "file.pdf" vs "file.pdf ")
+                const targetDoc = documents.find(d =>
+                    d.name.includes(docName) || docName.includes(d.name)
+                );
+
                 if (targetDoc) {
                     targetDocId = targetDoc.id;
                     console.log(`Found target doc ID: ${targetDocId}`);
