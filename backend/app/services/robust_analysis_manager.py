@@ -289,7 +289,7 @@ class RobustAnalysisManager:
             json_client.upload_blob(final_json_content, overwrite=True)
             print(f"[RobustAnalysis] Unified JSON Saved: {json_blob_name}")
             
-            status_manager.mark_completed(filename)
+            status_manager.mark_completed(filename, json_location=json_blob_name)
             print(f"[RobustAnalysis] Finalization Complete.")
 
             # 4. Cleanup Chunks (ONLY after successful save)

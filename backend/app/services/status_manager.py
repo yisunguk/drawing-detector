@@ -53,12 +53,15 @@ class StatusManager:
         blob_client.upload_blob(json.dumps(status), overwrite=True)
         return status
 
-    def mark_completed(self, filename):
+    def mark_completed(self, filename, json_location=None):
         status = self.get_status(filename)
         if not status:
             return
         
         status["status"] = "completed"
+        if json_location:
+            status["json_location"] = json_location
+            
         blob_client = self._get_blob_client(filename)
         blob_client.upload_blob(json.dumps(status), overwrite=True)
         # We might want to delete the status file eventually, but keeping it for now is safe.
