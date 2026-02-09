@@ -503,11 +503,31 @@ async def start_robust_analysis_task(
                 # [MODIFIED] Cache Hit Logic
                 # If we have a valid JSON and decided NOT to re-analyze:
                 # 1. Ensure status is 'completed' with correct json_location
-                # 2. Skip background task entirely
+                # 2. Trigger RE-INDEXING in background (Critical: Cache Hit skips analysis, so we must index explicitly)
+                # 3. Skip analysis loop
                 
-                print(f"[StartAnalysis] ✨ CACHE HIT: Skipping background analysis.")
+                print(f"[StartAnalysis] ✨ CACHE HIT: Skipping analysis, queuing background re-indexing.")
+                
+                # Update status
                 status_manager.mark_completed(filename, json_location=json_path)
-                return {"status": "started", "message": "Analysis skipped (cached result found)"}
+                
+                # Trigger Background Indexing (Re-index existing JSON)
+                from app.services.azure_search import azure_search_service
+                
+                # Construct FINAL blob path for indexing (e.g. username/drawings/file.pdf)
+                # This ensures the index points to the correct permanent location, not temp.
+                final_blob_name = f"{username}/{category}/{filename}" if username else f"{category}/{filename}"
+                
+                print(f"[StartAnalysis] Queuing background indexing for {final_blob_name} ({len(existing_pages)} pages)")
+                background_tasks.add_task(
+                    azure_search_service.index_documents,
+                    filename=filename, # Use original filename as Source
+                    category=category,
+                    pages_data=existing_pages,
+                    blob_name=final_blob_name
+                )
+                
+                return {"status": "started", "message": "Analysis skipped (cached), Re-indexing started in background"}
                 
         # ===== END AUTO RE-ANALYSIS =====
         
