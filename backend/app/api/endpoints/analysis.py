@@ -495,36 +495,26 @@ async def start_robust_analysis_task(
             except Exception as e:
                 print(f"[StartAnalysis] Cleanup warning: {e}")
             
-            # 3. Reset status in status_manager
-            status_manager.reset_status(filename)
-            print(f"[StartAnalysis] Reset analysis status for fresh start")
+                # 3. Reset status in status_manager
+                status_manager.reset_status(filename)
+                print(f"[StartAnalysis] Reset analysis status for fresh start")
+            
+            else:
+                # [MODIFIED] Cache Hit Logic
+                # If we have a valid JSON and decided NOT to re-analyze:
+                # 1. Ensure status is 'completed' with correct json_location
+                # 2. Skip background task entirely
+                
+                print(f"[StartAnalysis] ✨ CACHE HIT: Skipping background analysis.")
+                status_manager.mark_completed(filename, json_location=json_path)
+                return {"status": "started", "message": "Analysis skipped (cached result found)"}
+                
         # ===== END AUTO RE-ANALYSIS =====
         
         # [MODIFIED] Large File Support: Skip local download!
         # Trust frontend total_pages to avoid OOM on large files (e.g. 123MB)
         # We process using Direct Streaming URL in robust_analysis_manager.
         
-        # Download PDF to /tmp (ONCE) - REMOVED for performance/stability
-        # import tempfile
-        # import os
-        # tmp_dir = "/tmp"
-        # os.makedirs(tmp_dir, exist_ok=True)
-        # local_file_path = os.path.join(tmp_dir, filename)
-        
-        # print(f"[StartAnalysis] Downloading {blob_name} to {local_file_path}...")
-        # with open(local_file_path, 'wb') as f:
-        #     blob_data = blob_client.download_blob()
-        #     blob_data.readinto(f)
-        # print(f"[StartAnalysis] Downloaded {os.path.getsize(local_file_path) / 1024 / 1024:.1f} MB")
-        
-        # Verify page count - REMOVED
-        # import fitz
-        # with fitz.open(local_file_path) as doc:
-        #     real_pages = doc.page_count
-        #     if real_pages != total_pages:
-        #          print(f"[StartAnalysis] mismatch pages: user={total_pages}, real={real_pages}. Updating.")
-        #          total_pages = real_pages
-
         local_file_path = None # Signal to use Direct Streaming
         
         # Initialize Status if not already
