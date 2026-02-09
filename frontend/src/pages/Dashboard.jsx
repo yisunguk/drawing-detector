@@ -2236,7 +2236,8 @@ const App = () => {
                             <h3 className="text-lg font-serif font-bold text-[#333333] mb-2">선택된 도면이 없습니다</h3>
                             <p className="text-[#666666] mb-6 text-sm">시작하려면 도면을 등록해주세요.</p>
                             <div className="flex gap-3 justify-center">
-                                <button onClick={() => initiateUpload('pdf')} className="px-5 py-2.5 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-2"><Plus size={16} /> 도면 업로드</button>
+                                <button onClick={() => initiateUpload('pdf', 'drawings')} className="px-5 py-2.5 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-2"><Plus size={16} /> 도면 업로드</button>
+                                <button onClick={() => initiateUpload('pdf', 'documents')} className="px-5 py-2.5 bg-[#fff0eb] hover:bg-[#ffe0d6] text-[#d97757] border border-[#ffdec8] rounded-lg text-sm font-medium shadow-sm transition-all flex items-center gap-2"><Plus size={16} /> 설계자료 업로드</button>
                             </div>
                         </div>
                     )}
