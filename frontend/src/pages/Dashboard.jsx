@@ -1791,6 +1791,10 @@ const App = () => {
             if (cleanText && cleanText.length > 2) {
                 setSearchTerm(cleanText);
                 // Don't auto-click result if we already navigated to correct doc/page
+                // But DO queue auto-selection for highlighting if on specific page
+                if (targetPage) {
+                    setAutoSelectOnPage(targetPage);
+                }
             }
             return;
         }
