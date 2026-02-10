@@ -1348,6 +1348,10 @@ const App = () => {
         }
     };
 
+    // --- Drop Category Selection State ---
+    const [droppedFiles, setDroppedFiles] = useState([]);
+    const [showDropCategoryModal, setShowDropCategoryModal] = useState(false);
+
     const handleDrop = async (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -1362,8 +1366,17 @@ const App = () => {
                 return;
             }
 
-            await processFiles(pdfFiles, 'pdf');
+            // Store files and show selection modal
+            setDroppedFiles(pdfFiles);
+            setShowDropCategoryModal(true);
         }
+    };
+
+    const handleDropCategorySelect = async (category) => {
+        setUploadCategory(category);
+        setShowDropCategoryModal(false);
+        await processFiles(droppedFiles, 'pdf');
+        setDroppedFiles([]);
     };
 
 
@@ -2487,6 +2500,46 @@ const App = () => {
                 )
             }
 
+
+
+            {/* Drop Category Selection Modal */}
+            {
+                showDropCategoryModal && (
+                    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[70]">
+                        <div className="bg-white rounded-xl shadow-2xl p-6 w-[400px] border border-[#e5e1d8] animate-in fade-in zoom-in duration-200 text-center">
+                            <div className="bg-[#fff0eb] w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-[#d97757]">
+                                <Cloud size={24} />
+                            </div>
+                            <h3 className="text-lg font-bold text-[#333333] mb-1">파일 업로드 유형 선택</h3>
+                            <p className="text-sm text-[#666666] mb-6">
+                                업로드할 파일의 유형을 선택해주세요.
+                            </p>
+
+                            <div className="flex gap-3 mb-4">
+                                <button
+                                    onClick={() => handleDropCategorySelect('drawings')}
+                                    className="flex-1 px-4 py-3 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex flex-col items-center justify-center gap-1"
+                                >
+                                    <span className="font-bold">도면</span>
+                                    <span className="text-[10px] opacity-80 font-normal">Drawings</span>
+                                </button>
+                                <button
+                                    onClick={() => handleDropCategorySelect('documents')}
+                                    className="flex-1 px-4 py-3 bg-[#fff0eb] hover:bg-[#ffe0d6] text-[#d97757] border border-[#ffdec8] rounded-lg text-sm font-medium transition-colors shadow-sm flex flex-col items-center justify-center gap-1"
+                                >
+                                    <span className="font-bold">설계자료</span>
+                                    <span className="text-[10px] opacity-80 font-normal">Design Data</span>
+                                </button>
+                            </div>
+                            <div>
+                                <button onClick={() => { setShowDropCategoryModal(false); setDroppedFiles([]); }} className="text-xs text-[#888888] hover:text-[#555555] underline">
+                                    취소
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
 
             {/* Analysis Confirmation Modal */}
             {
