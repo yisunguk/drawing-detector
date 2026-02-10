@@ -1259,8 +1259,12 @@ const App = () => {
         setPendingUploads([]);
     };
 
-    const handleFilesUpload = async (e, type) => {
-        const files = Array.from(e.target.files);
+    // --- Drag & Drop State ---
+    const [isDraggingOver, setIsDraggingOver] = useState(false);
+
+    // --- Unified File Processor ---
+    const processFiles = async (fileList, type) => {
+        const files = Array.from(fileList);
         const newPending = [];
 
         // Helper to read file as Promise
@@ -1273,10 +1277,18 @@ const App = () => {
         });
 
         for (const file of files) {
+            // Auto-detect type if not explicit
+            let currentType = type;
+            if (!currentType) {
+                if (file.name.toLowerCase().endsWith('.pdf')) currentType = 'pdf';
+                else if (file.name.toLowerCase().endsWith('.json')) currentType = 'json';
+                else continue; // Skip unsupported
+            }
+
             const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             const name = file.name.replace(/\.(pdf|json)$/i, '');
 
-            if (type === 'pdf') {
+            if (currentType === 'pdf') {
                 try {
                     const result = await readFile(file, 'arrayBuffer');
                     // Calculate color index correctly for batches
@@ -1297,12 +1309,12 @@ const App = () => {
                 } catch (err) {
                     console.error("Error reading file:", file.name, err);
                 }
-            } else if (type === 'json' && activeDocId) {
-                // ... same ...
+            } else if (currentType === 'json' && activeDocId) {
                 try {
                     const result = await readFile(file, 'text');
                     const json = JSON.parse(result);
                     setDocuments(prev => prev.map(d => d.id === activeDocId ? { ...d, ocrData: json, pdfTextData: null } : d));
+                    alert("JSON metadata loaded!");
                 } catch (err) {
                     console.error("Error parsing JSON:", file.name, err);
                 }
@@ -1313,14 +1325,45 @@ const App = () => {
             console.log("[Dashboard] Adding to pending uploads:", newPending.length);
             setPendingUploads(prev => [...prev, ...newPending]);
         }
+    };
 
-        // Modal Trigger... 
-        if (type === 'pdf' && (documents.length + files.length > 1) && !hasUserSelectedScope) {
-            // setShowScopeSelectionModal(true); // Defer this or keep it? Keep it.
-            // Actually, the Analysis modal will popup first. 
-        }
-
+    const handleFilesUpload = async (e, type) => {
+        await processFiles(e.target.files, type);
         e.target.value = '';
+    };
+
+    // --- Drag & Drop Handlers ---
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isDraggingOver) setIsDraggingOver(true);
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Only disable if leaving the window or the drop overlay targets
+        if (e.relatedTarget === null || !e.currentTarget.contains(e.relatedTarget)) {
+            setIsDraggingOver(false);
+        }
+    };
+
+    const handleDrop = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDraggingOver(false);
+
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            // User requested PDF ONLY for drag & drop
+            const pdfFiles = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+
+            if (pdfFiles.length === 0) {
+                alert("PDF 파일만 업로드 가능합니다.");
+                return;
+            }
+
+            await processFiles(pdfFiles, 'pdf');
+        }
     };
 
 
@@ -1865,8 +1908,28 @@ const App = () => {
         }
     }, [searchResults, autoSelectOnPage]);
 
+
+
     return (
-        <div className="flex h-screen w-full bg-[#fcfaf7] text-[#333333] font-sans overflow-hidden relative">
+        <div
+            className="flex h-screen w-full bg-[#fcfaf7] text-[#333333] font-sans overflow-hidden relative"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            {/* Drag & Drop Visual Overlay */}
+            {isDraggingOver && (
+                <div className="absolute inset-0 z-[100] bg-[#d97757]/10 backdrop-blur-sm border-4 border-[#d97757] border-dashed m-4 rounded-3xl flex items-center justify-center animate-in fade-in duration-200 pointer-events-none">
+                    <div className="bg-white p-8 rounded-2xl shadow-xl flex flex-col items-center gap-4">
+                        <div className="p-4 bg-[#fff0eb] rounded-full text-[#d97757]">
+                            <Cloud size={48} />
+                        </div>
+                        <h3 className="text-2xl font-bold text-[#333333]">파일을 여기에 놓아주세요</h3>
+                        <p className="text-[#666666]">도면(PDF)을 업로드합니다.</p>
+                    </div>
+                </div>
+            )}
+
             {/* Sidebar */}
             <div className={`${sidebarCollapsed ? 'w-12' : 'w-72'} border-r border-[#e5e1d8] bg-[#f4f1ea] flex flex-col transition-all duration-300 relative z-50`}>
                 <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#f4f1ea]">
