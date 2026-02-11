@@ -289,7 +289,7 @@ class RobustAnalysisManager:
 
             # ── Step 3: Save Final JSON (before moving PDF) ──
             json_parts = blob_name.split('/')
-            known_folders = ["temp", "my_documents", "documents", "drawings"]
+            known_folders = ["temp", "my-documents", "documents", "drawings"]
             matched_folder = None
             for folder in known_folders:
                 if folder in json_parts:
@@ -321,7 +321,7 @@ class RobustAnalysisManager:
                 final_blob_name = "/".join(parts)
             else:
                 # PDF already in non-temp location - preserve username prefix
-                category_folders = ["my_documents", "documents", "drawings"]
+                category_folders = ["my-documents", "documents", "drawings"]
                 replaced = False
                 for folder in category_folders:
                     if folder in parts:

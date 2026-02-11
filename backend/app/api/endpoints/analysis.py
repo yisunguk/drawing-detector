@@ -638,7 +638,7 @@ async def reindex_document(
             print(f"[Reindex] Found PDF in temp: {temp_path}")
         else:
             # Search all category folders
-            search_folders = [category, "drawings", "documents", "my_documents"]
+            search_folders = [category, "drawings", "documents", "my-documents"]
             # Remove duplicates while preserving order
             seen = set()
             unique_folders = []

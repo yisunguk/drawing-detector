@@ -44,7 +44,7 @@ class BlobMonitor:
         # Get all blobs
         all_blobs = list(container.list_blobs())
         
-        # Group by user and find PDFs in my_documents without JSON
+        # Group by user and find PDFs in my-documents without JSON
         users_with_files = {}
         
         for blob in all_blobs:
@@ -56,8 +56,8 @@ class BlobMonitor:
             folder = parts[1]
             filename = parts[2]
             
-            # Look for PDFs in my_documents
-            if folder == 'my_documents' and filename.lower().endswith('.pdf'):
+            # Look for PDFs in my-documents
+            if folder == 'my-documents' and filename.lower().endswith('.pdf'):
                 if username not in users_with_files:
                     users_with_files[username] = {'pdfs': [], 'jsons': set()}
                 users_with_files[username]['pdfs'].append(blob.name)
@@ -113,14 +113,14 @@ class BlobMonitor:
             total_pages = 100  # Default estimate
             
             # Initialize status
-            status_manager.init_status(filename, total_pages, 'my_documents')
+            status_manager.init_status(filename, total_pages, 'my-documents')
             
             # Start analysis
             await robust_analysis_manager.run_analysis_loop(
                 filename=filename,
                 blob_name=blob_name,
                 total_pages=total_pages,
-                category='my_documents'
+                category='my-documents'
             )
             
             print(f"[BlobMonitor] Analysis completed for {filename}")

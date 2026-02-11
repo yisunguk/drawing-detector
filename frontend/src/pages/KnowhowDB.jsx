@@ -68,13 +68,13 @@ const KnowhowDB = () => {
         try {
             const docs = await listDocuments(
                 currentUser.displayName || currentUser.email.split('@')[0],
-                'my_documents'
+                'my-documents'
             );
 
             // Add pdfUrl to documents for PDFViewer
             const docsWithUrl = docs.map(d => {
                 const username = currentUser.displayName || currentUser.email.split('@')[0];
-                const blobPath = `${username}/my_documents/${d.name}`;
+                const blobPath = `${username}/my-documents/${d.name}`;
                 const pdfUrl = `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodeURIComponent(blobPath)}?${AZURE_SAS_TOKEN}`;
                 return { ...d, pdfUrl, id: d.name }; // Ensure ID exists
             });
@@ -326,7 +326,7 @@ const KnowhowDB = () => {
             await uploadToAzure(upload_url, file, (percent) => setAnalysisStatus(`Uploading... ${percent}%`));
 
             setAnalysisStatus('Starting analysis...');
-            await startAnalysis(file.name, totalPages, username, 'my_documents');
+            await startAnalysis(file.name, totalPages, username, 'my-documents');
 
             // Poll for status
             await pollAnalysisStatus(file.name, (statusData) => {
@@ -420,7 +420,7 @@ const KnowhowDB = () => {
                                                         } catch (pgErr) {
                                                             console.warn('Failed to count pages, using default:', pgErr);
                                                         }
-                                                        const res = await startAnalysis(doc.name, totalPages, username, 'my_documents', true);
+                                                        const res = await startAnalysis(doc.name, totalPages, username, 'my-documents', true);
                                                         setAnalysisStatus('Analysis started...');
                                                         await pollAnalysisStatus(doc.name, (status) => {
                                                             setAnalysisStatus(`${status.status}... ${status.progress || ''}`);
@@ -448,7 +448,7 @@ const KnowhowDB = () => {
                                                     setAnalysisStatus(`Deleting ${doc.name}...`);
                                                     try {
                                                         const username = currentUser.displayName || currentUser.email.split('@')[0];
-                                                        const response = await fetch(`${API_URL}/api/v1/analyze/doc/${encodeURIComponent(doc.name)}?username=${encodeURIComponent(username)}&category=my_documents`, {
+                                                        const response = await fetch(`${API_URL}/api/v1/analyze/doc/${encodeURIComponent(doc.name)}?username=${encodeURIComponent(username)}&category=my-documents`, {
                                                             method: 'DELETE'
                                                         });
                                                         if (response.ok) {
