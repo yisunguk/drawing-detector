@@ -100,7 +100,7 @@ class RobustAnalysisManager:
             print(f"[RobustAnalysis] Pending list: {pending_chunks}")
             
             # 4. Process chunks in PARALLEL batches
-            parallel_workers = 10  # Max throughput for Azure DI paid tier
+            parallel_workers = 5  # Balanced: memory safe with 4Gi Cloud Run
             failed_chunks = []
 
             for batch_start in range(0, len(pending_chunks), parallel_workers):

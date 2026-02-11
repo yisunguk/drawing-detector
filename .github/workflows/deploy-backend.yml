@@ -38,7 +38,7 @@ jobs:
           service: 'drawing-detector-backend'
           region: 'us-central1'
           source: 'backend'
-          flags: '--min-instances=0'
+          flags: '--min-instances=0 --memory=4Gi --cpu=2 --timeout=900'
           # env_vars removed as BACKEND_CORS_ORIGINS defaults are sufficient and quoting was causing issues
           secrets: |
             AZURE_OPENAI_ENDPOINT=AZURE_OPENAI_ENDPOINT:latest
