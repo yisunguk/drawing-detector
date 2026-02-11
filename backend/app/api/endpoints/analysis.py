@@ -67,18 +67,18 @@ async def analyze_local_file(
 
 @router.get("/upload-sas")
 @router.get("/upload-url")
-@router.get("/upload-sas")
-async def get_upload_sas(filename: str, username: str):
+async def get_upload_sas(filename: str, username: str, category: str = None):
     """
     Generate a Write-enabled SAS URL for frontend direct upload.
-    Blob will be saved to '{username}/my_documents/{filename}'.
+    Blob will be saved to '{username}/temp/{filename}' for analysis workflow.
+    After analysis, finalize moves PDF to '{username}/{category}/{filename}'.
     """
     if not username:
         raise HTTPException(status_code=400, detail="Username is required")
-        
+
     try:
-        # Save directly to my_documents for auto-trigger
-        blob_name = f"{username}/my_documents/{filename}"
+        # Save to temp for analysis → finalize moves to final category
+        blob_name = f"{username}/temp/{filename}"
         
         sas_token = None
         
