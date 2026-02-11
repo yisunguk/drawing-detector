@@ -1859,71 +1859,130 @@ const App = () => {
     const hasOcr = !!activeDoc?.ocrData;
     const hasPdfText = !!activeDoc?.pdfTextData;
 
-    // Citation Handler - Show in Right Sidebar PDF Viewer
+    // Citation Handler - Highlight on center canvas (keep chat visible)
     const handleCitationClick = (keyword) => {
-        console.log(`App handled citation: ${keyword}`);
+        console.log(`Citation clicked: ${keyword}`);
 
         // Noise Filtering
         const cleanKeyword = keyword.toLowerCase().trim();
         const noiseWords = ['g', 'e', 'ㅎ', 's', 't', 'c', 'd', 'p', 'i', 'v', 'l', 'r', 'o', 'm', 'n', 'u', 'k'];
         if (cleanKeyword.length < 2 || noiseWords.includes(cleanKeyword)) {
-            console.log("Citation click ignored (noise/too short):", cleanKeyword);
             return;
         }
 
-        // Parse citation: [[Term|Page|DocName]]
-        let targetPage = 1;
-        let targetDocId = null;
-        let cleanText = keyword;
+        // Parse citation: content|page|filename|coords|type or simple text
+        let targetPage = activePage;
+        let targetDocId = activeDoc?.id;
+        let searchText = keyword;
 
         if (keyword.includes('|')) {
             const parts = keyword.split('|');
-            cleanText = parts[0].trim();
+            searchText = parts[0].trim();
 
-            // Parse page number
             if (parts.length > 1) {
-                const pageStr = parts[1].trim();
-                const pageMatch = pageStr.match(/(\d+)/);
-                if (pageMatch) {
-                    targetPage = parseInt(pageMatch[1]);
-                }
+                const pageMatch = parts[1].trim().match(/(\d+)/);
+                if (pageMatch) targetPage = parseInt(pageMatch[1]);
             }
 
-            // Parse document name
             if (parts.length > 2) {
                 const docName = parts[2].trim();
                 const targetDoc = documents.find(d =>
                     d.name.includes(docName) || docName.includes(d.name)
                 );
-                if (targetDoc) {
-                    targetDocId = targetDoc.id;
-                }
+                if (targetDoc) targetDocId = targetDoc.id;
+            }
+        } else {
+            // Simple text - extract page number if present like "KEYWORD (Page N)"
+            const pageMatch = keyword.match(/\(Page\s*(\d+)\)/i);
+            if (pageMatch) {
+                targetPage = parseInt(pageMatch[1]);
+                searchText = keyword.replace(/\s*\(Page\s*\d+\)/i, '').trim();
             }
         }
 
-        // If no doc specified, use active document
         if (!targetDocId && activeDoc) {
             targetDocId = activeDoc.id;
         }
 
-        if (targetDocId) {
-            // Set cited doc and switch sidebar to PDF mode
-            setCitedDoc({
-                docId: targetDocId,
-                page: targetPage,
-                term: cleanText
-            });
-            setRightSidebarMode('pdf');
-
-            // Open right sidebar if closed
-            if (!rightSidebarOpen) {
-                setRightSidebarOpen(true);
-            }
-
-            console.log(`Opening PDF viewer for doc ${targetDocId}, page ${targetPage}`);
-        } else {
-            console.warn('No matching document found for citation');
+        // Navigate center canvas to target page
+        if (targetDocId && targetDocId !== activeDocId) {
+            setActiveDocId(targetDocId);
         }
+        if (targetPage !== activePage) {
+            setActivePage(targetPage);
+        }
+
+        // Search for text in OCR/PDF data to get polygon for highlight
+        const targetDoc = documents.find(d => d.id === targetDocId);
+        if (targetDoc) {
+            const dataSource = targetDoc.ocrData || targetDoc.pdfTextData;
+            if (dataSource) {
+                let pages = [];
+                if (Array.isArray(dataSource)) {
+                    pages = dataSource;
+                } else if (dataSource.analyzeResult?.pages) {
+                    pages = dataSource.analyzeResult.pages;
+                } else if (dataSource.pages) {
+                    pages = dataSource.pages;
+                } else {
+                    pages = [dataSource];
+                }
+
+                const pageData = pages.find(p => (p.page_number || 1) === targetPage) || pages[targetPage - 1];
+                if (pageData) {
+                    const lines = pageData.layout?.lines || pageData.lines || [];
+                    const layoutWidth = pageData.layout?.width || pageData.width || 0;
+                    const layoutHeight = pageData.layout?.height || pageData.height || 0;
+                    const searchLower = searchText.toLowerCase();
+
+                    // Find best matching line
+                    let bestMatch = null;
+                    let bestScore = 0;
+                    for (const line of lines) {
+                        const content = line.content || line.text || '';
+                        const contentLower = content.toLowerCase();
+                        let score = 0;
+                        if (contentLower === searchLower) score = 100;
+                        else if (contentLower.includes(searchLower)) score = 80;
+                        else if (searchLower.includes(contentLower) && contentLower.length > 3) score = 60;
+                        else {
+                            // Token matching
+                            const tokens = searchLower.split(/\s+/).filter(t => t.length > 1);
+                            const hits = tokens.filter(t => contentLower.includes(t)).length;
+                            if (hits > 0) score = 30 + (hits / tokens.length * 30);
+                        }
+                        if (score > bestScore && (line.polygon || line.boundingBox)) {
+                            bestScore = score;
+                            let polygon = line.polygon || line.boundingBox || [];
+                            if (Array.isArray(polygon[0])) polygon = polygon.flat();
+                            bestMatch = {
+                                content,
+                                polygon: [...polygon],
+                                docId: targetDocId,
+                                docName: targetDoc.name,
+                                pageNum: targetPage,
+                                tagType: 'other',
+                                layoutWidth,
+                                layoutHeight,
+                                score
+                            };
+                        }
+                    }
+
+                    if (bestMatch) {
+                        setSelectedResult(bestMatch);
+                        console.log(`Citation highlight: "${bestMatch.content}" on page ${targetPage}`);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Fallback: use left sidebar search
+        setSearchTerm(searchText);
+        setSearchPreferPage(targetPage);
+        setAutoSelectFirstResult(true);
+        console.log(`Citation fallback search: "${searchText}" page ${targetPage}`);
     };
 
 
