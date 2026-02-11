@@ -15,6 +15,7 @@ import {
     pollAnalysisStatus,
     listDocuments,
     countPdfPages,
+    loadPdfJs,
     fetchDocumentJson
 } from '../services/analysisService';
 
@@ -332,7 +333,7 @@ const KnowhowDB = () => {
                 if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
                     setAnalysisStatus(`Processing... ${statusData.completed_chunks?.length || 0} chunks done`);
                 }
-            });
+            }, totalPages);
 
             setAnalysisStatus('Done!');
             await loadDocuments();
@@ -404,11 +405,20 @@ const KnowhowDB = () => {
                                                     setAnalysisStatus(`Re-analyzing ${doc.name}...`);
                                                     try {
                                                         const username = currentUser.displayName || currentUser.email.split('@')[0];
-                                                        const res = await startAnalysis(doc.name, 1, username, 'my_documents', true);
+                                                        // Count actual pages from PDF URL
+                                                        let totalPages = 1;
+                                                        try {
+                                                            const pdfjs = await loadPdfJs();
+                                                            const pdf = await pdfjs.getDocument(doc.pdfUrl).promise;
+                                                            totalPages = pdf.numPages;
+                                                        } catch (pgErr) {
+                                                            console.warn('Failed to count pages, using default:', pgErr);
+                                                        }
+                                                        const res = await startAnalysis(doc.name, totalPages, username, 'my_documents', true);
                                                         setAnalysisStatus('Analysis started...');
                                                         await pollAnalysisStatus(doc.name, (status) => {
                                                             setAnalysisStatus(`${status.status}... ${status.progress || ''}`);
-                                                        });
+                                                        }, totalPages);
                                                         loadDocuments();
                                                     } catch (err) {
                                                         console.error("Re-analysis failed:", err);
