@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, Loader2, Sparkles, AlertCircle, RefreshCcw } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, AlertCircle, RefreshCcw, Search, MessageSquare, List, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { db, auth } from '../firebase';
@@ -11,6 +11,8 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
     const [messages, setMessages] = useState([
         { role: 'assistant', content: '안녕하세요! 도면에 대해 궁금한 점을 물어보세요.' }
     ]);
+    const [searchResults, setSearchResults] = useState([]); // NEW: Store raw search results
+    const [searchMode, setSearchMode] = useState('chat'); // NEW: 'chat' or 'search'
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef(null);
@@ -180,6 +182,13 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
+        // Capture current mode and ensure we switch to chat UI if sending a message
+        // If the user types in the chat box, we nearly always want a chat response.
+        const targetMode = searchMode;
+        if (targetMode === 'search') {
+            setSearchMode('chat'); // Switch UI to chat
+        }
+
         const userMessage = input.trim();
         setInput('');
         setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
@@ -191,72 +200,35 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
         }
 
         try {
-            // Use local context ONLY for active document to ensure strict scoping.
-            // For 'active', we send the full text (truncated by backend if needed).
-            // For 'all' (global), we send NULL to trigger the Backend's Azure AI Search (RAG).
-            // This prevents the "Context Stuffing" limit which was cutting off the 2nd document.
             let context = null;
             if (chatScope === 'active') {
                 context = formatContext();
-            } else {
-                console.log("[Chat] Scope is 'all'. Using Backend RAG (Azure Search).");
             }
 
-            // Use environment variable for API URL
-            // Development: http://127.0.0.1:8000
-            // Production: Cloud Run backend URL (set in .env.production)
-
-            // Hardcoded fallback for production
-            // Hardcoded fallback for production
             const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
             const rawBase = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
             const baseApi = rawBase.replace(/\/$/, "");
-
-            // If the base URL already ends with /api (as in the Cloud Run service URL provided),
-            // we should not add another /api before /v1.
             const apiPath = baseApi.endsWith('/api') ? '/v1/chat/' : '/api/v1/chat/';
             const API_URL = `${baseApi}${apiPath}`;
 
-            console.log('Chat debug:', { baseApi, API_URL, envUrl: import.meta.env.VITE_API_URL });
+            const headers = { 'Content-Type': 'application/json; charset=UTF-8' };
 
-            // Prepare headers
-            const headers = {
-                'Content-Type': 'application/json; charset=UTF-8'
-            };
-
-            // For "All Documents" scope, add Authorization header with Firebase ID token
             if (chatScope === 'all') {
                 const user = auth.currentUser;
                 if (!user) {
-                    console.error("User not authenticated for All Documents scope");
-                    setMessages(prev => [...prev, {
-                        role: 'assistant',
-                        content: '❌ 인증이 필요합니다. 로그인 후 다시 시도해주세요.'
-                    }]);
+                    setMessages(prev => [...prev, { role: 'assistant', content: '❌ 인증이 필요합니다.' }]);
                     setIsLoading(false);
                     return;
                 }
-
-                try {
-                    const idToken = await user.getIdToken();
-                    headers['Authorization'] = `Bearer ${idToken}`;
-                    console.log('[Chat] Added Authorization header for user:', user.displayName || user.email);
-                } catch (error) {
-                    console.error("Failed to get ID token:", error);
-                    setMessages(prev => [...prev, {
-                        role: 'assistant',
-                        content: '❌ 인증 토큰을 가져오는데 실패했습니다.'
-                    }]);
-                    setIsLoading(false);
-                    return;
-                }
+                const idToken = await user.getIdToken();
+                headers['Authorization'] = `Bearer ${idToken}`;
             }
 
-            // Prepare doc_ids for restricted "All" scope (Open documents only)
             let docIds = null;
-            if (chatScope === 'all' && documents && documents.length > 0) {
+            if (activeDoc) {
+                docIds = [activeDoc.name];
+            } else if (documents && documents.length > 0) {
                 docIds = documents.map(d => d.name);
-                console.log("[Chat] Restricting search to open documents:", docIds);
             }
 
             const response = await fetch(API_URL, {
@@ -264,25 +236,44 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                 headers: headers,
                 body: JSON.stringify({
                     query: userMessage,
-                    context: context, // Null enables RAG
-                    filename: activeDoc?.name, // Optional
-                    doc_ids: docIds // New field for restriction
+                    context: context,
+                    filename: activeDoc?.name,
+                    doc_ids: docIds,
+                    mode: targetMode
                 }),
             });
 
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
+            if (!response.ok) throw new Error('Network response was not ok');
 
             const data = await response.json();
-            setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
 
-            // Save to Firestore History
+            if (targetMode === 'search') {
+                setSearchResults(data.results || []);
+                // If we were in search mode, we might want to switch BACK to search mode 
+                // if the user sent a search query. But since we forced UI to 'chat', 
+                // maybe we should have stayed in 'search'?
+                // For now, if it was search mode, we set search results and stay in search.
+                setSearchMode('search');
+                setIsLoading(false);
+                return;
+            }
+
+            // Chat Mode Handling
+            if (data.response) {
+                setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: data.response,
+                    results: data.results // Save sources for chat too
+                }]);
+            } else {
+                setMessages(prev => [...prev, { role: 'assistant', content: '답변을 생성하지 못했습니다.' }]);
+            }
+
             if (currentUser) {
                 try {
                     await addDoc(collection(db, 'users', currentUser.uid, 'chatHistory'), {
                         query: userMessage,
-                        response: data.response,
+                        response: data.response || '',
                         timestamp: serverTimestamp(),
                         filename: activeDoc?.name || 'All Documents',
                         docId: activeDoc?.id || null
@@ -293,7 +284,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
             }
         } catch (error) {
             console.error('Chat error:', error);
-            setMessages(prev => [...prev, { role: 'assistant', content: '죄송합니다. 오류가 발생했습니다. 다시 시도해주세요.', isError: true }]);
+            setMessages(prev => [...prev, { role: 'assistant', content: '죄송합니다. 오류가 발생했습니다.', isError: true }]);
         } finally {
             setIsLoading(false);
         }
@@ -327,134 +318,288 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
 
     return (
         <div className="flex flex-col h-full bg-white">
-            {/* Chat Header */}
-            <div className="p-4 border-b border-[#e5e1d8] bg-[#fcfaf7] flex items-center gap-2">
-                <div className="bg-[#fff0eb] p-1.5 rounded-lg">
-                    <Sparkles size={18} className="text-[#d97757]" />
+            {/* Chat Header with Tabs */}
+            <div className="p-3 border-b border-[#e5e1d8] bg-[#fcfaf7] flex items-center justify-between">
+                <div className="flex bg-[#f0eee6] p-1 rounded-lg">
+                    <button
+                        onClick={() => setSearchMode('chat')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${searchMode === 'chat'
+                            ? 'bg-white text-[#d97757] shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                    >
+                        <MessageSquare size={14} />
+                        AI 질의응답
+                    </button>
+                    <button
+                        onClick={() => setSearchMode('search')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${searchMode === 'search'
+                            ? 'bg-white text-[#d97757] shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                    >
+                        <Search size={14} />
+                        키워드 검색
+                    </button>
                 </div>
-                <div>
-                    <h3 className="font-bold text-[#333333] text-sm">AI Assistant</h3>
-                    <p className="text-[10px] text-[#888888]">Ask about the drawing</p>
+
+                <div className="flex items-center gap-2">
+                    {/* Reset Button */}
+                    <button
+                        onClick={handleReset}
+                        className="p-1.5 hover:bg-gray-100 rounded-md text-gray-500 hover:text-[#d97757] transition-colors"
+                        title="초기화"
+                    >
+                        <RefreshCcw size={16} />
+                    </button>
                 </div>
-                <button
-                    onClick={handleReset}
-                    className="ml-auto p-1.5 hover:bg-gray-100 rounded-md text-gray-500 hover:text-[#d97757] transition-colors"
-                    title="대화 초기화"
-                >
-                    <RefreshCcw size={16} />
-                </button>
             </div>
 
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#f9f8f6]">
-                {messages.map((msg, idx) => (
-                    <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user' ? 'bg-[#333333]' : 'bg-[#d97757]'}`}>
-                            {msg.role === 'user' ? <User size={14} className="text-white" /> : <Bot size={14} className="text-white" />}
-                        </div>
-                        <div className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.role === 'user'
-                            ? 'bg-[#333333] text-white rounded-tr-none'
-                            : msg.isError
-                                ? 'bg-red-50 text-red-600 border border-red-100 rounded-tl-none'
-                                : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
-                            }`}>
-                            {msg.role === 'user' ? (
-                                msg.content
-                            ) : (
-                                <ReactMarkdown
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{
-                                        table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
-                                        thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
-                                        th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
-                                        td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
-                                        ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
-                                        ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
-                                        li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
-                                        p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
-                                        strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
-                                        code: ({ node, inline, ...props }) => inline
-                                            ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
-                                            : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
-                                        a: ({ node, href, children, ...props }) => {
-                                            if (href?.startsWith('#citation-')) {
-                                                const keyword = decodeURIComponent(href.replace('#citation-', ''));
-                                                return (
+            {/* Content Area */}
+            <div className={`flex-1 overflow-y-auto p-4 space-y-4 ${searchMode === 'chat' ? 'bg-[#f9f8f6]' : 'bg-white'}`}>
+                {searchMode === 'chat' ? (
+                    <>
+                        {messages.map((msg, idx) => (
+                            <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user' ? 'bg-[#333333]' : 'bg-[#d97757]'}`}>
+                                    {msg.role === 'user' ? <User size={14} className="text-white" /> : <Bot size={14} className="text-white" />}
+                                </div>
+                                <div className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.role === 'user'
+                                    ? '!bg-[#333333] !text-white rounded-tr-none'
+                                    : msg.isError
+                                        ? 'bg-red-50 text-red-600 border border-red-100 rounded-tl-none'
+                                        : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
+                                    }`}>
+                                    {msg.role === 'user' ? (
+                                        msg.content
+                                    ) : (
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkGfm]}
+                                            components={{
+                                                table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
+                                                thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
+                                                th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
+                                                td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
+                                                ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
+                                                ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
+                                                li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+                                                p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
+                                                strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
+                                                code: ({ node, inline, ...props }) => inline
+                                                    ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
+                                                    : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
+                                                a: ({ node, href, children, ...props }) => {
+                                                    if (href?.startsWith('#citation-')) {
+                                                        const keyword = decodeURIComponent(href.replace('#citation-', ''));
+                                                        return (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    console.log(`Citation clicked: ${keyword}`);
+                                                                    if (onCitationClick) {
+                                                                        onCitationClick(keyword);
+                                                                    } else {
+                                                                        console.warn('onCitationClick prop is missing');
+                                                                    }
+                                                                }}
+                                                                className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
+                                                                title={`Locate "${keyword}" in drawing`}
+                                                            >
+                                                                <Sparkles size={10} />
+                                                                {children}
+                                                            </button>
+                                                        );
+                                                    }
+                                                    return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+                                                }
+                                            }}
+                                        >
+                                            {msg.content.replace(/(`*)\[\[(.*?)\]\]\1/g, (match, backticks, p1) => {
+                                                // Handle pipe character for table safety and cleaner display
+                                                // [[Keyword|Page]] -> Keyword (Page)
+                                                const cleanText = p1.includes('|') ? p1.split('|')[0].trim() + " (" + p1.split('|')[1].trim() + ")" : p1;
+                                                // The link itself uses the original p1 (encoded) to preserve it for the click handler
+                                                return `[${cleanText.replace(/\|/g, '\\|')}](#citation-${encodeURIComponent(p1)})`;
+                                            })}
+                                        </ReactMarkdown>
+                                    )}
+
+                                    {/* Sources / Citations list for Q&A */}
+                                    {msg.role === 'assistant' && msg.results && msg.results.length > 0 && (
+                                        <div className="mt-4 pt-3 border-t border-gray-100">
+                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">
+                                                <List size={10} />
+                                                출처 (Sources)
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {msg.results.map((res, rIdx) => (
                                                     <button
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            console.log(`Citation clicked: ${keyword}`);
+                                                        key={rIdx}
+                                                        onClick={() => {
                                                             if (onCitationClick) {
-                                                                onCitationClick(keyword);
-                                                            } else {
-                                                                console.warn('onCitationClick prop is missing');
+                                                                // Pass the actual matched content for better highlighting
+                                                                // We use a pipe-delimited format that handleCitationClick can parse
+                                                                onCitationClick(`${res.content}|${res.page}|${res.filename}|${res.coords || ''}|${res.type || ''}`);
                                                             }
                                                         }}
-                                                        className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
-                                                        title={`Locate "${keyword}" in drawing`}
+                                                        className="flex items-center gap-1 px-2 py-1 bg-[#f4f1ea] hover:bg-[#e5e1d8] text-[#d97757] text-[10px] font-medium rounded-md border border-[#e5e1d8]/50 transition-colors max-w-[150px] truncate"
+                                                        title={`${res.filename} - Page ${res.page}`}
                                                     >
-                                                        <Sparkles size={10} />
-                                                        {children}
+                                                        <Sparkles size={8} />
+                                                        <span className="truncate">{res.filename}</span>
+                                                        <span className="text-gray-400 font-normal ml-0.5">p.{res.page}</span>
                                                     </button>
-                                                );
-                                            }
-                                            return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                        {isLoading && (
+                            <div className="flex gap-3">
+                                <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center flex-shrink-0">
+                                    <Bot size={14} className="text-white" />
+                                </div>
+                                <div className="bg-white border border-[#e5e1d8] p-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
+                                    <Loader2 size={14} className="animate-spin text-[#d97757]" />
+                                    <span className="text-xs text-[#666666]">Thinking...</span>
+                                </div>
+                            </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                    </>
+                ) : (
+                    // START SEARCH RESULTS (List View)
+                    <div className="space-y-4 max-w-3xl mx-auto">
+                        <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-2">
+                            <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                                <List size={16} className="text-[#d97757]" />
+                                검색 결과 {searchResults.length > 0 && `(${searchResults.length})`}
+                            </h3>
+                        </div>
+
+                        {searchResults.length === 0 && !isLoading && (
+                            <div className="flex flex-col items-center justify-center h-64 text-gray-400 text-sm">
+                                <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+                                    <Search size={32} className="opacity-10 text-gray-900" />
+                                </div>
+                                <p className="font-medium text-gray-500">검색결과가 없습니다.</p>
+                                <p className="text-xs mt-1">키워드를 입력하고 검색을 시작하세요.</p>
+                            </div>
+                        )}
+
+                        <div className="grid gap-3">
+                            {searchResults.map((res, idx) => (
+                                <div
+                                    key={idx}
+                                    className="bg-white p-4 rounded-xl border border-[#e5e1d8] hover:border-[#d97757] hover:shadow-md transition-all cursor-pointer group relative overflow-hidden"
+                                    onClick={() => {
+                                        if (onCitationClick) {
+                                            onCitationClick(`${res.content}|${res.page}|${res.filename}|${res.coords || ''}|${res.type || ''}`);
                                         }
                                     }}
                                 >
-                                    {msg.content.replace(/(`*)\[\[(.*?)\]\]\1/g, (match, backticks, p1) => {
-                                        // Handle pipe character for table safety and cleaner display
-                                        // [[Keyword|Page]] -> Keyword (Page)
-                                        const cleanText = p1.includes('|') ? p1.split('|')[0].trim() + " (" + p1.split('|')[1].trim() + ")" : p1;
-                                        // The link itself uses the original p1 (encoded) to preserve it for the click handler
-                                        return `[${cleanText.replace(/\|/g, '\\|')}](#citation-${encodeURIComponent(p1)})`;
-                                    })}
-                                </ReactMarkdown>
-                            )}
+                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#d97757] opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-6 h-6 rounded bg-orange-50 flex items-center justify-center text-[#d97757]">
+                                                <Sparkles size={12} />
+                                            </div>
+                                            <h4 className="font-bold text-gray-800 text-sm truncate max-w-[200px]">
+                                                {res.filename}
+                                            </h4>
+                                        </div>
+                                        <span className="text-[10px] font-bold bg-[#d97757]/10 text-[#d97757] px-2 py-0.5 rounded-full border border-[#d97757]/20">
+                                            Page {res.page}
+                                        </span>
+                                    </div>
+
+                                    <p className="text-xs text-[#555555] line-clamp-3 leading-relaxed mb-3">
+                                        {res.content}
+                                    </p>
+
+                                    <div className="flex justify-between items-center pt-2 border-t border-gray-50">
+                                        <div className="flex items-center gap-1.5">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                                            <span className="text-[10px] text-gray-400 uppercase tracking-tighter">Match Score: {res.score?.toFixed(2)}</span>
+                                        </div>
+                                        <button className="text-[10px] font-bold text-blue-600 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                                            도면 보기 <ChevronRight size={10} />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
-                    </div>
-                ))}
-                {isLoading && (
-                    <div className="flex gap-3">
-                        <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center flex-shrink-0">
-                            <Bot size={14} className="text-white" />
-                        </div>
-                        <div className="bg-white border border-[#e5e1d8] p-3 rounded-2xl rounded-tl-none shadow-sm flex items-center gap-2">
-                            <Loader2 size={14} className="animate-spin text-[#d97757]" />
-                            <span className="text-xs text-[#666666]">Thinking...</span>
-                        </div>
+
+                        {isLoading && (
+                            <div className="flex flex-col items-center justify-center py-12">
+                                <Loader2 size={28} className="animate-spin text-[#d97757] mb-3" />
+                                <p className="text-xs text-gray-500 animate-pulse">검색 중입니다...</p>
+                            </div>
+                        )}
                     </div>
                 )}
-                <div ref={messagesEndRef} />
             </div>
+
 
             {/* Input Area */}
             <div className="p-4 bg-white border-t border-[#e5e1d8]">
-                <div className="relative">
-                    <textarea
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Ask a question..."
-                        className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all resize-none h-[50px] max-h-[120px] overflow-y-auto placeholder-[#a0a0a0]"
-                        disabled={!activeDoc || isLoading}
-                    />
-                    <button
-                        onClick={handleSend}
-                        disabled={!input.trim() || isLoading || !activeDoc}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#d97757] text-white rounded-lg hover:bg-[#c05535] disabled:opacity-50 disabled:hover:bg-[#d97757] transition-colors"
-                    >
-                        <Send size={14} />
-                    </button>
-                </div>
-                {!activeDoc && (
+                {searchMode === 'chat' ? (
+                    <div className="relative">
+                        <textarea
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder={activeDoc ? "Ask about this document..." : "Ask about all your documents..."}
+                            className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all resize-none h-[50px] max-h-[120px] overflow-y-auto placeholder-[#a0a0a0]"
+                            disabled={isLoading || (!activeDoc && chatScope !== 'all')}
+                        />
+                        <button
+                            onClick={handleSend}
+                            disabled={!input.trim() || isLoading || (!activeDoc && chatScope !== 'all')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#d97757] text-white rounded-lg hover:bg-[#c05535] disabled:opacity-50 disabled:hover:bg-[#d97757] transition-colors"
+                        >
+                            <Send size={14} />
+                        </button>
+                    </div>
+                ) : (
+                    <div className="max-w-3xl mx-auto flex items-center gap-2">
+                        <div className="relative flex-1">
+                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                                <Search size={16} />
+                            </div>
+                            <input
+                                type="text"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder="키워드를 입력하여 관련 도면을 찾으세요..."
+                                className="w-full bg-white border-2 border-gray-100 rounded-full py-2.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#d97757] focus:ring-4 focus:ring-[#d97757]/10 transition-all placeholder-gray-400 shadow-sm"
+                                disabled={isLoading}
+                            />
+                        </div>
+                        <button
+                            onClick={handleSend}
+                            disabled={!input.trim() || isLoading}
+                            className="px-6 py-2.5 bg-[#d97757] text-white text-xs font-bold rounded-full hover:bg-[#c05535] disabled:opacity-50 shadow-md shadow-[#d97757]/20 transition-all flex items-center gap-2"
+                        >
+                            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                            검색하기
+                        </button>
+                    </div>
+                )}
+
+                {searchMode === 'chat' && (!activeDoc && chatScope !== 'all') && (
                     <div className="mt-2 flex items-center gap-1.5 text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded-md border border-amber-100">
                         <AlertCircle size={12} />
                         <span>Please select a document to start chatting</span>
                     </div>
                 )}
             </div>
+
         </div>
     );
 };

@@ -13,9 +13,11 @@ class ChatRequest(BaseModel):
     filename: Optional[str] = None
     context: Optional[str] = None
     doc_ids: Optional[List[str]] = None  # NEW: List of document names to restrict search
+    mode: Optional[str] = "chat" # chat or search
 
 class ChatResponse(BaseModel):
     response: str
+    results: Optional[List[dict]] = None
 
 def validate_and_sanitize_user_id(user_id: str) -> str:
     """
@@ -136,7 +138,30 @@ async def chat(
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Auth error: {str(e)}")
             
-            print(f"[Chat] Searching Azure Search for user '{safe_user_id}': {request.query}")
+            # ---------------------------------------------------------
+            # NEW: Translate/Extract English Keywords for Search
+            # ---------------------------------------------------------
+            search_query = request.query
+            try:
+                # If query contains Korean (simple check), generate English keywords
+                if any(ord(c) > 127 for c in request.query):
+                    print(f"[Chat] Detecting Korean query. Generating English search keywords...")
+                    completion = client.chat.completions.create(
+                        model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
+                        messages=[
+                            {"role": "system", "content": "You are a search assistant. Extract English technical keywords from the user's query for searching engineering documents. Return ONLY the keywords, separated by spaces. No explanation."},
+                            {"role": "user", "content": request.query}
+                        ],
+                        temperature=0.0
+                    )
+                    english_keywords = completion.choices[0].message.content.strip()
+                    print(f"[Chat] Translated/Expanded Query: '{request.query}' -> '{english_keywords}'")
+                    search_query = f"{english_keywords} OR {request.query}" # Hybrid: Search both
+                
+            except Exception as e:
+                print(f"[Chat] Warning: Keyword generation failed: {e}. Using original query.")
+            
+            print(f"[Chat] Searching Azure Search for user '{safe_user_id}': {search_query}")
             
             # Apply doc_ids filter to Azure Search query (BEFORE relevance scoring)
             search_filter = user_filter
@@ -156,12 +181,65 @@ async def chat(
                     search_filter = f"({user_filter}) and ({combined_doc_filter})"
                     print(f"[Chat] Final Azure Search filter: {search_filter[:200]}...")
             
+            # ---------------------------------------------------------
+            # MODE: KEYWORD SEARCH
+            # ---------------------------------------------------------
+            if request.mode == "search":
+                print(f"[Chat] Executing Keyword Search for user '{safe_user_id}': {search_query}")
+                
+                # Execute Search
+                # Note: We rely on the constructed 'search_filter' (user_id + doc_ids)
+                search_results = azure_search_service.client.search(
+                    search_text=search_query,
+                    filter=search_filter,
+                    top=20, 
+                    select=["content", "source", "page", "title", "user_id", "blob_path", "metadata_storage_path", "coords", "type"]
+                )
+                
+                results = []
+                seen_pages = set()
+                
+                for res in search_results:
+                    path = res.get("metadata_storage_path") or res.get("blob_path") or ""
+                    filename = res.get("source")
+                    page = res.get("page")
+                    
+                    # Deduplication Key: Filename + Page
+                    # We only keep the first (highest score) occurrence per page
+                    dedup_key = (filename, page)
+                    if dedup_key in seen_pages:
+                        continue
+                    
+                    # Filter out low relevance scores (Threshold: 5.0)
+                    # This helps mask "ghost" files that match weakly
+                    score = res.get("@search.score", 0)
+                    if score < 5.0:
+                        continue
+                        
+                    seen_pages.add(dedup_key)
+                    
+                    results.append({
+                        "filename": filename,
+                        "page": page,
+                        "content": (res.get("content") or "")[:300] + "...",
+                        "score": score,
+                        "path": path,
+                        "coords": res.get("coords"),
+                        "type": res.get("type")
+                    })
+                
+                print(f"[Chat] Keyword Search found {len(results)} unique pages.")
+                return ChatResponse(
+                    response=f"Found {len(results)} documents.",
+                    results=results
+                )
+
             # Query the index with combined filter (USER ISOLATION + DOC_IDS)
             search_results = azure_search_service.client.search(
-                search_text=request.query,
+                search_text=search_query,
                 filter=search_filter,
                 top=100,  # HIGH: Ensure lower-ranked docs are included
-                select=["content", "source", "page", "title", "category", "user_id", "blob_path"]
+                select=["content", "source", "page", "title", "category", "user_id", "blob_path", "coords", "type"]
             )
             
             # Build context from search results (Search-to-JSON)
@@ -456,7 +534,35 @@ async def chat(
         except Exception as e:
             print(f"[Chat] Error in citation post-processing: {e}")
 
-        return ChatResponse(response=response_content)
+        # Prepare Deduplicated Results for Chat Response (Sources)
+        sources_for_response = []
+        seen_pages = set()
+        for res in results_list:
+            filename = res.get("source")
+            page = res.get("page")
+            dedup_key = (filename, page)
+            
+            if dedup_key in seen_pages:
+                continue
+            
+            score = res.get("@search.score", 0)
+            if score < 5.0:
+                continue
+                
+            seen_pages.add(dedup_key)
+            sources_for_response.append({
+                "filename": filename,
+                "page": int(page) if page else 0,
+                "content": (res.get("content") or "")[:200] + "...",
+                "score": score,
+                "coords": res.get("coords"),
+                "type": res.get("type")
+            })
+
+        return ChatResponse(
+            response=response_content,
+            results=sources_for_response
+        )
 
     except Exception as e:
         print(f"Error in chat endpoint: {e}")

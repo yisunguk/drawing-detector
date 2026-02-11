@@ -42,13 +42,13 @@ class AzureDIService:
                 raise Exception("Azure DI returned null result")
             
             if not hasattr(result, 'pages') or not result.pages:
-                logger.error(f"[DI] ❌ CRITICAL: Result has no pages! URL: {document_url[:60]}")
+                logger.error(f"[DI] CRITICAL: Result has no pages! URL: {document_url[:60]}")
                 logger.error(f"[DI] Result type: {type(result)}")
                 if hasattr(result, '__dict__'):
                     logger.error(f"[DI] Result attributes: {list(result.__dict__.keys())}")
                 raise Exception(f"Azure DI returned ZERO pages - API call failed silently")
             
-            logger.info(f"[DI] ✅ Extracted {len(result.pages)} pages successfully")
+            logger.info(f"[DI] Extracted {len(result.pages)} pages successfully")
             
             formatted = self._format_result(result)
             
@@ -56,7 +56,7 @@ class AzureDIService:
             if not formatted or len(formatted) == 0:
                 raise Exception(f"_format_result returned empty list despite {len(result.pages)} raw pages")
             
-            logger.info(f"[DI] ✅ Formatted {len(formatted)} pages with data")
+            logger.info(f"[DI] Formatted {len(formatted)} pages with data")
             return formatted
             
         except HttpResponseError as e:
@@ -120,13 +120,19 @@ class AzureDIService:
                 lines_data = []
                 if page.lines:
                     for line in page.lines:
-                        # line.polygon -> list of float [x1, y1, x2, y2...] usually
-                        # In new SDK, polygon is usually a flattened list of floats.
-                        # Check typings: List[float]
-                        
                         lines_data.append({
                             "content": line.content,
-                            "polygon": line.polygon
+                            "polygon": self._flatten_polygon(line.polygon)
+                        })
+                
+                # Layout Words (NEW: Extract words for fine-grained highlighting)
+                words_data = []
+                if page.words:
+                    for word in page.words:
+                        words_data.append({
+                            "content": word.content,
+                            "polygon": self._flatten_polygon(word.polygon),
+                            "confidence": word.confidence
                         })
                 
                 # Page Tables
@@ -160,7 +166,7 @@ class AzureDIService:
                         "height": page.height,
                         "unit": str(page.unit) if page.unit else "pixel",
                         "lines": lines_data,
-                        "words": [] 
+                        "words": words_data 
                     },
                     "tables": page_tables
                 }
@@ -195,13 +201,15 @@ class AzureDIService:
                     "content": cell.content,
                     "row_index": cell.row_index,
                     "column_index": cell.column_index,
-                    "kind": str(cell.kind) if cell.kind else "content"
+                    "kind": str(cell.kind) if cell.kind else "content",
+                    "polygon": self._flatten_polygon(cell.bounding_regions[0].polygon) if cell.bounding_regions else None
                 })
             
             table_data = {
                 "row_count": table.row_count,
                 "column_count": table.column_count,
-                "cells": cells_data
+                "cells": cells_data,
+                "polygon": self._flatten_polygon(table.bounding_regions[0].polygon) if table.bounding_regions else None
             }
             
             if page_num not in tables_by_page:
@@ -209,6 +217,28 @@ class AzureDIService:
             tables_by_page[page_num].append(table_data)
             
         return tables_by_page
+
+    def _flatten_polygon(self, polygon) -> list:
+        """
+        Convert Azure SDK polygon (list of Points or list of floats) 
+        to a flat list of floats [x1, y1, x2, y2, ...]
+        """
+        if not polygon:
+            return []
+        
+        # Check if it's already a list of floats
+        if all(isinstance(x, (int, float)) for x in polygon):
+            return list(polygon)
+            
+        # Check if it's a list of Point objects (x, y)
+        flat_list = []
+        for point in polygon:
+            if hasattr(point, 'x') and hasattr(point, 'y'):
+                flat_list.extend([float(point.x), float(point.y)])
+            elif isinstance(point, (list, tuple)) and len(point) >= 2:
+                flat_list.extend([float(point[0]), float(point[1])])
+        
+        return flat_list
 
     def _get_page_content(self, full_content, spans):
         if not spans:

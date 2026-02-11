@@ -1,8 +1,9 @@
+import base64
+import json
 import logging
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 from app.core.config import settings
-import base64
 
 logger = logging.getLogger(__name__)
 
@@ -59,17 +60,56 @@ class AzureSearchService:
             # Prepare the document for indexing
             # Note: Fields must match your Azure Search Index Schema
             # Common RAG fields: id, content, title, source, page_number
+            # 1. Table-to-Markdown for better LLM context
+            tables = page.get("tables", [])
+            content_text = page.get("content", "")
+            if tables:
+                table_md = self._format_tables_markdown(tables)
+                content_text += f"\n\n[Structured Tables]\n{table_md}"
+
+            # 2. Extract representative coords (normalized 0.0-1.0)
+            # We use the bounding box of the first line or first table as a fallback
+            raw_coords = None
+            layout = page.get("layout", {})
+            width = layout.get("width") or 1.0
+            height = layout.get("height") or 1.0
+            
+            lines = layout.get("lines", [])
+            if lines:
+                raw_coords = lines[0].get("polygon")
+            elif tables and tables[0].get("cells"):
+                raw_coords = tables[0]["cells"][0].get("polygon")
+            
+            normalized_coords = []
+            if raw_coords and isinstance(raw_coords, list):
+                # Simple normalization (Azure DI units / Layout units)
+                # raw_coords [x1, y1, x2, y2, ...]
+                for i, val in enumerate(raw_coords):
+                    if i % 2 == 0: # X
+                        normalized_coords.append(round(val / width, 4))
+                    else: # Y
+                        normalized_coords.append(round(val / height, 4))
+            
+            # 3. Classify Type
+            content_type = "text"
+            if tables:
+                content_type = "table"
+            elif category == "drawings":
+                content_type = "drawing"
+
             doc = {
                 "id": doc_id,
-                "user_id": user_id,  # NEW: For user isolation
-                "content": page.get("content", ""),
+                "user_id": user_id,
+                "content": content_text,
                 "source": filename,
                 "page": str(page_num),
                 "title": page.get("도면명(TITLE)", "") or filename,
                 "category": category,
                 "drawing_no": page.get("도면번호(DWG. NO.)", ""),
-                "blob_path": blob_name, # Store blob path for reference
-                "metadata_storage_path": f"https://{self.endpoint.split('//')[1].split('.')[0]}.blob.core.windows.net/drawings/{blob_name}" if blob_name and self.endpoint else ""
+                "blob_path": blob_name,
+                "metadata_storage_path": f"https://{self.endpoint.split('//')[1].split('.')[0]}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{blob_name}" if blob_name and self.endpoint else "",
+                "coords": json.dumps(normalized_coords) if normalized_coords else None,
+                "type": content_type
             }
             documents.append(doc)
 
@@ -87,7 +127,7 @@ class AzureSearchService:
             print(f"[AzureSearch] Starting batch indexing for {total_docs} documents...")
 
             for i, doc in enumerate(documents):
-                # Optimize Payload: Truncate content_exact
+                # Optimize Payload: Truncate content_exact (if field exists)
                 if "content_exact" in doc and len(doc["content_exact"]) > 1000:
                     doc["content_exact"] = doc["content_exact"][:1000]
 
@@ -110,6 +150,36 @@ class AzureSearchService:
             print(f"[AzureSearch] Completed indexing for {filename}.")
             return True
 
+    def _format_tables_markdown(self, tables: list) -> str:
+        """
+        Convert DI table objects into a Markdown string.
+        """
+        import json
+        md_output = ""
+        for i, table in enumerate(tables):
+            md_output += f"\nTable {i+1}:\n"
+            
+            row_count = table.get("row_count", 0)
+            col_count = table.get("column_count", 0)
+            cells = table.get("cells", [])
+            
+            if not cells: continue
+            
+            # Reconstruct grid
+            grid = [["" for _ in range(col_count)] for _ in range(row_count)]
+            for cell in cells:
+                r, c = cell.get("row_index", 0), cell.get("column_index", 0)
+                if r < row_count and c < col_count:
+                    grid[r][c] = (cell.get("content") or "").replace("\n", " ").strip()
+            
+            # Format as Markdown
+            for r_idx, row in enumerate(grid):
+                md_output += "| " + " | ".join(row) + " |\n"
+                if r_idx == 0:
+                    md_output += "| " + " | ".join(["---"] * col_count) + " |\n"
+            md_output += "\n"
+        return md_output
+
     def _upload_batch_with_retry(self, batch, max_retries=3):
         """
         Uploads a batch of documents with exponential backoff retry.
@@ -125,7 +195,6 @@ class AzureSearchService:
                 if not all(r.succeeded for r in result):
                     failed = [r for r in result if not r.succeeded]
                     logger.warning(f"Partial indexing failure: {len(failed)} docs failed in batch.")
-                    # In a robust system, we might retry only failed ones, but for now log and move on.
                 
                 print(f"[AzureSearch] Indexed batch of {len(batch)} documents.")
                 return
@@ -135,6 +204,5 @@ class AzureSearchService:
                     time.sleep(2 ** (attempt + 1))  # Exponential backoff: 2, 4, 8 sec
                 else:
                     logger.error(f"Final failure uploading batch: {e}")
-                    # Don't raise, just log. We don't want to kill the whole process for one batch failure.
 
 azure_search_service = AzureSearchService()

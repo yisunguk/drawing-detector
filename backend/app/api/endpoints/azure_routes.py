@@ -13,11 +13,16 @@ router = APIRouter()
 @router.get("/list")
 def list_files(path: str = ""):
     try:
+        print(f"DEBUG: list_files called with path='{path}'")
         # Use Synchronous Client
         container_client = get_container_client()
         
         # Sanitize path
         path = path.lstrip('/')
+        if path and not path.endswith('/'):
+            path += '/'
+            
+        print(f"DEBUG: listing blobs with prefix='{path}'")
         
         items = []
         

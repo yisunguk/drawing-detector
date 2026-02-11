@@ -46,16 +46,6 @@ const Login = () => {
                     }
                 }
             } else {
-                // Legacy users might not have status, allow or defaulted? 
-                // Let's assume strict mode, or maybe allow legacy users if no status field?
-                // For now, let's treat no-doc as valid or create one? 
-                // Safest is to allow if "status" is undefined (for existing users) OR check logic.
-                // But requirement implies "New users". Legacy users don't have "status" field likely.
-                // Let's allow ONLY if status is explicitly NOT 'approved' AND status exists.
-                // Actually user requested "Member Join Approval", implies new workflow.
-                // Let's assume legacy users are fine. Only block if status === 'pending' | 'rejected'.
-                // If status is undefined, we could assume 'approved' (legacy) or update them. 
-                // Let's be strict: if status is explicitly pending/rejected block. Else allow.
                 if (userData.status === 'pending') {
                     await logout();
                     throw new Error('가입 승인 대기 중입니다. 관리자 승인 후 이용 가능합니다.');
@@ -75,23 +65,23 @@ const Login = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-            <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8">
+        <div className="min-h-screen bg-[#f0f4f9] flex items-center justify-center p-4 font-sans">
+            <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
                 <div className="text-center mb-8">
-                    <h2 className="text-3xl font-bold text-gray-900">Drawing Analyzer</h2>
-                    <p className="text-gray-600 mt-2">사용자 계정에 로그인하세요</p>
+                    <h2 className="text-3xl font-medium text-[#444746]">EPC Insight AI</h2>
+                    <p className="text-gray-500 mt-2">Sign in to continue</p>
                 </div>
 
                 {error && (
-                    <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2">
-                        <AlertCircle className="w-5 h-5" />
+                    <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2 text-sm">
+                        <AlertCircle className="w-4 h-4" />
                         <span>{error}</span>
                     </div>
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">이메일 주소</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                         <div className="relative">
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                 <User className="h-5 w-5 text-gray-400" />
@@ -99,7 +89,7 @@ const Login = () => {
                             <input
                                 type="email"
                                 required
-                                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none"
                                 placeholder="name@example.com"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
@@ -108,7 +98,7 @@ const Login = () => {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">비밀번호</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                         <div className="relative">
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                 <Lock className="h-5 w-5 text-gray-400" />
@@ -116,7 +106,7 @@ const Login = () => {
                             <input
                                 type="password"
                                 required
-                                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none"
                                 placeholder="••••••••"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
@@ -127,20 +117,20 @@ const Login = () => {
                     <button
                         type="submit"
                         disabled={loading}
-                        className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                        className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-full shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
                         {loading ? (
                             <Loader2 className="w-5 h-5 animate-spin" />
                         ) : (
-                            '로그인'
+                            'Sign In'
                         )}
                     </button>
                 </form>
 
                 <div className="mt-6 text-center text-sm text-gray-600">
-                    계정이 없으신가요?{' '}
-                    <Link to="/register" className="font-medium text-emerald-600 hover:text-emerald-500 hover:underline">
-                        회원가입
+                    Don't have an account?{' '}
+                    <Link to="/register" className="font-medium text-blue-600 hover:text-blue-500 hover:underline">
+                        Sign up
                     </Link>
                 </div>
             </div>

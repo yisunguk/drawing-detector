@@ -48,6 +48,10 @@ const PublicRoute = ({ children }) => {
     return children;
 };
 
+// Import new pages
+import LandingPage from './pages/LandingPage';
+import KnowhowDB from './pages/KnowhowDB';
+
 const App = () => {
     return (
         <Router>
@@ -70,11 +74,30 @@ const App = () => {
                                 </PublicRoute>
                             }
                         />
+                        {/* Root: Landing Hub */}
                         <Route
                             path="/"
                             element={
                                 <PrivateRoute>
+                                    <LandingPage />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* Drawing Analysis AI (Formerly Dashboard) */}
+                        <Route
+                            path="/drawing-ai"
+                            element={
+                                <PrivateRoute>
                                     <Dashboard />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* Know-how DB */}
+                        <Route
+                            path="/knowhow-db"
+                            element={
+                                <PrivateRoute>
+                                    <KnowhowDB />
                                 </PrivateRoute>
                             }
                         />

@@ -216,7 +216,7 @@ class DocumentIntelligenceService:
             for line in page.lines:
                 lines_data.append({
                     "text": line.content,
-                    "polygon": line.polygon,  # List[float] [x1, y1, x2, y2, ...]
+                    "polygon": self._flatten_polygon(line.polygon),
                     "confidence": line.confidence if hasattr(line, 'confidence') else 1.0
                 })
         
@@ -226,7 +226,7 @@ class DocumentIntelligenceService:
             for word in page.words:
                 words_data.append({
                     "text": word.content,
-                    "polygon": word.polygon,
+                    "polygon": self._flatten_polygon(word.polygon),
                     "confidence": word.confidence if hasattr(word, 'confidence') else 1.0
                 })
 
@@ -298,8 +298,45 @@ class DocumentIntelligenceService:
         return {
             "row_count": table.row_count if hasattr(table, 'row_count') else len(rows),
             "column_count": table.column_count if hasattr(table, 'column_count') else (len(rows[0]) if rows else 0),
-            "rows": rows
+            "rows": rows,
+            "cells": self._extract_cells_with_polygons(table),
+            "polygon": self._flatten_polygon(table.bounding_regions[0].polygon) if hasattr(table, 'bounding_regions') and table.bounding_regions else None
         }
+
+    def _extract_cells_with_polygons(self, table: Any) -> List[Dict[str, Any]]:
+        cells_data = []
+        if hasattr(table, 'cells') and table.cells:
+            for cell in table.cells:
+                cells_data.append({
+                    "content": cell.content,
+                    "row_index": cell.row_index,
+                    "column_index": cell.column_index,
+                    "kind": str(cell.kind) if hasattr(cell, 'kind') and cell.kind else "content",
+                    "polygon": self._flatten_polygon(cell.bounding_regions[0].polygon) if hasattr(cell, 'bounding_regions') and cell.bounding_regions else None
+                })
+        return cells_data
+
+    def _flatten_polygon(self, polygon) -> list:
+        """
+        Convert Azure SDK polygon (list of Points or list of floats) 
+        to a flat list of floats [x1, y1, x2, y2, ...]
+        """
+        if not polygon:
+            return []
+        
+        # Check if it's already a list of floats
+        if all(isinstance(x, (int, float)) for x in polygon):
+            return list(polygon)
+            
+        # Check if it's a list of Point objects (x, y)
+        flat_list = []
+        for point in polygon:
+            if hasattr(point, 'x') and hasattr(point, 'y'):
+                flat_list.extend([float(point.x), float(point.y)])
+            elif isinstance(point, (list, tuple)) and len(point) >= 2:
+                flat_list.extend([float(point[0]), float(point[1])])
+        
+        return flat_list
 
 
     def analyze_via_rendering(

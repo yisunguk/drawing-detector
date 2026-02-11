@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Body
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Body, Query
 from app.services.azure_di import azure_di_service
 from app.services.blob_storage import get_container_client, generate_sas_url
 from app.services.status_manager import status_manager
@@ -23,7 +23,7 @@ async def analyze_local_file(
         container_client = get_container_client()
         
         # Validate category
-        target_folder = category if category in ["drawings", "documents"] else "drawings"
+        target_folder = category if category in ["drawings", "documents", "my documents"] else "drawings"
         
         # Determine path (Force common folders, ignore username for folder structure)
         # Always save to {target_folder}/{filename}
@@ -67,13 +67,18 @@ async def analyze_local_file(
 
 @router.get("/upload-sas")
 @router.get("/upload-url")
-async def get_upload_sas(filename: str, username: str = None):
+@router.get("/upload-sas")
+async def get_upload_sas(filename: str, username: str):
     """
     Generate a Write-enabled SAS URL for frontend direct upload.
-    Blob will be saved to 'temp/{filename}'.
+    Blob will be saved to '{username}/my_documents/{filename}'.
     """
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+        
     try:
-        blob_name = f"{username}/temp/{filename}" if username else f"temp/{filename}"
+        # Save directly to my_documents for auto-trigger
+        blob_name = f"{username}/my_documents/{filename}"
         
         sas_token = None
         
@@ -257,31 +262,12 @@ async def analyze_document_sync(
         
         print(f"[AnalyzeSync] Analysis complete: {len(all_chunks)} pages processed")
         
-        # 5. Move to final location
-        final_folder = category if category in ["drawings", "documents"] else "drawings"
+        # 5. Prepare paths
+        final_folder = category if category in ["drawings", "documents", "my documents"] else "drawings"
         folder_prefix = f"{username}/{final_folder}" if username else final_folder
         final_blob_name = f"{folder_prefix}/{filename}"
-        final_blob_client = container_client.get_blob_client(final_blob_name)
         
-        # Copy from temp to final
-        temp_blob_url_with_sas = blob_url  # Reuse SAS from before
-        final_blob_client.start_copy_from_url(temp_blob_url_with_sas)
-        
-        # Wait for copy to complete
-        import time
-        for _ in range(30):  # Max 15 seconds
-            props = final_blob_client.get_blob_properties()
-            if props.copy.status == "success":
-                break
-            if props.copy.status == "failed":
-                raise Exception(f"Blob copy failed: {props.copy.status_description}")
-            time.sleep(0.5)
-        
-        # Delete temp file
-        temp_blob_client.delete_blob()
-        print(f"[AnalyzeSync] Moved to {final_blob_name}, temp deleted")
-        
-        # 6. Save JSON to Blob Storage
+        # 6. Save JSON to temp location first (for rollback capability)
         json_prefix = f"{username}/json" if username else "json"
         json_blob_name = f"{json_prefix}/{os.path.splitext(filename)[0]}.json"
         json_blob_client = container_client.get_blob_client(json_blob_name)
@@ -290,13 +276,21 @@ async def analyze_document_sync(
         json_blob_client.upload_blob(json_content, overwrite=True)
         print(f"[AnalyzeSync] JSON saved: {json_blob_name}")
         
-        # 7. Index to Azure Search (Streamlit pattern: page-by-page with batch upload)
+        # 7. Index to Azure Search BEFORE moving files (Critical Step)
+        # If indexing fails, we raise exception and keep file in temp
         from app.services.azure_search import azure_search_service
         
+        indexing_successful = False
+        
         if not azure_search_service.client:
-            print("[AnalyzeSync] WARNING: Azure Search not configured, skipping indexing")
-        else:
+            print("[AnalyzeSync] WARNING: Azure Search not configured")
+            raise HTTPException(status_code=500, detail="Azure Search not configured. Indexing required.")
+        
+        try:
             documents_to_index = []
+            
+            # Prepare temp blob URL for metadata (will update after move)
+            temp_blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{temp_blob_name}"
             
             for chunk in all_chunks:
                 # Create unique document ID
@@ -304,9 +298,10 @@ async def analyze_document_sync(
                 page_id_str = f"{final_blob_name}_page_{chunk['page_number']}"
                 doc_id = base64.urlsafe_b64encode(page_id_str.encode('utf-8')).decode('utf-8')
                 
-                # Get file size
-                blob_props = final_blob_client.get_blob_properties()
+                # Get temp file size for now
+                temp_blob_props = temp_blob_client.get_blob_properties()
                 
+                # Use FINAL path in metadata (we'll move after indexing)
                 document = {
                     "id": doc_id,
                     "content": chunk['content'],
@@ -314,7 +309,7 @@ async def analyze_document_sync(
                     "metadata_storage_name": f"{filename} (p.{chunk['page_number']})",
                     "metadata_storage_path": f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{final_blob_name}#page={chunk['page_number']}",
                     "metadata_storage_last_modified": datetime.utcnow().isoformat() + "Z",
-                    "metadata_storage_size": blob_props.size,
+                    "metadata_storage_size": temp_blob_props.size,
                     "metadata_storage_content_type": "application/pdf",
                     "project": "drawings_analysis",
                     "page_number": chunk['page_number'],
@@ -326,18 +321,59 @@ async def analyze_document_sync(
             
             # Batch upload (50 docs at a time)
             batch_size = 50
+            failed_batches = []
+            
             for i in range(0, len(documents_to_index), batch_size):
                 batch = documents_to_index[i:i + batch_size]
                 try:
                     result = azure_search_service.client.upload_documents(documents=batch)
                     print(f"[AnalyzeSync] Indexed batch {i//batch_size + 1}: {len(batch)} docs")
                 except Exception as e:
-                    print(f"[AnalyzeSync] Indexing batch {i//batch_size + 1} failed: {e}")
-                    # Continue with other batches
+                    print(f"[AnalyzeSync] Indexing batch {i//batch_size + 1} FAILED: {e}")
+                    failed_batches.append(i//batch_size + 1)
+            
+            if failed_batches:
+                error_msg = f"Indexing failed for batches: {failed_batches}"
+                print(f"[AnalyzeSync] {error_msg}")
+                raise HTTPException(status_code=500, detail=error_msg)
             
             print(f"[AnalyzeSync] Indexing complete: {len(documents_to_index)} documents")
+            indexing_successful = True
+            
+        except HTTPException:
+            raise  # Re-raise HTTP exceptions
+        except Exception as e:
+            print(f"[AnalyzeSync] Indexing FAILED: {e}")
+            # Clean up JSON since indexing failed
+            try:
+                json_blob_client.delete_blob()
+                print(f"[AnalyzeSync] Rolled back JSON: {json_blob_name}")
+            except:
+                pass
+            raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
         
-        # 8. Return success
+        # 8. Move to final location ONLY if indexing succeeded
+        if indexing_successful:
+            final_blob_client = container_client.get_blob_client(final_blob_name)
+            
+            # Copy from temp to final
+            final_blob_client.start_copy_from_url(blob_url)
+            
+            # Wait for copy to complete
+            import time
+            for _ in range(30):  # Max 15 seconds
+                props = final_blob_client.get_blob_properties()
+                if props.copy.status == "success":
+                    break
+                if props.copy.status == "failed":
+                    raise Exception(f"Blob copy failed: {props.copy.status_description}")
+                time.sleep(0.5)
+            
+            # Delete temp file
+            temp_blob_client.delete_blob()
+            print(f"[AnalyzeSync] Moved to {final_blob_name}, temp deleted")
+        
+        # 9. Return success
         return {
             "status": "completed",
             "filename": filename,
@@ -415,7 +451,8 @@ async def start_robust_analysis_task(
     filename: str = Body(...),
     total_pages: int = Body(...),
     category: str = Body(...),
-    username: str = Body(None)
+    username: str = Body(None),
+    force: bool = Body(False)
 ):
     """
     Triggers the Robust Analysis Loop in the background.
@@ -442,9 +479,7 @@ async def start_robust_analysis_task(
         json_path = f"{username}/json/{json_filename}" if username else f"json/{json_filename}"
         
         json_blob = container_client.get_blob_client(json_path)
-        should_reanalyze = False
-        
-        if json_blob.exists():
+        if json_blob.exists() and not force:
             print(f"[StartAnalysis] Existing JSON found: {json_path}")
             
             # Download and validate
@@ -452,25 +487,35 @@ async def start_robust_analysis_task(
                 json_data = json_blob.download_blob().readall()
                 existing_pages = json_module.loads(json_data)
                 
+                # Check for metadata (coords) presence in at least one page
+                # If missing, it's an old index format, should re-analyze
+                has_metadata = any(p.get("layout") or p.get("tables") for p in existing_pages)
+                
                 # VALIDATION CHECKS
                 if not existing_pages or len(existing_pages) == 0:
-                    print(f"[StartAnalysis] ⚠️ JSON is EMPTY - forcing re-analysis")
+                    print(f"[StartAnalysis] JSON is EMPTY - forcing re-analysis")
                     should_reanalyze = True
                 elif len(existing_pages) < total_pages:
-                    print(f"[StartAnalysis] ⚠️ Incomplete JSON: {len(existing_pages)}/{total_pages} pages - forcing re-analysis")
+                    print(f"[StartAnalysis] Incomplete JSON: {len(existing_pages)}/{total_pages} pages - forcing re-analysis")
+                    should_reanalyze = True
+                elif not has_metadata:
+                    print(f"[StartAnalysis] Old JSON format (missing coords) - forcing re-analysis")
                     should_reanalyze = True
                 else:
-                    print(f"[StartAnalysis] ✅ Valid JSON exists with {len(existing_pages)} pages")
-                    # For now, still allow re-analysis. Change to False to skip re-analysis
+                    print(f"[StartAnalysis] Valid JSON exists with {len(existing_pages)} pages")
+                    # Cache hit
                     should_reanalyze = False
-                    
             except Exception as e:
-                print(f"[StartAnalysis] ⚠️ Failed to validate JSON: {e} - forcing re-analysis")
+                print(f"[StartAnalysis] Error validating existing JSON: {e}")
                 should_reanalyze = True
+        else:
+            if force:
+                print(f"[StartAnalysis] Force re-analysis requested for: {filename}")
+            should_reanalyze = True
         
         # Cleanup corrupted files if needed
         if should_reanalyze:
-            print(f"[StartAnalysis] 🧹 Cleaning up corrupted analysis files...")
+            print(f"[StartAnalysis] Cleaning up corrupted analysis files...")
             
             # 1. Delete final JSON
             try:
@@ -506,7 +551,7 @@ async def start_robust_analysis_task(
                 # 2. Trigger RE-INDEXING in background (Critical: Cache Hit skips analysis, so we must index explicitly)
                 # 3. Skip analysis loop
                 
-                print(f"[StartAnalysis] ✨ CACHE HIT: Skipping analysis, queuing background re-indexing.")
+                print(f"[StartAnalysis] CACHE HIT: Skipping analysis, queuing background re-indexing.")
                 
                 # Update status
                 status_manager.mark_completed(filename, json_location=json_path)
@@ -538,8 +583,16 @@ async def start_robust_analysis_task(
         local_file_path = None # Signal to use Direct Streaming
         
         # Initialize Status if not already
-        if not status_manager.get_status(filename):
+        existing_status = status_manager.get_status(filename)
+        if not existing_status:
             status_manager.init_status(filename, total_pages, category)
+        elif total_pages > 1:
+            # Update total_pages if a better count is provided
+            existing_status["total_pages"] = total_pages
+            status_manager._get_blob_client(filename).upload_blob(json_module.dumps(existing_status), overwrite=True)
+        else:
+            # Inherit total_pages from existing status (e.g. for re-indexing where frontend sends 1)
+            total_pages = existing_status.get("total_pages", total_pages)
         
         # Add Background Task
         background_tasks.add_task(
@@ -554,6 +607,128 @@ async def start_robust_analysis_task(
         return {"status": "started", "message": "Analysis loop started in background"}
     except Exception as e:
         print(f"Start Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/reindex")
+async def reindex_document(
+    background_tasks: BackgroundTasks,
+    filename: str = Body(...),
+    total_pages: int = Body(...),
+    category: str = Body(...),
+    username: str = Body(None)
+):
+    """
+    Re-indexes a document that failed during initial analysis.
+    Locates the PDF in temp/ or final location, cleans up old artifacts,
+    and restarts the analysis pipeline.
+    """
+    try:
+        print(f"[Reindex] Starting for {filename} (user={username}, category={category}, pages={total_pages})")
+        container_client = get_container_client()
+
+        # 1. Locate PDF - search temp first, then all possible final locations
+        temp_path = f"{username}/temp/{filename}" if username else f"temp/{filename}"
+        temp_blob = container_client.get_blob_client(temp_path)
+
+        found_path = None
+        found_category = category
+
+        if temp_blob.exists():
+            found_path = temp_path
+            print(f"[Reindex] Found PDF in temp: {temp_path}")
+        else:
+            # Search all category folders
+            search_folders = [category, "drawings", "documents", "my_documents"]
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_folders = []
+            for f in search_folders:
+                if f not in seen:
+                    seen.add(f)
+                    unique_folders.append(f)
+
+            for folder in unique_folders:
+                candidate = f"{username}/{folder}/{filename}" if username else f"{folder}/{filename}"
+                candidate_blob = container_client.get_blob_client(candidate)
+                if candidate_blob.exists():
+                    found_path = candidate
+                    found_category = folder
+                    print(f"[Reindex] Found PDF in {folder}: {candidate}")
+                    break
+
+        if not found_path:
+            raise HTTPException(status_code=404, detail=f"PDF not found in any location for {filename}")
+
+        # Update category to where the file was actually found
+        category = found_category
+
+        # If found in a final location, copy to temp for the analysis pipeline
+        if found_path != temp_path:
+            print(f"[Reindex] Copying PDF to temp: {found_path} -> {temp_path}")
+            source_blob = container_client.get_blob_client(found_path)
+            temp_blob.start_copy_from_url(source_blob.url)
+            import time
+            for _ in range(60):
+                props = temp_blob.get_blob_properties()
+                if props.copy.status == 'success':
+                    break
+                if props.copy.status == 'failed':
+                    raise Exception(f"Copy to temp failed: {props.copy.status_description}")
+                time.sleep(0.5)
+            print(f"[Reindex] Copied PDF to temp: {temp_path}")
+
+        # 2. Clean up old artifacts
+        json_filename = os.path.splitext(filename)[0] + ".json"
+        json_path = f"{username}/json/{json_filename}" if username else f"json/{json_filename}"
+
+        try:
+            json_blob = container_client.get_blob_client(json_path)
+            if json_blob.exists():
+                json_blob.delete_blob()
+                print(f"[Reindex] Deleted old JSON: {json_path}")
+        except Exception as e:
+            print(f"[Reindex] Note: Could not delete JSON: {e}")
+
+        # Delete temp chunk JSONs
+        temp_json_prefix = f"temp/json/"
+        base_filename = os.path.splitext(filename)[0]
+        try:
+            blob_list = container_client.list_blobs(name_starts_with=temp_json_prefix)
+            deleted_count = 0
+            for blob in blob_list:
+                if base_filename in blob.name and "_part_" in blob.name:
+                    container_client.get_blob_client(blob.name).delete_blob()
+                    deleted_count += 1
+            if deleted_count > 0:
+                print(f"[Reindex] Deleted {deleted_count} temp chunk JSONs")
+        except Exception as e:
+            print(f"[Reindex] Cleanup warning: {e}")
+
+        # Reset status
+        status_manager.reset_status(filename)
+
+        # 3. Initialize fresh status and start analysis
+        status_manager.init_status(filename, total_pages, category)
+
+        blob_name = temp_path
+        background_tasks.add_task(
+            robust_analysis_manager.run_analysis_loop,
+            filename=filename,
+            blob_name=blob_name,
+            total_pages=total_pages,
+            category=category,
+            local_file_path=None
+        )
+
+        print(f"[Reindex] Background analysis started for {filename}")
+        return {"status": "started", "message": "Re-indexing started in background"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Reindex] Failed: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/chunk")
@@ -828,3 +1003,58 @@ async def debug_analyze_sync(
     except Exception as e:
         import traceback
         return {"status": "error", "stage": "execution", "detail": str(e), "traceback": traceback.format_exc()}
+
+@router.delete("/doc/{filename}")
+async def delete_document(
+    filename: str,
+    username: str = Query(None),
+    category: str = Query("documents")
+):
+    """
+    Deletes a document and its associated analysis files and search index entries.
+    """
+    try:
+        from app.services.blob_storage import get_container_client
+        from app.services.azure_search import azure_search_service
+        from app.services.status_manager import status_manager
+        import os
+
+        # 1. Paths
+        pdf_path = f"{username}/{category}/{filename}" if username else f"{category}/{filename}"
+        json_filename = os.path.splitext(filename)[0] + ".json"
+        json_path = f"{username}/json/{json_filename}" if username else f"json/{json_filename}"
+        
+        container_client = get_container_client()
+
+        # 2. Delete Blobs
+        for path in [pdf_path, json_path]:
+            try:
+                blob_client = container_client.get_blob_client(path)
+                if blob_client.exists():
+                    blob_client.delete_blob()
+                    print(f"[Delete] Deleted blob: {path}")
+            except Exception as e:
+                print(f"[Delete] Warning: Failed to delete {path}: {e}")
+
+        # 3. Cleanup temp chunks and status
+        status_manager.reset_status(filename)
+        
+        # 4. Delete from Azure Search
+        try:
+            # Reconstruct doc tags/IDs if needed, or just search by source and delete
+            # We search for all documents where 'source' == filename
+            search_client = azure_search_service.client
+            if search_client:
+                results = search_client.search(search_text="*", filter=f"source eq '{filename}'", select=["id"])
+                doc_ids = [r["id"] for r in results]
+                if doc_ids:
+                    search_client.delete_documents(documents=[{"id": doc_id} for doc_id in doc_ids])
+                    print(f"[Delete] Deleted {len(doc_ids)} documents from search index")
+        except Exception as e:
+            print(f"[Delete] Warning: Failed to clean Search Index: {e}")
+
+        return {"status": "success", "message": f"Document {filename} deleted successfully"}
+
+    except Exception as e:
+        print(f"[Delete] Critical Failure: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

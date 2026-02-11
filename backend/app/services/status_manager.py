@@ -79,6 +79,34 @@ class StatusManager:
         blob_client.upload_blob(json.dumps(status), overwrite=True)
         # We might want to delete the status file eventually, but keeping it for now is safe.
     
+    def increment_retry(self, filename):
+        """Increment retry counter for failed analysis"""
+        status = self.get_status(filename)
+        if not status:
+            return None
+        
+        status["retry_count"] = status.get("retry_count", 0) + 1
+        status["status"] = "retrying"
+        
+        blob_client = self._get_blob_client(filename)
+        blob_client.upload_blob(json.dumps(status), overwrite=True)
+        print(f"[StatusManager] Retry {status['retry_count']} for {filename}")
+        return status
+    
+    def mark_failed(self, filename, reason):
+        """Mark analysis as permanently failed after max retries"""
+        status = self.get_status(filename)
+        if not status:
+            return None
+        
+        status["status"] = "failed"
+        status["error"] = reason
+        
+        blob_client = self._get_blob_client(filename)
+        blob_client.upload_blob(json.dumps(status), overwrite=True)
+        print(f"[StatusManager] Marked {filename} as failed: {reason}")
+        return status
+    
     def reset_status(self, filename):
         """
         Resets the status for a file to allow re-analysis.

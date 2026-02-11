@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Search, ZoomIn, ZoomOut, RotateCcw, RotateCw, X, Plus, FileText, ChevronRight, ChevronLeft, Download, Grid3X3, List, Loader2, Check, Copy, Move, FileCheck, FileX, Cloud, Monitor, Folder, File, MessageSquare, Files, LogOut, User, Trash2 } from 'lucide-react';
+import { Search, ZoomIn, ZoomOut, RotateCcw, RotateCw, X, Plus, FileText, ChevronRight, ChevronLeft, Download, Grid3X3, List, Loader2, Check, Copy, Move, FileCheck, FileX, Cloud, Monitor, Folder, File, MessageSquare, Files, LogOut, User, Trash2, Home } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import ChatInterface from '../components/ChatInterface';
+import PDFViewer from '../components/PDFViewer';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot, orderBy, limit, serverTimestamp } from 'firebase/firestore';
 import MessageModal from '../components/MessageModal';
@@ -95,6 +96,8 @@ const App = () => {
     const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
     const [pendingUploads, setPendingUploads] = useState([]); // Array of { file, docId }
     const [autoSelectOnPage, setAutoSelectOnPage] = useState(null); // Page number to auto-select result from
+    const [rightSidebarMode, setRightSidebarMode] = useState('chat'); // 'chat' | 'pdf'
+    const [citedDoc, setCitedDoc] = useState(null); // { docId, page, term }
 
     useEffect(() => {
         setInputPage(activePage);
@@ -1239,8 +1242,103 @@ const App = () => {
         }
     };
 
-    // pollAnalysisStatus function removed - no longer needed with synchronous endpoint
+    // ── Re-index handler for failed documents ──
+    const reindexDocument = async (doc) => {
+        try {
+            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+            const uName = userProfile?.name || currentUser?.displayName;
+            const filename = doc.name.endsWith('.pdf') ? doc.name : `${doc.name}.pdf`;
 
+            // Determine category from document context
+            let category = 'drawings';
+            if (doc.blobPath) {
+                if (doc.blobPath.toLowerCase().includes('documents')) category = 'documents';
+            }
+
+            const totalPages = doc.totalPages || 1;
+
+            // Show progress modal
+            setAnalysisState({ isAnalyzing: true, progress: 0, status: '재인덱싱 요청 중...' });
+
+            // Call reindex endpoint
+            const startRes = await fetch(`${API_URL}/api/v1/analyze/reindex`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filename,
+                    total_pages: totalPages,
+                    category,
+                    username: uName
+                })
+            });
+
+            if (!startRes.ok) {
+                const errData = await startRes.json().catch(() => ({}));
+                throw new Error(errData.detail || 'Failed to start re-indexing');
+            }
+
+            // Poll status
+            let isComplete = false;
+            const timeout = Date.now() + 5 * 60 * 1000; // 5 min timeout
+
+            while (!isComplete) {
+                if (Date.now() > timeout) throw new Error('재인덱싱 시간 초과');
+                await new Promise(r => setTimeout(r, 2000));
+
+                const statusRes = await fetch(`${API_URL}/api/v1/analyze/status/${encodeURIComponent(filename)}`);
+                if (statusRes.ok) {
+                    const statusData = await statusRes.json();
+
+                    if (statusData.status === 'completed') {
+                        isComplete = true;
+                        setAnalysisState(prev => ({ ...prev, progress: 100, status: '재인덱싱 완료!' }));
+                    } else if (statusData.status === 'finalizing') {
+                        setAnalysisState(prev => ({ ...prev, progress: 99, status: '마무리 작업 중...' }));
+                    } else if (statusData.status === 'error' || statusData.status === 'failed') {
+                        throw new Error(statusData.error_message || statusData.error || '재인덱싱 실패');
+                    } else {
+                        const completedChunks = statusData.completed_chunks || [];
+                        let pagesCompleted = 0;
+                        for (const chunkRange of completedChunks) {
+                            const [start, end] = chunkRange.split('-').map(Number);
+                            pagesCompleted += (end - start + 1);
+                        }
+                        const actualProgress = (totalPages > 0) ? Math.round((pagesCompleted / totalPages) * 100) : 0;
+                        const displayProgress = 5 + Math.round((actualProgress / 100) * 90);
+                        setAnalysisState(prev => ({
+                            ...prev,
+                            progress: Math.min(displayProgress, 95),
+                            status: `재인덱싱 중... (${pagesCompleted}/${totalPages} 페이지)`
+                        }));
+                    }
+                }
+            }
+
+            setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
+
+            // Fetch the generated JSON and update document state
+            try {
+                const jsonFilename = filename.replace(/\.pdf$/i, '.json');
+                const jsonPath = uName ? `${uName}/json/${jsonFilename}` : `json/${jsonFilename}`;
+                const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
+                if (jsonRes.ok) {
+                    const jsonBlob = await jsonRes.blob();
+                    const jsonText = await jsonBlob.text();
+                    const fetchedOcrData = JSON.parse(jsonText);
+                    setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, ocrData: fetchedOcrData } : d));
+                    console.log('[Reindex] Document state updated with new OCR data');
+                }
+            } catch (ctxErr) {
+                console.error('[Reindex] Error fetching JSON after reindex:', ctxErr);
+            }
+
+        } catch (e) {
+            console.error('[Reindex] Error:', e);
+            setAnalysisState({ isAnalyzing: false, progress: 0, status: '' });
+            alert('재인덱싱 실패: ' + e.message);
+        }
+    };
 
     const confirmAnalysis = async () => {
         setShowAnalysisConfirmModal(false);
@@ -1760,11 +1858,11 @@ const App = () => {
     const hasOcr = !!activeDoc?.ocrData;
     const hasPdfText = !!activeDoc?.pdfTextData;
 
-    // Citation Handler
+    // Citation Handler - Show in Right Sidebar PDF Viewer
     const handleCitationClick = (keyword) => {
         console.log(`App handled citation: ${keyword}`);
 
-        // Noise Filtering for Citations
+        // Noise Filtering
         const cleanKeyword = keyword.toLowerCase().trim();
         const noiseWords = ['g', 'e', 'ㅎ', 's', 't', 'c', 'd', 'p', 'i', 'v', 'l', 'r', 'o', 'm', 'n', 'u', 'k'];
         if (cleanKeyword.length < 2 || noiseWords.includes(cleanKeyword)) {
@@ -1772,131 +1870,61 @@ const App = () => {
             return;
         }
 
-        // Parse optional page identifier: [[Keyword|Page 5]] or [[Keyword|P.5]]
-        let targetPage = null;
-        let targetDocId = null; // Moved up to avoid TDZ
+        // Parse citation: [[Term|Page|DocName]]
+        let targetPage = 1;
+        let targetDocId = null;
         let cleanText = keyword;
 
         if (keyword.includes('|')) {
             const parts = keyword.split('|');
             cleanText = parts[0].trim();
-            const pageStr = parts[1].trim();
 
-            // Part 3: Document Name (Optional but recommended)
+            // Parse page number
+            if (parts.length > 1) {
+                const pageStr = parts[1].trim();
+                const pageMatch = pageStr.match(/(\d+)/);
+                if (pageMatch) {
+                    targetPage = parseInt(pageMatch[1]);
+                }
+            }
+
+            // Parse document name
             if (parts.length > 2) {
                 const docName = parts[2].trim();
-                console.log(`Citation includes docName: ${docName}`);
-
-                // Relaxed Match: Check if one includes the other (handles "file.pdf" vs "file.pdf ")
                 const targetDoc = documents.find(d =>
                     d.name.includes(docName) || docName.includes(d.name)
                 );
-
                 if (targetDoc) {
                     targetDocId = targetDoc.id;
-                    console.log(`Found target doc ID: ${targetDocId}`);
-                } else {
-                    console.log(`Target doc not found in open documents: ${docName}`);
                 }
             }
-
-            const pageMatch = pageStr.match(/(\d+)/);
-            if (pageMatch) {
-                targetPage = parseInt(pageMatch[1]);
-                console.log(`Navigating to page ${targetPage} for citation: ${cleanText}`);
-            }
         }
 
-        // 1. Check if it's a pure page navigation (e.g. "Page 2" or "2페이지")
-        const pageMatch = cleanText.match(/(?:Page|페이지)\s*(\d+)/i);
-        if (pageMatch) {
-            const pageNum = parseInt(pageMatch[1]);
-            if (activeDoc && pageNum >= 1 && pageNum <= (activeDoc.totalPages || 1)) {
-                goToPage(pageNum);
-                return;
-            }
-        }
-
-        // 2. Check if it matches a document name (Direct or in Parenthesis)
-        // Pattern: "Topic (DocName P.1)" or just "DocName"
-
-        // Check for (DocName P.x) pattern
-
-        // Check for (DocName P.x) pattern
-        const hintMatch = cleanText.match(/\((.*?)(?:\s+P\.?(\d+))?\)$/i);
-        if (hintMatch) {
-            const docHint = hintMatch[1].trim();
-            const pageHint = hintMatch[2] ? parseInt(hintMatch[2]) : null;
-
-            // Try to find doc matching the hint
-            const docMatch = documents.find(d =>
-                d.name.toLowerCase().includes(docHint.toLowerCase()) ||
-                docHint.toLowerCase().includes(d.name.toLowerCase())
-            );
-
-            if (docMatch) {
-                targetDocId = docMatch.id;
-                if (pageHint) targetPage = pageHint;
-
-                // Strip the hint from search term for cleaner highlighting
-                cleanText = cleanText.replace(hintMatch[0], '').trim();
-                console.log(`[Citation] Found extraction hint. Doc: ${docMatch.name}, Page: ${targetPage}, CleanTerm: ${cleanText}`);
-            }
-        }
-
-        if (!targetDocId) {
-            // Direct Doc Name Match (original logic)
-            const docMatch = documents.find(d =>
-                d.name.toLowerCase().includes(cleanText.toLowerCase()) ||
-                cleanText.toLowerCase().includes(d.name.toLowerCase())
-            );
-            if (docMatch) targetDocId = docMatch.id;
+        // If no doc specified, use active document
+        if (!targetDocId && activeDoc) {
+            targetDocId = activeDoc.id;
         }
 
         if (targetDocId) {
-            setActiveDocId(targetDocId);
-            if (targetPage) setActivePage(targetPage);
-            else setActivePage(1);
+            // Set cited doc and switch sidebar to PDF mode
+            setCitedDoc({
+                docId: targetDocId,
+                page: targetPage,
+                term: cleanText
+            });
+            setRightSidebarMode('pdf');
 
-            // If we extracted a clean term, also set it for highlighting
-            if (cleanText && cleanText.length > 2) {
-                setSearchTerm(cleanText);
-                // Don't auto-click result if we already navigated to correct doc/page
-                // But DO queue auto-selection for highlighting if on specific page
-                if (targetPage) {
-                    setSearchPreferPage(targetPage); // Boost ranking for this page
-                    setAutoSelectOnPage(targetPage);
-                }
+            // Open right sidebar if closed
+            if (!rightSidebarOpen) {
+                setRightSidebarOpen(true);
             }
-            return;
-        }
-        // If we have an explicit page number but no document match, 
-        // assume it refers to the current document and jump there.
-        if (targetPage && activeDoc) {
-            goToPage(targetPage);
-            setSearchPreferPage(targetPage); // Boost ranking for this page
-            if (cleanText && cleanText.length > 1) {
-                setSearchTerm(cleanText);
-                // Queue auto-selection for the best result ON THIS PAGE
-                setAutoSelectOnPage(targetPage);
-            }
-            return;
-        }
 
-        // 3. Fallback to searching the term
-        // Force 'all' scope to ensure we find content across documents
-        setSearchScope('all');
-
-        if (targetPage) {
-            // Prioritize results on this page, but don't jump yet
-            setSearchPreferPage(targetPage);
+            console.log(`Opening PDF viewer for doc ${targetDocId}, page ${targetPage}`);
         } else {
-            setSearchPreferPage(null);
+            console.warn('No matching document found for citation');
         }
-
-        setSearchTerm(cleanText);
-        setAutoSelectFirstResult(true);
     };
+
 
     // Auto-select first result when triggered by citation click (Legacy/Fallback)
     useEffect(() => {
@@ -1948,6 +1976,9 @@ const App = () => {
                 <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#f4f1ea]">
                     {!sidebarCollapsed && (
                         <div className="flex items-center gap-2">
+                            <button onClick={() => navigate('/')} className="p-1 -ml-1 hover:bg-[#e5e1d8] rounded-md text-[#5d5d5d] transition-colors" title="Home">
+                                <Home size={16} />
+                            </button>
                             <span className="text-sm font-serif font-bold text-[#5d5d5d]">Drawings Analyzer</span>
                             <span className="text-[10px] text-[#a0a0a0] bg-[#e5e1d8] px-1.5 py-0.5 rounded-full">v{VERSION}</span>
                         </div>
@@ -2112,6 +2143,9 @@ const App = () => {
                                 {doc.ocrData ? <FileCheck size={14} className={isActive ? docColor.text : "text-emerald-500"} /> : doc.pdfTextData ? <FileText size={14} className={isActive ? docColor.text : "text-amber-500"} /> : <FileX size={14} className={isActive ? docColor.text : "text-red-500"} />}
                                 <span className="max-w-32 truncate">{doc.name}</span>
                                 {doc.totalPages > 1 && <span className="text-[10px] opacity-70">({doc.totalPages}p)</span>}
+                                {!doc.ocrData && !analysisState.isAnalyzing && (
+                                    <button onClick={(e) => { e.stopPropagation(); reindexDocument(doc); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#0078d4] hover:text-[#0063b1] transition-all" title="재인덱싱"><RotateCw size={12} /></button>
+                                )}
                                 <button onClick={(e) => { e.stopPropagation(); closeDocument(doc.id); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#a0a0a0] hover:text-red-500 transition-all"><X size={12} /></button>
                             </div>
                         )
@@ -2341,7 +2375,7 @@ const App = () => {
                 </div>
             </div>
 
-            {/* Right Sidebar (Chat) */}
+            {/* Right Sidebar (Chat / PDF Viewer) */}
             <div
                 className={`border-l border-[#e5e1d8] bg-white overflow-hidden flex flex-col relative ${!isResizing ? 'transition-[width] duration-300' : ''}`}
                 style={{ width: rightSidebarOpen ? sidebarWidth : 0 }}
@@ -2354,7 +2388,15 @@ const App = () => {
                 />
 
                 <div style={{ width: sidebarWidth }} className="h-full">
-                    <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} onCitationClick={handleCitationClick} />
+                    {rightSidebarMode === 'chat' ? (
+                        <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} onCitationClick={handleCitationClick} />
+                    ) : (
+                        <PDFViewer
+                            doc={citedDoc}
+                            documents={documents}
+                            onClose={() => setRightSidebarMode('chat')}
+                        />
+                    )}
                 </div>
             </div>
 

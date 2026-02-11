@@ -92,6 +92,17 @@ fields = [
         name="metadata_storage_path",
         type=SearchFieldDataType.String,
         filterable=True
+    ),
+    SearchField(
+        name="coords",
+        type=SearchFieldDataType.String,
+        filterable=True
+    ),
+    SearchField(
+        name="type",
+        type=SearchFieldDataType.String,
+        filterable=True,
+        facetable=True
     )
 ]
 

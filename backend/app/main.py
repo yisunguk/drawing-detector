@@ -17,7 +17,7 @@ app = FastAPI(
 )
 
 print(f"Backend '{settings.PROJECT_NAME}' starting up...")
-print(f"🚀 Test deployment verification - Deployed at: 2026-02-02 09:30 (Permission Fix Retry - Real Commit)")
+print("Test deployment verification - Deployed at: 2026-02-02 09:30 (Permission Fix Retry - Real Commit)")
 
 # @app.middleware("http")
 # async def log_requests(request, call_next):
@@ -28,8 +28,10 @@ print(f"🚀 Test deployment verification - Deployed at: 2026-02-02 09:30 (Permi
 # Set all CORS enabled origins
 # Always enable CORS with explicit origins
 cors_origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
+    "http://localhost:5173",  # Vite Dev Server
+    "http://localhost:3000",  # React Dev Server
+    "http://localhost:5000",  # Flask Default
+    "http://localhost:8000",  # FastAPI Local
     "https://drawing-detecter.web.app",
     "https://drawing-detecter.firebaseapp.com",
 ]
