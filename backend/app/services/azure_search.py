@@ -44,8 +44,8 @@ class AzureSearchService:
         if not self.embedding_client:
             return None
         try:
-            # Truncate to ~8000 tokens worth of text (rough char estimate)
-            truncated = text[:24000] if len(text) > 24000 else text
+            # Truncate to ~8000 tokens (Korean ≈ 1.5 chars/token, so ~12000 chars)
+            truncated = text[:12000] if len(text) > 12000 else text
             response = self.embedding_client.embeddings.create(
                 input=truncated,
                 model=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
@@ -115,12 +115,21 @@ class AzureSearchService:
             normalized_coords = []
             if raw_coords and isinstance(raw_coords, list):
                 # Simple normalization (Azure DI units / Layout units)
-                # raw_coords [x1, y1, x2, y2, ...]
-                for i, val in enumerate(raw_coords):
-                    if i % 2 == 0: # X
-                        normalized_coords.append(round(val / width, 4))
-                    else: # Y
-                        normalized_coords.append(round(val / height, 4))
+                # raw_coords [x1, y1, x2, y2, ...] or [[x1,y1],[x2,y2],...]
+                try:
+                    flat_coords = []
+                    for item in raw_coords:
+                        if isinstance(item, (list, tuple)):
+                            flat_coords.extend(item)
+                        elif isinstance(item, (int, float)):
+                            flat_coords.append(item)
+                    for i, val in enumerate(flat_coords):
+                        if i % 2 == 0:  # X
+                            normalized_coords.append(round(val / width, 4))
+                        else:  # Y
+                            normalized_coords.append(round(val / height, 4))
+                except (TypeError, ValueError):
+                    normalized_coords = []
             
             # 3. Classify Type
             content_type = "text"

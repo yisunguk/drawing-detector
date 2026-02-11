@@ -111,7 +111,7 @@ fields = [
         name="content_vector",
         type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
         searchable=True,
-        vector_search_dimensions=1536,
+        vector_search_dimensions=3072,
         vector_search_profile_name="my-vector-profile",
     ),
 ]

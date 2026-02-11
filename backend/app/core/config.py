@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     AZURE_OPENAI_KEY: str = ""
     AZURE_OPENAI_API_VERSION: str = "2023-05-15"
     AZURE_OPENAI_DEPLOYMENT_NAME: str = "gpt-35-turbo"
-    AZURE_OPENAI_EMBEDDING_DEPLOYMENT: str = "text-embedding-3-small-kimyeji"
+    AZURE_OPENAI_EMBEDDING_DEPLOYMENT: str = "text-embedding-3-large-kimyeji"
 
     # Azure Blob Storage Settings
     AZURE_STORAGE_ACCOUNT_NAME: str = "encdevmkcsaaitest"
