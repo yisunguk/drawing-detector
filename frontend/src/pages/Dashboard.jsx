@@ -1084,7 +1084,8 @@ const App = () => {
                     filename: file.name,
                     total_pages: totalPages,
                     category: uploadCategory,
-                    username: userProfile?.name || currentUser?.displayName
+                    username: userProfile?.name || currentUser?.displayName,
+                    blob_name: blob_name
                 })
             });
 

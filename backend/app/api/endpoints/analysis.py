@@ -452,17 +452,17 @@ async def start_robust_analysis_task(
     total_pages: int = Body(...),
     category: str = Body(...),
     username: str = Body(None),
-    force: bool = Body(False)
+    force: bool = Body(False),
+    blob_name: str = Body(None)
 ):
     """
     Triggers the Robust Analysis Loop in the background.
     Downloads PDF to /tmp once, then passes local path to avoid redundant downloads.
     """
     try:
-        # Match the upload path from upload-sas endpoint
-        # Files are uploaded to /temp/, analysis reads from there
-        # finalize_analysis will move to /{category}/ after completion
-        blob_name = f"{username}/temp/{filename}" if username else f"temp/{filename}"
+        # Use provided blob_name from upload-sas, or fall back to temp path
+        if not blob_name:
+            blob_name = f"{username}/temp/{filename}" if username else f"temp/{filename}"
         
         # Verify file exists
         container_client = get_container_client()
