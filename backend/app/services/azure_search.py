@@ -39,21 +39,24 @@ class AzureSearchService:
             except Exception as e:
                 logger.error(f"Failed to initialize embedding client: {e}")
 
-    def _generate_embedding(self, text: str) -> list | None:
-        """Generate embedding vector for text using Azure OpenAI. Returns None on failure."""
+    # Zero vector fallback (3072 dimensions for text-embedding-3-large)
+    _ZERO_VECTOR = [0.0] * 3072
+
+    def _generate_embedding(self, text: str) -> list:
+        """Generate embedding vector for text using Azure OpenAI. Returns zero vector on failure."""
         if not self.embedding_client:
-            return None
+            return self._ZERO_VECTOR
         try:
-            # Truncate to ~8000 tokens (Korean ≈ 1.5 chars/token, so ~12000 chars)
-            truncated = text[:12000] if len(text) > 12000 else text
+            # Truncate to ~8000 tokens (Korean with tables ≈ 1.5-2.0 chars/token for mixed content)
+            truncated = text[:5500] if len(text) > 5500 else text
             response = self.embedding_client.embeddings.create(
                 input=truncated,
                 model=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
             )
             return response.data[0].embedding
         except Exception as e:
-            logger.warning(f"Embedding generation failed: {e}")
-            return None
+            logger.warning(f"Embedding generation failed, using zero vector: {e}")
+            return self._ZERO_VECTOR
 
     def index_documents(self, filename: str, category: str, pages_data: list, blob_name: str = None):
         """
@@ -72,7 +75,10 @@ class AzureSearchService:
                 user_id = parts[0]  # First folder = user name
 
         documents = []
-        for page in pages_data:
+        total_pages = len(pages_data)
+        for page_idx, page in enumerate(pages_data):
+            if (page_idx + 1) % 100 == 0 or page_idx == 0:
+                print(f"[AzureSearch] Preparing doc {page_idx+1}/{total_pages} (embedding)...", flush=True)
             # Create a unique ID for each page
             # MATCH USER LOGIC: base64(blob_path + page_number)
             page_num = page.get("page_number", 0)
@@ -164,7 +170,7 @@ class AzureSearchService:
             current_batch_size = 0
 
             total_docs = len(documents)
-            print(f"[AzureSearch] Starting batch indexing for {total_docs} documents...")
+            print(f"[AzureSearch] Starting batch indexing for {total_docs} documents...", flush=True)
 
             for i, doc in enumerate(documents):
                 # Optimize Payload: Truncate content_exact (if field exists)
@@ -187,7 +193,7 @@ class AzureSearchService:
             if current_batch:
                 self._upload_batch_with_retry(current_batch)
                 
-            print(f"[AzureSearch] Completed indexing for {filename}.")
+            print(f"[AzureSearch] Completed indexing for {filename}.", flush=True)
             return True
 
     def _format_tables_markdown(self, tables: list) -> str:
@@ -235,10 +241,10 @@ class AzureSearchService:
                     failed = [r for r in result if not r.succeeded]
                     logger.warning(f"Partial indexing failure: {len(failed)} docs failed in batch.")
                 
-                print(f"[AzureSearch] Indexed batch of {len(batch)} documents.")
+                print(f"[AzureSearch] Indexed batch of {len(batch)} documents.", flush=True)
                 return
             except Exception as e:
-                print(f"[AzureSearch] Batch upload failed (Attempt {attempt+1}/{max_retries}): {e}")
+                print(f"[AzureSearch] Batch upload failed (Attempt {attempt+1}/{max_retries}): {e}", flush=True)
                 if attempt < max_retries - 1:
                     time.sleep(2 ** (attempt + 1))  # Exponential backoff: 2, 4, 8 sec
                 else:

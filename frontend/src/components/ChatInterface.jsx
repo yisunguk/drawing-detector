@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, Loader2, Sparkles, AlertCircle, RefreshCcw, Search, MessageSquare, List, ChevronRight } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, AlertCircle, RefreshCcw, List } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { db, auth } from '../firebase';
@@ -11,8 +11,6 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
     const [messages, setMessages] = useState([
         { role: 'assistant', content: '안녕하세요! 도면에 대해 궁금한 점을 물어보세요.' }
     ]);
-    const [searchResults, setSearchResults] = useState([]); // NEW: Store raw search results
-    const [searchMode, setSearchMode] = useState('chat'); // NEW: 'chat' or 'search'
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef(null);
@@ -182,13 +180,6 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
-        // Capture current mode and ensure we switch to chat UI if sending a message
-        // If the user types in the chat box, we nearly always want a chat response.
-        const targetMode = searchMode;
-        if (targetMode === 'search') {
-            setSearchMode('chat'); // Switch UI to chat
-        }
-
         const userMessage = input.trim();
         setInput('');
         setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
@@ -239,24 +230,13 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                     context: context,
                     filename: activeDoc?.name,
                     doc_ids: docIds,
-                    mode: targetMode
+                    mode: 'chat'
                 }),
             });
 
             if (!response.ok) throw new Error('Network response was not ok');
 
             const data = await response.json();
-
-            if (targetMode === 'search') {
-                setSearchResults(data.results || []);
-                // If we were in search mode, we might want to switch BACK to search mode 
-                // if the user sent a search query. But since we forced UI to 'chat', 
-                // maybe we should have stayed in 'search'?
-                // For now, if it was search mode, we set search results and stay in search.
-                setSearchMode('search');
-                setIsLoading(false);
-                return;
-            }
 
             // Chat Mode Handling
             if (data.response) {
@@ -318,31 +298,9 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
 
     return (
         <div className="flex flex-col h-full bg-white">
-            {/* Chat Header with Tabs */}
+            {/* Chat Header */}
             <div className="p-3 border-b border-[#e5e1d8] bg-[#fcfaf7] flex items-center justify-between">
-                <div className="flex bg-[#f0eee6] p-1 rounded-lg">
-                    <button
-                        onClick={() => setSearchMode('chat')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${searchMode === 'chat'
-                            ? 'bg-white text-[#d97757] shadow-sm'
-                            : 'text-gray-500 hover:text-gray-700'
-                            }`}
-                    >
-                        <MessageSquare size={14} />
-                        AI 질의응답
-                    </button>
-                    <button
-                        onClick={() => setSearchMode('search')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${searchMode === 'search'
-                            ? 'bg-white text-[#d97757] shadow-sm'
-                            : 'text-gray-500 hover:text-gray-700'
-                            }`}
-                    >
-                        <Search size={14} />
-                        키워드 검색
-                    </button>
-                </div>
-
+                <span className="text-xs font-semibold text-[#d97757]">AI Chat</span>
                 <div className="flex items-center gap-2">
                     {/* Reset Button */}
                     <button
@@ -356,8 +314,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
             </div>
 
             {/* Content Area */}
-            <div className={`flex-1 overflow-y-auto p-4 space-y-4 ${searchMode === 'chat' ? 'bg-[#f9f8f6]' : 'bg-white'}`}>
-                {searchMode === 'chat' ? (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#f9f8f6]">
                     <>
                         {messages.map((msg, idx) => (
                             <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
@@ -470,129 +427,30 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                         )}
                         <div ref={messagesEndRef} />
                     </>
-                ) : (
-                    // START SEARCH RESULTS (List View)
-                    <div className="space-y-4 max-w-3xl mx-auto">
-                        <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-2">
-                            <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                                <List size={16} className="text-[#d97757]" />
-                                검색 결과 {searchResults.length > 0 && `(${searchResults.length})`}
-                            </h3>
-                        </div>
-
-                        {searchResults.length === 0 && !isLoading && (
-                            <div className="flex flex-col items-center justify-center h-64 text-gray-400 text-sm">
-                                <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-                                    <Search size={32} className="opacity-10 text-gray-900" />
-                                </div>
-                                <p className="font-medium text-gray-500">검색결과가 없습니다.</p>
-                                <p className="text-xs mt-1">키워드를 입력하고 검색을 시작하세요.</p>
-                            </div>
-                        )}
-
-                        <div className="grid gap-3">
-                            {searchResults.map((res, idx) => (
-                                <div
-                                    key={idx}
-                                    className="bg-white p-4 rounded-xl border border-[#e5e1d8] hover:border-[#d97757] hover:shadow-md transition-all cursor-pointer group relative overflow-hidden"
-                                    onClick={() => {
-                                        if (onCitationClick) {
-                                            onCitationClick(`${res.content}|${res.page}|${res.filename}|${res.coords || ''}|${res.type || ''}`);
-                                        }
-                                    }}
-                                >
-                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#d97757] opacity-0 group-hover:opacity-100 transition-opacity" />
-
-                                    <div className="flex justify-between items-start mb-2">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-6 h-6 rounded bg-orange-50 flex items-center justify-center text-[#d97757]">
-                                                <Sparkles size={12} />
-                                            </div>
-                                            <h4 className="font-bold text-gray-800 text-sm truncate max-w-[200px]">
-                                                {res.filename}
-                                            </h4>
-                                        </div>
-                                        <span className="text-[10px] font-bold bg-[#d97757]/10 text-[#d97757] px-2 py-0.5 rounded-full border border-[#d97757]/20">
-                                            Page {res.page}
-                                        </span>
-                                    </div>
-
-                                    <p className="text-xs text-[#555555] line-clamp-3 leading-relaxed mb-3">
-                                        {res.content}
-                                    </p>
-
-                                    <div className="flex justify-between items-center pt-2 border-t border-gray-50">
-                                        <div className="flex items-center gap-1.5">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                                            <span className="text-[10px] text-gray-400 uppercase tracking-tighter">Match Score: {res.score?.toFixed(2)}</span>
-                                        </div>
-                                        <button className="text-[10px] font-bold text-blue-600 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
-                                            도면 보기 <ChevronRight size={10} />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {isLoading && (
-                            <div className="flex flex-col items-center justify-center py-12">
-                                <Loader2 size={28} className="animate-spin text-[#d97757] mb-3" />
-                                <p className="text-xs text-gray-500 animate-pulse">검색 중입니다...</p>
-                            </div>
-                        )}
-                    </div>
-                )}
             </div>
 
 
             {/* Input Area */}
             <div className="p-4 bg-white border-t border-[#e5e1d8]">
-                {searchMode === 'chat' ? (
-                    <div className="relative">
-                        <textarea
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder={activeDoc ? "Ask about this document..." : "Ask about all your documents..."}
-                            className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all resize-none h-[50px] max-h-[120px] overflow-y-auto placeholder-[#a0a0a0]"
-                            disabled={isLoading || (!activeDoc && chatScope !== 'all')}
-                        />
-                        <button
-                            onClick={handleSend}
-                            disabled={!input.trim() || isLoading || (!activeDoc && chatScope !== 'all')}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#d97757] text-white rounded-lg hover:bg-[#c05535] disabled:opacity-50 disabled:hover:bg-[#d97757] transition-colors"
-                        >
-                            <Send size={14} />
-                        </button>
-                    </div>
-                ) : (
-                    <div className="max-w-3xl mx-auto flex items-center gap-2">
-                        <div className="relative flex-1">
-                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                                <Search size={16} />
-                            </div>
-                            <input
-                                type="text"
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                placeholder="키워드를 입력하여 관련 도면을 찾으세요..."
-                                className="w-full bg-white border-2 border-gray-100 rounded-full py-2.5 pl-11 pr-4 text-sm focus:outline-none focus:border-[#d97757] focus:ring-4 focus:ring-[#d97757]/10 transition-all placeholder-gray-400 shadow-sm"
-                                disabled={isLoading}
-                            />
-                        </div>
-                        <button
-                            onClick={handleSend}
-                            disabled={!input.trim() || isLoading}
-                            className="px-6 py-2.5 bg-[#d97757] text-white text-xs font-bold rounded-full hover:bg-[#c05535] disabled:opacity-50 shadow-md shadow-[#d97757]/20 transition-all flex items-center gap-2"
-                        >
-                            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                            검색하기
-                        </button>
-                    </div>
-                )}
+                <div className="relative">
+                    <textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder={activeDoc ? "Ask about this document..." : "Ask about all your documents..."}
+                        className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all resize-none h-[50px] max-h-[120px] overflow-y-auto placeholder-[#a0a0a0]"
+                        disabled={isLoading || (!activeDoc && chatScope !== 'all')}
+                    />
+                    <button
+                        onClick={handleSend}
+                        disabled={!input.trim() || isLoading || (!activeDoc && chatScope !== 'all')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#d97757] text-white rounded-lg hover:bg-[#c05535] disabled:opacity-50 disabled:hover:bg-[#d97757] transition-colors"
+                    >
+                        <Send size={14} />
+                    </button>
+                </div>
 
-                {searchMode === 'chat' && (!activeDoc && chatScope !== 'all') && (
+                {(!activeDoc && chatScope !== 'all') && (
                     <div className="mt-2 flex items-center gap-1.5 text-[10px] text-amber-600 bg-amber-50 px-2 py-1 rounded-md border border-amber-100">
                         <AlertCircle size={12} />
                         <span>Please select a document to start chatting</span>
