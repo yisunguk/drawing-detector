@@ -325,13 +325,19 @@ const KnowhowDB = () => {
 
             await uploadToAzure(upload_url, file, (percent) => setAnalysisStatus(`Uploading... ${percent}%`));
 
-            setAnalysisStatus('Waiting for analysis to start...');
-            // Backend BlobMonitor will auto-trigger analysis when file is detected
+            setAnalysisStatus('Starting analysis...');
+            await startAnalysis(file.name, totalPages, username, 'my_documents');
 
-            // Poll for status (will pick up once backend starts processing)
+            // Poll for status
             await pollAnalysisStatus(file.name, (statusData) => {
                 if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
-                    setAnalysisStatus(`Processing... ${statusData.completed_chunks?.length || 0} chunks done`);
+                    const completedChunks = statusData.completed_chunks || [];
+                    let pagesCompleted = 0;
+                    for (const chunkRange of completedChunks) {
+                        const [start, end] = chunkRange.split('-').map(Number);
+                        pagesCompleted += (end - start + 1);
+                    }
+                    setAnalysisStatus(`Processing... (${pagesCompleted}/${totalPages} pages)`);
                 }
             }, totalPages);
 
