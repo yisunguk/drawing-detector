@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import re
 from openai import AzureOpenAI
+from azure.search.documents.models import VectorizedQuery
 from app.core.config import settings
 from app.core.firebase_admin import verify_id_token
 
@@ -47,6 +48,8 @@ async def chat(
 ):
     try:
         context_text = ""
+        page_doc_map = {}
+        results_list = []
 
         # 1. If context is explicitly provided, use it (backward compatibility)
         if request.context:
@@ -234,222 +237,68 @@ async def chat(
                     results=results
                 )
 
-            # Query the index with combined filter (USER ISOLATION + DOC_IDS)
+            # ---------------------------------------------------------
+            # MODE: CHAT — Hybrid Search (Vector + Keyword)
+            # ---------------------------------------------------------
+            # Generate query embedding for vector search
+            query_vector = None
+            try:
+                from app.services.azure_search import azure_search_service as _search_svc
+                query_vector = _search_svc._generate_embedding(search_query)
+            except Exception as e:
+                print(f"[Chat] Warning: Query embedding failed: {e}. Falling back to keyword-only.")
+
+            vector_queries = []
+            if query_vector:
+                vector_queries.append(
+                    VectorizedQuery(
+                        vector=query_vector,
+                        k_nearest_neighbors=15,
+                        fields="content_vector",
+                    )
+                )
+
             search_results = azure_search_service.client.search(
                 search_text=search_query,
                 filter=search_filter,
-                top=100,  # HIGH: Ensure lower-ranked docs are included
-                select=["content", "source", "page", "title", "category", "user_id", "blob_path", "coords", "type"]
+                vector_queries=vector_queries if vector_queries else None,
+                top=15,
+                select=["content", "source", "page", "title", "category", "user_id", "blob_path", "coords", "type"],
             )
-            
-            # Build context from search results (Search-to-JSON)
+
             results_list = list(search_results)
-            print(f"[Chat] Raw Search Results Count: {len(results_list)}")
-            
-            # NEW: Python-side filtering by doc_ids (avoids Azure OData Korean issues)
+            print(f"[Chat] Hybrid Search Results Count: {len(results_list)}")
+
+            # Python-side filtering by doc_ids (avoids Azure OData Korean issues)
             if request.doc_ids and len(request.doc_ids) > 0:
                 print(f"[Chat] Filtering results by doc_ids: {request.doc_ids}")
-                print(f"[Chat] DEBUG - doc_ids repr: {repr(request.doc_ids)}")
-                for idx, doc_id in enumerate(request.doc_ids):
-                    print(f"[Chat] DEBUG - doc_ids[{idx}] = {repr(doc_id)}")
                 filtered_results = []
                 for result in results_list:
                     source_filename = result.get('source', '')
-                    # Check if source matches any doc_id (handle .pdf and .pdf.pdf variants)
                     for doc_id in request.doc_ids:
-                        # Match: exact, with .pdf, or with .pdf.pdf
-                        if (source_filename == doc_id or 
-                            source_filename == f"{doc_id}.pdf" or 
-                            source_filename == f"{doc_id}.pdf.pdf" or
-                            source_filename == doc_id.replace('.pdf', '') or
-                            source_filename == f"{doc_id.replace('.pdf', '')}.pdf.pdf"):
+                        base_name = doc_id.replace('.pdf', '')
+                        src_base = source_filename.replace('.pdf', '')
+                        if src_base == base_name or source_filename == doc_id:
                             filtered_results.append(result)
                             break
                 results_list = filtered_results
                 print(f"[Chat] Filtered Results Count: {len(results_list)}")
-            
+
             if not results_list:
                 context_text = "No relevant documents found in the index."
                 print("[Chat] No results found in Azure Search.")
             else:
-                from app.services.blob_storage import get_container_client
-                import json
-                
-                print(f"[Chat] Found {len(results_list)} search results. Fetching JSON contexts...")
-                container_client = get_container_client()
-                
-                # Cache fetched JSONs to avoid repeated downloads for same file
-                json_cache = {} 
-                
-                # NEW: Map for Citation Post-processing
-                # Maps Page Number -> Document Name to auto-fix citations
-                page_doc_map = {}
-                
+                # Build context directly from the search index content field
+                # (content already includes table markdown from indexing)
                 for idx, result in enumerate(results_list):
                     source_filename = result.get('source', 'Unknown')
                     target_page = int(result.get('page', 0))
-                    result_user_id = result.get('user_id', safe_user_id)
-                    result_user_id = result.get('user_id', safe_user_id)
-                    blob_path = result.get('blob_path')
-                    
-                    # Store mapping: Page Number -> Document Name
-                    # This allows us to inject the document name into citations later
+
                     if target_page > 0:
                         page_doc_map[target_page] = source_filename
 
-                    print(f"[Chat] Processing Result #{idx+1}: {source_filename} (Page {target_page}) | BlobPath: {blob_path} | User: {result_user_id}")
-                    
-                    # Robust Path Derivation using 'blob_path' from Index
-                    blob_path = result.get('blob_path')
-                    candidates = []
-                    
-                    if blob_path:
-                        # Strategy 1: Infer from blob_path (Best)
-                        # e.g. "User/drawings/file.pdf" -> "User/json/file.json"
-                        # e.g. "User/documents/file.pdf" -> "User/json/file.json"
-                        
-                        path_parts = blob_path.split('/')
-                        if len(path_parts) >= 2:
-                             user_dir = path_parts[0]
-                             category_dir = path_parts[1] # e.g. 'drawings', 'documents', 'spec'
-                             filename_raw = path_parts[-1]
-                             
-                             # Check extension
-                             base_name = filename_raw
-                             if base_name.lower().endswith('.pdf'):
-                                 base_name = base_name[:-4]
-
-                             # Candidate 1: User/json/File.json
-                             candidates.append(f"{user_dir}/json/{base_name}.json")
-                             candidates.append(f"{user_dir}/json/{filename_raw}.json")
-                             candidates.append(f"{user_dir}/json/{filename_raw}.pdf.json")
-                             
-                             # Candidate 2: Try replacing category dir directly (e.g. User/documents -> User/json)
-                             if category_dir != 'json':
-                                json_path_1 = blob_path.replace(f"/{category_dir}/", "/json/")
-                                # Adjust extension
-                                if json_path_1.lower().endswith('.pdf'):
-                                    candidates.append(json_path_1[:-4] + ".json")
-                                    candidates.append(json_path_1 + ".json") # .pdf.json
-                                else:
-                                    candidates.append(json_path_1 + ".json")
-
-                    # Strategy 2: Fallback to token user_id
-
-                    # Strategy 2: Fallback to token user_id (Old method)
-                    result_user_id = result.get('user_id', safe_user_id)
-                    base_name = source_filename
-                    if base_name.lower().endswith('.pdf'):
-                         base_name = base_name[:-4]
-                    
-                    candidates.append(f"{result_user_id}/json/{base_name}.json")
-                    candidates.append(f"{result_user_id}/json/{source_filename}.json")
-                    
-                    file_json_data = None
-                    
-                    # Check Cache first
-                    for cand in candidates:
-                        if cand in json_cache:
-                            file_json_data = json_cache[cand]
-                            break
-                            
-                    # If not in cache, try download
-                    if not file_json_data:
-                        for path in candidates:
-                            try:
-                                blob_client = container_client.get_blob_client(path)
-                                if blob_client.exists():
-                                    print(f"[Chat] Downloading JSON: {path}")
-                                    download_stream = blob_client.download_blob()
-                                    json_text = download_stream.readall()
-                                    file_json_data = json.loads(json_text)
-                                    json_cache[path] = file_json_data # Cache it with the winning path
-                                    json_cache[cand] = file_json_data # Also cache with the requested candidate to hit faster? (optional)
-                                    break
-                            except Exception:
-                                continue # Try next candidate
-                    
-                    # 2. Extract Page Context
-                    if file_json_data:
-                        # Find the specific page in the JSON
-                        # JSON structure is usually a list of pages
-                        target_page_data = next((p for p in file_json_data if p.get('page_number') == target_page), None)
-                        
-                        if target_page_data:
-                            # Use Rich Markdown Formatting (Mirroring Frontend Logic)
-                            # Instead of raw JSON dump, we reconstruct the document structure.
-                            
-                            formatted_context = f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
-
-                            # 1. Add Text Lines (if available)
-                            # lines = target_page_data.get('lines', [])
-                            # if lines:
-                            #     for line in lines:
-                            #          content = line.get('content') or line.get('text', '')
-                            #          formatted_context += f"{content}\n"
-                            
-                            # Use full content string if lines not granular
-                            content_full = target_page_data.get('content', '')
-                            if content_full:
-                                formatted_context += f"{content_full}\n"
-
-                            # 2. Add Structured Tables (Crucial for Tab 2/Specs)
-                            tables = target_page_data.get('tables', [])
-                            if tables:
-                                formatted_context += f"\n[Structured Tables from Page {target_page}]\n"
-                                for t_idx, table in enumerate(tables):
-                                    formatted_context += f"\nTable {t_idx + 1}:\n"
-                                    
-                                    # Construct Grid
-                                    rows = table.get('rows')
-                                    row_count = table.get('row_count', 0)
-                                    col_count = table.get('column_count', 0)
-                                    
-                                    if rows and isinstance(rows, list):
-                                        # Use pre-built rows if available
-                                        grid = rows
-                                    else:
-                                        # Build from cells
-                                        # fallback if row_count is missing but cells exist
-                                        if row_count == 0 and table.get('cells'):
-                                             max_r = max((c.get('row_index',0) for c in table['cells']), default=0)
-                                             max_c = max((c.get('column_index',0) for c in table['cells']), default=0)
-                                             row_count, col_count = max_r + 1, max_c + 1
-
-                                        grid = [["" for _ in range(col_count)] for _ in range(row_count)]
-                                        
-                                        cells = table.get('cells', [])
-                                        for cell in cells:
-                                            r = cell.get('row_index', 0)
-                                            c = cell.get('column_index', 0)
-                                            if r < row_count and c < col_count:
-                                                clean_content = (cell.get('content') or "").replace("\n", " ")
-                                                grid[r][c] = clean_content
-
-                                    # Render Markdown Table
-                                    if grid:
-                                        # Header
-                                        header_row = grid[0] 
-                                        formatted_context += "| " + " | ".join(header_row) + " |\n"
-                                        formatted_context += "| " + " | ".join(["---"] * len(header_row)) + " |\n"
-                                        
-                                        # Body
-                                        for row in grid[1:]:
-                                            formatted_context += "| " + " | ".join(row) + " |\n"
-                                    
-                                    formatted_context += "\n"
-                            
-                            context_text += formatted_context
-                        else:
-                            # Fallback: Page not found in JSON? Use Search Index Content
-                            print(f"[Chat] Page {target_page} not found in JSON. Fallback to index text.")
-                            context_text += f"\n=== Text Context: {source_filename} (Page {target_page}) ===\n"
-                            context_text += result.get('content', '') + "\n"
-                    else:
-                        # Fallback: JSON not found? Use Search Index Content
-                        # print(f"[Chat] JSON not found for {source_filename}. Fallback to index text.")
-                        context_text += f"\n=== Text Context: {source_filename} (Page {target_page}) ===\n"
-                        context_text += result.get('content', '') + "\n"
+                    context_text += f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
+                    context_text += (result.get('content') or '') + "\n"
         
         # Truncate context if too long (increased to 100k for multi-file support)
         if len(context_text) > 100000:

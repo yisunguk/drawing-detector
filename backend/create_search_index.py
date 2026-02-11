@@ -13,7 +13,10 @@ from azure.search.documents.indexes.models import (
     SimpleField,
     SearchableField,
     SearchField,
-    SearchFieldDataType
+    SearchFieldDataType,
+    VectorSearch,
+    HnswAlgorithmConfiguration,
+    VectorSearchProfile,
 )
 from dotenv import load_dotenv
 
@@ -103,18 +106,38 @@ fields = [
         type=SearchFieldDataType.String,
         filterable=True,
         facetable=True
-    )
+    ),
+    SearchField(
+        name="content_vector",
+        type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+        searchable=True,
+        vector_search_dimensions=1536,
+        vector_search_profile_name="my-vector-profile",
+    ),
 ]
 
+# Vector search configuration
+vector_search = VectorSearch(
+    algorithms=[
+        HnswAlgorithmConfiguration(name="my-hnsw-config"),
+    ],
+    profiles=[
+        VectorSearchProfile(
+            name="my-vector-profile",
+            algorithm_configuration_name="my-hnsw-config",
+        ),
+    ],
+)
+
 # Create the index
-index = SearchIndex(name=INDEX_NAME, fields=fields)
+index = SearchIndex(name=INDEX_NAME, fields=fields, vector_search=vector_search)
 
 try:
     result = index_client.create_or_update_index(index)
-    print(f"✅ Index '{result.name}' created/updated successfully!")
+    print(f"[OK] Index '{result.name}' created/updated successfully!")
     print(f"\nIndex schema:")
     for field in result.fields:
         print(f"  - {field.name}: {field.type}")
 except Exception as e:
-    print(f"❌ Error creating index: {e}")
+    print(f"[ERROR] Error creating index: {e}")
     raise

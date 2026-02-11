@@ -516,14 +516,14 @@ async def start_robust_analysis_task(
         # Cleanup corrupted files if needed
         if should_reanalyze:
             print(f"[StartAnalysis] Cleaning up corrupted analysis files...")
-            
+
             # 1. Delete final JSON
             try:
                 json_blob.delete_blob()
                 print(f"[StartAnalysis] Deleted corrupted JSON: {json_path}")
             except Exception as e:
                 print(f"[StartAnalysis] Note: Could not delete JSON (may not exist): {e}")
-            
+
             # 2. Delete temp chunk JSONs (pattern: temp/json/{filename}_part_*)
             temp_json_prefix = f"{username}/temp/json/" if username else "temp/json/"
             base_filename = os.path.splitext(filename)[0]
@@ -539,40 +539,40 @@ async def start_robust_analysis_task(
                     print(f"[StartAnalysis] Deleted {deleted_count} temp chunk JSON files")
             except Exception as e:
                 print(f"[StartAnalysis] Cleanup warning: {e}")
-            
-                # 3. Reset status in status_manager
-                status_manager.reset_status(filename)
-                print(f"[StartAnalysis] Reset analysis status for fresh start")
-            
-            else:
-                # [MODIFIED] Cache Hit Logic
-                # If we have a valid JSON and decided NOT to re-analyze:
-                # 1. Ensure status is 'completed' with correct json_location
-                # 2. Trigger RE-INDEXING in background (Critical: Cache Hit skips analysis, so we must index explicitly)
-                # 3. Skip analysis loop
-                
-                print(f"[StartAnalysis] CACHE HIT: Skipping analysis, queuing background re-indexing.")
-                
-                # Update status
-                status_manager.mark_completed(filename, json_location=json_path)
-                
-                # Trigger Background Indexing (Re-index existing JSON)
-                from app.services.azure_search import azure_search_service
-                
-                # Construct FINAL blob path for indexing (e.g. username/drawings/file.pdf)
-                # This ensures the index points to the correct permanent location, not temp.
-                final_blob_name = f"{username}/{category}/{filename}" if username else f"{category}/{filename}"
-                
-                print(f"[StartAnalysis] Queuing background indexing for {final_blob_name} ({len(existing_pages)} pages)")
-                background_tasks.add_task(
-                    azure_search_service.index_documents,
-                    filename=filename, # Use original filename as Source
-                    category=category,
-                    pages_data=existing_pages,
-                    blob_name=final_blob_name
-                )
-                
-                return {"status": "started", "message": "Analysis skipped (cached), Re-indexing started in background"}
+
+            # 3. Reset status in status_manager
+            status_manager.reset_status(filename)
+            print(f"[StartAnalysis] Reset analysis status for fresh start")
+
+        else:
+            # [MODIFIED] Cache Hit Logic
+            # If we have a valid JSON and decided NOT to re-analyze:
+            # 1. Ensure status is 'completed' with correct json_location
+            # 2. Trigger RE-INDEXING in background (Critical: Cache Hit skips analysis, so we must index explicitly)
+            # 3. Skip analysis loop
+
+            print(f"[StartAnalysis] CACHE HIT: Skipping analysis, queuing background re-indexing.")
+
+            # Update status
+            status_manager.mark_completed(filename, json_location=json_path)
+
+            # Trigger Background Indexing (Re-index existing JSON)
+            from app.services.azure_search import azure_search_service
+
+            # Construct FINAL blob path for indexing (e.g. username/drawings/file.pdf)
+            # This ensures the index points to the correct permanent location, not temp.
+            final_blob_name = f"{username}/{category}/{filename}" if username else f"{category}/{filename}"
+
+            print(f"[StartAnalysis] Queuing background indexing for {final_blob_name} ({len(existing_pages)} pages)")
+            background_tasks.add_task(
+                azure_search_service.index_documents,
+                filename=filename, # Use original filename as Source
+                category=category,
+                pages_data=existing_pages,
+                blob_name=final_blob_name
+            )
+
+            return {"status": "started", "message": "Analysis skipped (cached), Re-indexing started in background"}
                 
         # ===== END AUTO RE-ANALYSIS =====
         

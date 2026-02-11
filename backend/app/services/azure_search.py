@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+from openai import AzureOpenAI
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 from app.core.config import settings
@@ -25,6 +26,34 @@ class AzureSearchService:
                 logger.error(f"Failed to initialize Azure Search Client: {e}")
         else:
             logger.warning("Azure Search credentials not found.")
+
+        # Embedding client (reuses the same Azure OpenAI endpoint)
+        self.embedding_client = None
+        if settings.AZURE_OPENAI_ENDPOINT and settings.AZURE_OPENAI_KEY:
+            try:
+                self.embedding_client = AzureOpenAI(
+                    azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+                    api_key=settings.AZURE_OPENAI_KEY,
+                    api_version=settings.AZURE_OPENAI_API_VERSION,
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize embedding client: {e}")
+
+    def _generate_embedding(self, text: str) -> list | None:
+        """Generate embedding vector for text using Azure OpenAI. Returns None on failure."""
+        if not self.embedding_client:
+            return None
+        try:
+            # Truncate to ~8000 tokens worth of text (rough char estimate)
+            truncated = text[:24000] if len(text) > 24000 else text
+            response = self.embedding_client.embeddings.create(
+                input=truncated,
+                model=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            logger.warning(f"Embedding generation failed: {e}")
+            return None
 
     def index_documents(self, filename: str, category: str, pages_data: list, blob_name: str = None):
         """
@@ -66,6 +95,9 @@ class AzureSearchService:
             if tables:
                 table_md = self._format_tables_markdown(tables)
                 content_text += f"\n\n[Structured Tables]\n{table_md}"
+
+            # 1b. Generate embedding vector for content
+            content_vector = self._generate_embedding(content_text)
 
             # 2. Extract representative coords (normalized 0.0-1.0)
             # We use the bounding box of the first line or first table as a fallback
@@ -109,7 +141,8 @@ class AzureSearchService:
                 "blob_path": blob_name,
                 "metadata_storage_path": f"https://{self.endpoint.split('//')[1].split('.')[0]}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{blob_name}" if blob_name and self.endpoint else "",
                 "coords": json.dumps(normalized_coords) if normalized_coords else None,
-                "type": content_type
+                "type": content_type,
+                "content_vector": content_vector,
             }
             documents.append(doc)
 
@@ -120,9 +153,7 @@ class AzureSearchService:
             
             current_batch = []
             current_batch_size = 0
-            
-            import json
-            
+
             total_docs = len(documents)
             print(f"[AzureSearch] Starting batch indexing for {total_docs} documents...")
 
@@ -154,7 +185,6 @@ class AzureSearchService:
         """
         Convert DI table objects into a Markdown string.
         """
-        import json
         md_output = ""
         for i, table in enumerate(tables):
             md_output += f"\nTable {i+1}:\n"
