@@ -1280,7 +1280,8 @@ const App = () => {
 
             // Poll status
             let isComplete = false;
-            const timeout = Date.now() + 5 * 60 * 1000; // 5 min timeout
+            const timeoutMs = Math.max(5, Math.ceil(totalPages / 50)) * 60 * 1000; // 1 min per 50 pages, min 5 min
+            const timeout = Date.now() + timeoutMs;
 
             while (!isComplete) {
                 if (Date.now() > timeout) throw new Error('재인덱싱 시간 초과');

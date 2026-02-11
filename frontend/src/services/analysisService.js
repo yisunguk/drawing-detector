@@ -115,12 +115,12 @@ export const reindexDocument = async (filename, totalPages, username, category =
 };
 
 // 4. Poll Status
-export const pollAnalysisStatus = async (filename, onStatus) => {
+export const pollAnalysisStatus = async (filename, onStatus, totalPages = 0) => {
     let isComplete = false;
     let result = null;
 
     const startTime = Date.now();
-    const timeout = 5 * 60 * 1000; // 5 minutes timeout
+    const timeout = Math.max(5, Math.ceil(totalPages / 50)) * 60 * 1000; // 1 min per 50 pages, min 5 min
 
     while (!isComplete) {
         if (Date.now() - startTime > timeout) {
