@@ -21,7 +21,7 @@ class BlobMonitor:
     
     def __init__(self):
         self.processing: Set[str] = set()  # Track files currently being processed
-        self.poll_interval = 30  # seconds
+        self.poll_interval = 300  # seconds (5 min - cost optimization)
         
     async def start_monitor(self):
         """Start the monitoring loop"""
