@@ -469,20 +469,26 @@ async def start_robust_analysis_task(
         if not blob_client.exists():
             raise HTTPException(status_code=404, detail=f"File not found: {blob_name}")
 
-        # Auto-detect page count when frontend sends placeholder (1)
+        # Safety net: auto-detect page count when frontend sends placeholder (1)
+        # Normally the frontend sends the correct count from pdf.js cache.
+        # This only runs as a fallback if pdf.js hasn't loaded the PDF yet.
         if total_pages <= 1:
-            try:
-                pdf_data = blob_client.download_blob().readall()
-                detected_pages = _count_pdf_pages(pdf_data)
-                del pdf_data  # Free memory immediately
-                if detected_pages > 0:
-                    print(f"[StartAnalysis] Auto-detected {detected_pages} pages (frontend sent {total_pages})")
-                    total_pages = detected_pages
-                else:
-                    print(f"[StartAnalysis] Page detection failed, using fallback 500")
+            blob_size = blob_client.get_blob_properties().size
+            if blob_size < 50 * 1024 * 1024:  # Only download for PDFs < 50MB
+                try:
+                    pdf_data = blob_client.download_blob().readall()
+                    detected_pages = _count_pdf_pages(pdf_data)
+                    del pdf_data
+                    if detected_pages > 0:
+                        print(f"[StartAnalysis] Auto-detected {detected_pages} pages (frontend sent {total_pages})")
+                        total_pages = detected_pages
+                    else:
+                        total_pages = 500
+                except Exception as e:
+                    print(f"[StartAnalysis] Page count detection error: {e}, using fallback 500")
                     total_pages = 500
-            except Exception as e:
-                print(f"[StartAnalysis] Page count detection error: {e}, using fallback 500")
+            else:
+                print(f"[StartAnalysis] Large PDF ({blob_size // 1024 // 1024}MB), skipping download for page count. Using fallback 500.")
                 total_pages = 500
 
         # ===== AUTO RE-ANALYSIS: Check for existing JSON and validate =====
@@ -711,17 +717,22 @@ async def reindex_document(
         if not found_path:
             raise HTTPException(status_code=404, detail=f"PDF not found in any location for {filename}")
 
-        # Auto-detect page count when frontend sends placeholder
+        # Safety net: auto-detect page count when frontend sends placeholder
         if total_pages <= 1:
             try:
                 found_blob = container_client.get_blob_client(found_path)
-                pdf_data = found_blob.download_blob().readall()
-                detected_pages = _count_pdf_pages(pdf_data)
-                del pdf_data
-                if detected_pages > 0:
-                    print(f"[Reindex] Auto-detected {detected_pages} pages (frontend sent {total_pages})")
-                    total_pages = detected_pages
+                blob_size = found_blob.get_blob_properties().size
+                if blob_size < 50 * 1024 * 1024:
+                    pdf_data = found_blob.download_blob().readall()
+                    detected_pages = _count_pdf_pages(pdf_data)
+                    del pdf_data
+                    if detected_pages > 0:
+                        print(f"[Reindex] Auto-detected {detected_pages} pages (frontend sent {total_pages})")
+                        total_pages = detected_pages
+                    else:
+                        total_pages = 500
                 else:
+                    print(f"[Reindex] Large PDF ({blob_size // 1024 // 1024}MB), using fallback 500")
                     total_pages = 500
             except Exception as e:
                 print(f"[Reindex] Page count detection error: {e}, using fallback 500")

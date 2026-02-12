@@ -1078,7 +1078,8 @@ const App = () => {
             setAnalysisState({ isAnalyzing: true, progress: 5, status: `${prefix}분석 요청 중...` });
             console.log("[Dashboard] Requesting Async Analysis from Backend...");
 
-            const totalPages = documents.find(d => d.id === docId)?.totalPages || 1;
+            // Use pdf.js cached page count (accurate) over document state (may be placeholder 1)
+            const totalPages = pdfCache.current[docId]?.numPages || documents.find(d => d.id === docId)?.totalPages || 1;
 
             // 3.1 Start Task
             const startRes = await fetch(`${API_URL}/api/v1/analyze/start`, {
@@ -1260,7 +1261,7 @@ const App = () => {
                 if (doc.blobPath.toLowerCase().includes('documents')) category = 'documents';
             }
 
-            const totalPages = doc.totalPages || 1;
+            const totalPages = pdfCache.current[doc.id]?.numPages || doc.totalPages || 1;
 
             // Show progress modal
             setAnalysisState({ isAnalyzing: true, progress: 0, status: '재인덱싱 요청 중...' });
