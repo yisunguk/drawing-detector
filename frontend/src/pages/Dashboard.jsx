@@ -792,60 +792,35 @@ const App = () => {
                     : doc.pdfUrl;
 
                 if (effectiveUrl) {
-                    // Try URL for Azure files first (Range Requests)
+                    // Download full file as ArrayBuffer then parse
+                    // (Range Requests disabled - backend uses chunked streaming without Content-Length)
+                    console.log('Loading PDF from URL:', effectiveUrl);
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2min timeout for large files
+
                     try {
-                        console.log('Loading PDF from URL with Range Requests:', effectiveUrl);
-                        const loadingTask = window.pdfjsLib.getDocument({
-                            url: effectiveUrl,
-                            rangeChunkSize: 65536,
-                            disableAutoFetch: true,
-                            disableStream: false,
-                        });
+                        const response = await fetch(effectiveUrl, { signal: controller.signal });
+                        clearTimeout(timeoutId);
+                        if (!response.ok) throw new Error(`PDF 다운로드 실패: ${response.status}`);
 
-                        loadingTask.onProgress = (progress) => {
-                            if (progress.total > 0) {
-                                setLoadingProgress({ current: progress.loaded, total: progress.total, type: 'download' });
-                            }
-                        };
+                        const arrayBuffer = await response.arrayBuffer();
+                        console.log(`PDF downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB`);
 
-                        // Add Timeout to prevent infinite loading (30 seconds)
-                        const timeoutPromise = new Promise((_, reject) =>
-                            setTimeout(() => reject(new Error('Timeout loading PDF via URL')), 30000)
-                        );
-
-                        pdf = await Promise.race([loadingTask.promise, timeoutPromise]);
-                        setLoadingProgress(null);
-                        console.log('✅ PDF loaded successfully via URL');
-                    } catch (urlError) {
-                        console.warn('⚠️ URL loading failed/timed out, falling back to full download:', urlError);
-                        setLoadingProgress(null);
-
-                        // Fallback: Download entire file as ArrayBuffer with Timeout
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-                        try {
-                            const response = await fetch(effectiveUrl, { signal: controller.signal });
-                            clearTimeout(timeoutId);
-                            if (!response.ok) throw new Error(`Failed to download PDF: ${response.status}`);
-
-                            // Validate Content-Type before parsing
-                            const contentType = response.headers.get('content-type') || '';
-                            const arrayBuffer = await response.arrayBuffer();
-
-                            // Check PDF magic bytes (%PDF-)
-                            const header = new Uint8Array(arrayBuffer.slice(0, 5));
-                            const headerStr = String.fromCharCode(...header);
-                            if (!headerStr.startsWith('%PDF-') && !contentType.includes('pdf')) {
-                                throw new Error('서버 응답이 PDF 형식이 아닙니다. 백엔드 연결을 확인해주세요.');
-                            }
-
-                            pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                            console.log('✅ PDF loaded via fallback ArrayBuffer');
-                        } catch (fallbackError) {
-                            clearTimeout(timeoutId);
-                            throw fallbackError;
+                        // Validate PDF magic bytes
+                        if (arrayBuffer.byteLength < 5) {
+                            throw new Error('다운로드된 파일이 비어있습니다.');
                         }
+                        const header = new Uint8Array(arrayBuffer.slice(0, 5));
+                        const headerStr = String.fromCharCode(...header);
+                        if (!headerStr.startsWith('%PDF-')) {
+                            throw new Error('서버 응답이 PDF 형식이 아닙니다. 백엔드 연결을 확인해주세요.');
+                        }
+
+                        pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                        console.log('✅ PDF loaded successfully');
+                    } catch (fetchError) {
+                        clearTimeout(timeoutId);
+                        throw fetchError;
                     }
                 } else if (doc.pdfData) {
                     // Use ArrayBuffer for local files

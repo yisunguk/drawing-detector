@@ -85,7 +85,7 @@ def download_file(path: str, range: str = Header(None)):
         status_code = 200
         headers = {
             "Accept-Ranges": "bytes",
-            # "Content-Length": str(file_size)  <-- REMOVED to force Chunked Transfer Encoding and bypass Cloud Run 32MB buffer limit
+            "Content-Length": str(file_size),
         }
         
         # Handle Range Header
