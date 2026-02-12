@@ -1973,17 +1973,15 @@ const App = () => {
                     if (bestMatch) {
                         setSelectedResult(bestMatch);
                         console.log(`Citation highlight: "${bestMatch.content}" on page ${targetPage}`);
-                        return;
                     }
                 }
             }
         }
 
-        // Fallback: use left sidebar search
+        // Always populate left sidebar search so user can see all results
         setSearchTerm(searchText);
         setSearchPreferPage(targetPage);
-        setAutoSelectFirstResult(true);
-        console.log(`Citation fallback search: "${searchText}" page ${targetPage}`);
+        console.log(`Citation → search: "${searchText}" page ${targetPage}`);
     };
 
 
