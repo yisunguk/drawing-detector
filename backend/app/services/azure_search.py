@@ -1,6 +1,8 @@
 import base64
 import json
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import AzureOpenAI
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
@@ -8,12 +10,13 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
 class AzureSearchService:
     def __init__(self):
         self.endpoint = settings.AZURE_SEARCH_ENDPOINT
         self.key = settings.AZURE_SEARCH_KEY
         self.index_name = settings.AZURE_SEARCH_INDEX_NAME
-        
+
         self.client = None
         if self.endpoint and self.key:
             try:
@@ -42,12 +45,15 @@ class AzureSearchService:
     # Zero vector fallback (3072 dimensions for text-embedding-3-large)
     _ZERO_VECTOR = [0.0] * 3072
 
+    # Batch embedding config
+    EMBEDDING_BATCH_SIZE = 16      # texts per API call
+    EMBEDDING_PARALLEL_BATCHES = 4 # concurrent API calls
+
     def _generate_embedding(self, text: str) -> list:
-        """Generate embedding vector for text using Azure OpenAI. Returns zero vector on failure."""
+        """Generate embedding vector for a single text. Returns zero vector on failure."""
         if not self.embedding_client:
             return self._ZERO_VECTOR
         try:
-            # Truncate to ~8000 tokens (Korean with tables ≈ 1.5-2.0 chars/token for mixed content)
             truncated = text[:5500] if len(text) > 5500 else text
             response = self.embedding_client.embeddings.create(
                 input=truncated,
@@ -58,6 +64,65 @@ class AzureSearchService:
             logger.warning(f"Embedding generation failed, using zero vector: {e}")
             return self._ZERO_VECTOR
 
+    def _generate_embeddings_batch(self, texts: list) -> list:
+        """Generate embeddings for multiple texts in a single API call."""
+        if not self.embedding_client or not texts:
+            return [self._ZERO_VECTOR] * len(texts)
+        try:
+            truncated = [t[:5500] if len(t) > 5500 else t for t in texts]
+            response = self.embedding_client.embeddings.create(
+                input=truncated,
+                model=settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
+            )
+            # Response data is ordered by index
+            results = [self._ZERO_VECTOR] * len(texts)
+            for item in response.data:
+                results[item.index] = item.embedding
+            return results
+        except Exception as e:
+            logger.warning(f"Batch embedding failed ({len(texts)} texts), using zero vectors: {e}")
+            return [self._ZERO_VECTOR] * len(texts)
+
+    def _generate_all_embeddings(self, texts: list) -> list:
+        """Generate embeddings for all texts using batch API + parallel execution."""
+        if not self.embedding_client or not texts:
+            return [self._ZERO_VECTOR] * len(texts)
+
+        total = len(texts)
+        results = [self._ZERO_VECTOR] * total
+
+        # Split into batches of EMBEDDING_BATCH_SIZE
+        batches = []
+        for i in range(0, total, self.EMBEDDING_BATCH_SIZE):
+            batch_texts = texts[i:i + self.EMBEDDING_BATCH_SIZE]
+            batches.append((i, batch_texts))
+
+        print(f"[AzureSearch] Embedding {total} texts in {len(batches)} batches ({self.EMBEDDING_PARALLEL_BATCHES} parallel)...", flush=True)
+
+        # Process batches in parallel
+        with ThreadPoolExecutor(max_workers=self.EMBEDDING_PARALLEL_BATCHES) as executor:
+            futures = {}
+            for start_idx, batch_texts in batches:
+                future = executor.submit(self._generate_embeddings_batch, batch_texts)
+                futures[future] = start_idx
+
+            completed = 0
+            for future in as_completed(futures):
+                start_idx = futures[future]
+                batch_size = min(self.EMBEDDING_BATCH_SIZE, total - start_idx)
+                try:
+                    embeddings = future.result()
+                    for j, emb in enumerate(embeddings):
+                        results[start_idx + j] = emb
+                except Exception as e:
+                    logger.warning(f"Batch embedding at index {start_idx} failed: {e}")
+
+                completed += batch_size
+                if completed % 100 < batch_size or completed == total:
+                    print(f"[AzureSearch] Embedded {completed}/{total}...", flush=True)
+
+        return results
+
     def index_documents(self, filename: str, category: str, pages_data: list, blob_name: str = None):
         """
         Uploads analyzed pages to Azure AI Search.
@@ -67,61 +132,51 @@ class AzureSearchService:
             return
 
         # Extract user_id from blob_name
-        # Example: "관리자/drawings/file.pdf" → user_id = "관리자"
         user_id = "unknown"
         if blob_name:
             parts = blob_name.split('/')
             if len(parts) > 0:
-                user_id = parts[0]  # First folder = user name
+                user_id = parts[0]
 
-        documents = []
         total_pages = len(pages_data)
+        print(f"[AzureSearch] Preparing {total_pages} documents...", flush=True)
+
+        # Phase 1: Prepare content texts and document metadata (no embedding yet)
+        content_texts = []
+        doc_metas = []
+
         for page_idx, page in enumerate(pages_data):
-            if (page_idx + 1) % 100 == 0 or page_idx == 0:
-                print(f"[AzureSearch] Preparing doc {page_idx+1}/{total_pages} (embedding)...", flush=True)
-            # Create a unique ID for each page
-            # MATCH USER LOGIC: base64(blob_path + page_number)
             page_num = page.get("page_number", 0)
-            
+
             if blob_name:
-                # User provided logic preference
                 doc_id_raw = f"{blob_name}_page_{page_num}"
             else:
-                # Fallback
                 doc_id_raw = f"{filename}_{page_num}"
-                
             doc_id = base64.urlsafe_b64encode(doc_id_raw.encode()).decode().strip("=")
 
-            # Prepare the document for indexing
-            # Note: Fields must match your Azure Search Index Schema
-            # Common RAG fields: id, content, title, source, page_number
-            # 1. Table-to-Markdown for better LLM context
+            # Table-to-Markdown
             tables = page.get("tables", [])
             content_text = page.get("content", "")
             if tables:
                 table_md = self._format_tables_markdown(tables)
                 content_text += f"\n\n[Structured Tables]\n{table_md}"
 
-            # 1b. Generate embedding vector for content
-            content_vector = self._generate_embedding(content_text)
+            content_texts.append(content_text)
 
-            # 2. Extract representative coords (normalized 0.0-1.0)
-            # We use the bounding box of the first line or first table as a fallback
+            # Extract coords
             raw_coords = None
             layout = page.get("layout", {})
             width = layout.get("width") or 1.0
             height = layout.get("height") or 1.0
-            
+
             lines = layout.get("lines", [])
             if lines:
                 raw_coords = lines[0].get("polygon")
             elif tables and tables[0].get("cells"):
                 raw_coords = tables[0]["cells"][0].get("polygon")
-            
+
             normalized_coords = []
             if raw_coords and isinstance(raw_coords, list):
-                # Simple normalization (Azure DI units / Layout units)
-                # raw_coords [x1, y1, x2, y2, ...] or [[x1,y1],[x2,y2],...]
                 try:
                     flat_coords = []
                     for item in raw_coords:
@@ -130,24 +185,23 @@ class AzureSearchService:
                         elif isinstance(item, (int, float)):
                             flat_coords.append(item)
                     for i, val in enumerate(flat_coords):
-                        if i % 2 == 0:  # X
+                        if i % 2 == 0:
                             normalized_coords.append(round(val / width, 4))
-                        else:  # Y
+                        else:
                             normalized_coords.append(round(val / height, 4))
                 except (TypeError, ValueError):
                     normalized_coords = []
-            
-            # 3. Classify Type
+
+            # Classify type
             content_type = "text"
             if tables:
                 content_type = "table"
             elif category == "drawings":
                 content_type = "drawing"
 
-            doc = {
+            doc_metas.append({
                 "id": doc_id,
                 "user_id": user_id,
-                "content": content_text,
                 "source": filename,
                 "page": str(page_num),
                 "title": page.get("도면명(TITLE)", "") or filename,
@@ -157,44 +211,64 @@ class AzureSearchService:
                 "metadata_storage_path": f"https://{self.endpoint.split('//')[1].split('.')[0]}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{blob_name}" if blob_name and self.endpoint else "",
                 "coords": json.dumps(normalized_coords) if normalized_coords else None,
                 "type": content_type,
-                "content_vector": content_vector,
-            }
+            })
+
+        # Phase 2: Batch embedding (parallel)
+        embeddings = self._generate_all_embeddings(content_texts)
+
+        # Phase 3: Assemble final documents
+        documents = []
+        for i in range(total_pages):
+            doc = doc_metas[i].copy()
+            doc["content"] = content_texts[i]
+            doc["content_vector"] = embeddings[i]
             documents.append(doc)
 
+        # Phase 4: Parallel batch upload
         if documents:
-            # Batch Upload Logic
-            BATCH_SIZE = 50
-            MAX_PAYLOAD_SIZE = 4 * 1024 * 1024  # 4MB safety limit (Azure limit is usually higher, but safe is better)
-            
-            current_batch = []
-            current_batch_size = 0
-
-            total_docs = len(documents)
-            print(f"[AzureSearch] Starting batch indexing for {total_docs} documents...", flush=True)
-
-            for i, doc in enumerate(documents):
-                # Optimize Payload: Truncate content_exact (if field exists)
-                if "content_exact" in doc and len(doc["content_exact"]) > 1000:
-                    doc["content_exact"] = doc["content_exact"][:1000]
-
-                # Estimate size (rough JSON string length)
-                doc_size = len(json.dumps(doc))
-                
-                # Check limits
-                if (len(current_batch) >= BATCH_SIZE) or (current_batch_size + doc_size > MAX_PAYLOAD_SIZE):
-                    self._upload_batch_with_retry(current_batch)
-                    current_batch = []
-                    current_batch_size = 0
-                
-                current_batch.append(doc)
-                current_batch_size += doc_size
-            
-            # Upload remaining
-            if current_batch:
-                self._upload_batch_with_retry(current_batch)
-                
+            self._upload_all_batches(documents)
             print(f"[AzureSearch] Completed indexing for {filename}.", flush=True)
             return True
+
+    def _upload_all_batches(self, documents: list):
+        """Split documents into batches and upload in parallel."""
+        BATCH_SIZE = 50
+        MAX_PAYLOAD_SIZE = 4 * 1024 * 1024
+        UPLOAD_WORKERS = 4
+
+        # Build batches
+        batches = []
+        current_batch = []
+        current_batch_size = 0
+
+        for doc in documents:
+            if "content_exact" in doc and len(doc["content_exact"]) > 1000:
+                doc["content_exact"] = doc["content_exact"][:1000]
+
+            doc_size = len(json.dumps(doc))
+
+            if (len(current_batch) >= BATCH_SIZE) or (current_batch_size + doc_size > MAX_PAYLOAD_SIZE):
+                batches.append(current_batch)
+                current_batch = []
+                current_batch_size = 0
+
+            current_batch.append(doc)
+            current_batch_size += doc_size
+
+        if current_batch:
+            batches.append(current_batch)
+
+        total_docs = len(documents)
+        print(f"[AzureSearch] Uploading {total_docs} docs in {len(batches)} batches ({UPLOAD_WORKERS} parallel)...", flush=True)
+
+        # Upload batches in parallel
+        with ThreadPoolExecutor(max_workers=UPLOAD_WORKERS) as executor:
+            futures = {executor.submit(self._upload_batch_with_retry, batch): idx for idx, batch in enumerate(batches)}
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Batch upload failed: {e}")
 
     def _format_tables_markdown(self, tables: list) -> str:
         """
@@ -203,20 +277,20 @@ class AzureSearchService:
         md_output = ""
         for i, table in enumerate(tables):
             md_output += f"\nTable {i+1}:\n"
-            
+
             row_count = table.get("row_count", 0)
             col_count = table.get("column_count", 0)
             cells = table.get("cells", [])
-            
+
             if not cells: continue
-            
+
             # Reconstruct grid
             grid = [["" for _ in range(col_count)] for _ in range(row_count)]
             for cell in cells:
                 r, c = cell.get("row_index", 0), cell.get("column_index", 0)
                 if r < row_count and c < col_count:
                     grid[r][c] = (cell.get("content") or "").replace("\n", " ").strip()
-            
+
             # Format as Markdown
             for r_idx, row in enumerate(grid):
                 md_output += "| " + " | ".join(row) + " |\n"
@@ -229,25 +303,25 @@ class AzureSearchService:
         """
         Uploads a batch of documents with exponential backoff retry.
         """
-        import time
         if not batch: return
 
         for attempt in range(max_retries):
             try:
                 result = self.client.upload_documents(documents=batch)
-                
+
                 # Check for partial failures
                 if not all(r.succeeded for r in result):
                     failed = [r for r in result if not r.succeeded]
                     logger.warning(f"Partial indexing failure: {len(failed)} docs failed in batch.")
-                
+
                 print(f"[AzureSearch] Indexed batch of {len(batch)} documents.", flush=True)
                 return
             except Exception as e:
                 print(f"[AzureSearch] Batch upload failed (Attempt {attempt+1}/{max_retries}): {e}", flush=True)
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** (attempt + 1))  # Exponential backoff: 2, 4, 8 sec
+                    time.sleep(2 ** (attempt + 1))
                 else:
                     logger.error(f"Final failure uploading batch: {e}")
+
 
 azure_search_service = AzureSearchService()

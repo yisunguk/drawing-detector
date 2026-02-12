@@ -256,23 +256,33 @@ class RobustAnalysisManager:
             status = status_manager.get_status(filename)
             chunks_list = status.get("completed_chunks", [])
 
-            # ── Step 1: Collect all completed chunk JSONs ──
+            # ── Step 1: Collect all completed chunk JSONs (parallel download) ──
             completed_pages = []
             valid_chunks = []
 
-            for c in chunks_list:
-                part_name = f"temp/json/{filename}_part_{c}.json"
+            def _download_chunk(chunk_range):
+                part_name = f"temp/json/{filename}_part_{chunk_range}.json"
                 blob_client = container_client.get_blob_client(part_name)
                 if blob_client.exists():
                     try:
                         data = blob_client.download_blob().readall()
-                        partial_json = json.loads(data)
-                        completed_pages.extend(partial_json)
-                        valid_chunks.append(c)
+                        return chunk_range, json.loads(data)
                     except Exception as e:
-                        print(f"[RobustAnalysis] Warning: Failed to read chunk {c}: {e}")
+                        print(f"[RobustAnalysis] Warning: Failed to read chunk {chunk_range}: {e}")
+                        return chunk_range, None
                 else:
                     print(f"[RobustAnalysis] Warning: Chunk blob missing: {part_name}")
+                    return chunk_range, None
+
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            print(f"[RobustAnalysis] Downloading {len(chunks_list)} chunk JSONs (parallel)...", flush=True)
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = [executor.submit(_download_chunk, c) for c in chunks_list]
+                for future in as_completed(futures):
+                    chunk_range, data = future.result()
+                    if data is not None:
+                        completed_pages.extend(data)
+                        valid_chunks.append(chunk_range)
 
             completed_pages.sort(key=lambda x: x.get("page_number", 0))
 
