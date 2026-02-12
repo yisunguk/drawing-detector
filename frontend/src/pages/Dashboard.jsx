@@ -920,19 +920,71 @@ const App = () => {
         }
     }, [getDirectBlobUrl]);
 
-    // Sequential PDF preloader — downloads and caches PDFs one at a time
+    // Sequential PDF preloader — downloads, caches, and extracts text in background
     const preloadPdfs = useCallback(async (docInfos) => {
         for (const { docId, blobPath } of docInfos) {
             try {
                 const pdf = await downloadAndCachePdf(docId, blobPath);
-                if (pdf) {
-                    setDocuments(prev => prev.map(d => d.id === docId && d.totalPages !== pdf.numPages ? { ...d, totalPages: pdf.numPages } : d));
+                if (!pdf) continue;
+
+                setDocuments(prev => prev.map(d => d.id === docId && d.totalPages !== pdf.numPages ? { ...d, totalPages: pdf.numPages } : d));
+
+                // Background text extraction (non-blocking)
+                (async () => {
+                    try {
+                        // Skip if doc already has data
+                        const textData = [];
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            const data = await extractPdfText(pdf, i);
+                            if (data) textData.push(data);
+                            if (i % 5 === 0) await new Promise(r => setTimeout(r, 0));
+                        }
+                        setDocuments(prev => prev.map(d => d.id === docId && !d.ocrData && !d.pdfTextData ? { ...d, pdfTextData: textData } : d));
+                        console.log(`[Preload] ✅ Text extracted for ${docId} (${textData.length} pages)`);
+                    } catch (e) {
+                        console.warn(`[Preload] Text extraction failed for ${docId}:`, e.message);
+                    }
+                })();
+
+                // Background OCR JSON detection (non-blocking)
+                if (blobPath) {
+                    (async () => {
+                        try {
+                            const decodedPath = decodeURIComponent(blobPath);
+                            const jsonCandidates = [];
+                            if (decodedPath.toLowerCase().includes('drawings')) {
+                                jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                            } else if (decodedPath.toLowerCase().includes('documents')) {
+                                jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                            }
+                            const uName = userProfile?.name || currentUser?.displayName;
+                            if (uName) {
+                                const filename = decodedPath.split('/').pop()?.replace(/\.pdf$/i, '');
+                                jsonCandidates.push(`${uName}/json/${filename}.json`);
+                            }
+                            for (const jsonPath of jsonCandidates) {
+                                try {
+                                    const jsonUrl = getDirectBlobUrl(jsonPath)
+                                        || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`;
+                                    const jsonRes = await fetch(jsonUrl);
+                                    if (jsonRes.ok) {
+                                        const fetchedOcrData = JSON.parse(await jsonRes.text());
+                                        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: fetchedOcrData, pdfTextData: null } : d));
+                                        console.log(`[Preload] ✅ OCR JSON found for ${docId}: ${jsonPath}`);
+                                        return;
+                                    }
+                                } catch (e) { /* continue */ }
+                            }
+                        } catch (e) {
+                            console.warn(`[Preload] OCR check failed for ${docId}:`, e.message);
+                        }
+                    })();
                 }
             } catch (err) {
                 console.warn(`[Preload] Failed for ${docId}:`, err.message);
             }
         }
-    }, [downloadAndCachePdf]);
+    }, [downloadAndCachePdf, extractPdfText, getDirectBlobUrl, userProfile, currentUser]);
 
     // PDF 로드 및 페이지 렌더링
     const loadAndRenderPage = useCallback(async (doc, pageNum) => {
