@@ -864,9 +864,12 @@ const App = () => {
                 const arrayBuffer = await response.arrayBuffer();
                 console.log(`[PDF] ${label} downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB`);
                 if (arrayBuffer.byteLength < 5) throw new Error('empty');
-                // Log header info but let pdf.js be the final judge
+                // Check for DRM-protected files
                 const searchLen = Math.min(arrayBuffer.byteLength, 1024);
                 const searchStr = String.fromCharCode(...new Uint8Array(arrayBuffer.slice(0, searchLen)));
+                if (searchStr.includes('DRMONE') || searchStr.includes('Fasoo DRM')) {
+                    throw new Error('drm:Fasoo DRM으로 보호된 파일입니다. DRM 해제 후 다시 업로드해주세요.');
+                }
                 if (!searchStr.includes('%PDF-')) {
                     console.warn(`[PDF] ${label} header not standard PDF, but will try pdf.js anyway. Preview: "${searchStr.slice(0, 80)}"`);
                 }
@@ -892,7 +895,9 @@ const App = () => {
             }
 
             if (!arrayBuffer) {
-                throw new Error(`PDF 다운로드 실패: ${lastError?.message || 'unknown'}`);
+                const msg = lastError?.message || '';
+                if (msg.startsWith('drm:')) throw new Error(msg.slice(4));
+                throw new Error(`PDF 다운로드 실패: ${msg}`);
             }
 
             let pdf;
