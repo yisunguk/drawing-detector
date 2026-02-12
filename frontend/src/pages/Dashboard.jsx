@@ -1760,42 +1760,47 @@ const App = () => {
         const pdfItems = selectedAzureItems.filter(item => item.name.toLowerCase().endsWith('.pdf'));
         if (pdfItems.length === 0) return;
 
-        // Step 1: Create ALL document entries INSTANTLY (no network requests)
-        const docInfos = [];
-        setDocuments(prev => {
-            const newDocs = [...prev];
-            for (const item of pdfItems) {
-                const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-                const name = item.name.replace(/\.pdf$/i, '');
-                newDocs.push({
-                    id,
-                    name,
-                    pdfData: null,
-                    pdfUrl: `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(item.path)}`,
-                    blobPath: item.path,
-                    ocrData: null,
-                    pdfTextData: null,
-                    totalPages: 1,
-                    colorIndex: newDocs.length % DOC_COLORS.length,
-                    isLoaded: false
-                });
-                docInfos.push({ docId: id, blobPath: item.path });
-            }
-            return newDocs;
+        // Step 1: Build document entries OUTSIDE setDocuments (avoid side effects in updater)
+        const now = Date.now();
+        const newEntries = pdfItems.map((item, idx) => {
+            const id = `doc-${now}-${idx}-${Math.random().toString(36).substr(2, 9)}`;
+            return {
+                id,
+                name: item.name.replace(/\.pdf$/i, ''),
+                pdfData: null,
+                pdfUrl: `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(item.path)}`,
+                blobPath: item.path,
+                ocrData: null,
+                pdfTextData: null,
+                totalPages: 1,
+                isLoaded: false
+            };
         });
 
-        // Step 2: Close modal IMMEDIATELY
+        const docInfos = newEntries.map((entry, idx) => ({
+            docId: entry.id,
+            blobPath: pdfItems[idx].path
+        }));
+
+        // Step 2: Add documents to state with correct colorIndex
+        setDocuments(prev => {
+            let startIdx = prev.length;
+            return [...prev, ...newEntries.map((entry, i) => ({
+                ...entry,
+                colorIndex: (startIdx + i) % DOC_COLORS.length
+            }))];
+        });
+
+        // Step 3: Close modal IMMEDIATELY
         setShowAzureBrowser(false);
         setSelectedAzureItems([]);
 
-        // Step 3: Activate first tab → triggers loadAndRenderPage via useEffect
-        if (docInfos.length > 0) {
-            setActiveDocId(docInfos[0].docId);
-            setActivePage(1);
-            setRotation(0);
-        }
+        // Step 4: Activate first tab → triggers loadAndRenderPage via useEffect
+        setActiveDocId(docInfos[0].docId);
+        setActivePage(1);
+        setRotation(0);
 
-        // Step 4: Background — fetch JSON metadata for all docs in parallel
+        // Step 5: Background — fetch JSON metadata for all docs in parallel
         for (const { docId, blobPath } of docInfos) {
             fetchJsonForDoc(docId, blobPath);
         }
