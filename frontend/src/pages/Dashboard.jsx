@@ -1590,29 +1590,25 @@ const App = () => {
             setAzureLoading(true);
             setError(null);
 
-
-            const response = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`);
-
-            if (!response.ok) {
-                const contentType = response.headers.get("content-type");
-                let errorMessage = `Server Error (${response.status})`;
-                if (contentType && contentType.includes("application/json")) {
-                    const errData = await response.json();
-                    errorMessage = errData.detail || errorMessage;
-                } else {
-                    const text = await response.text();
-                    const titleMatch = text.match(/<title>(.*?)<\/title>/i);
-                    errorMessage = titleMatch ? titleMatch[1] : text.slice(0, 100);
-                }
-                throw new Error(errorMessage);
-            }
-
-            const blob = await response.blob();
             const fileName = file.name.toLowerCase();
 
-            // Logic to match handleFilesUpload identically
+            // JSON files: download blob for parsing
             if (activeDocId && fileName.endsWith('.json')) {
-                // Treat as JSON metadata Upload
+                const response = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`);
+                if (!response.ok) {
+                    const contentType = response.headers.get("content-type");
+                    let errorMessage = `Server Error (${response.status})`;
+                    if (contentType && contentType.includes("application/json")) {
+                        const errData = await response.json();
+                        errorMessage = errData.detail || errorMessage;
+                    } else {
+                        const text = await response.text();
+                        const titleMatch = text.match(/<title>(.*?)<\/title>/i);
+                        errorMessage = titleMatch ? titleMatch[1] : text.slice(0, 100);
+                    }
+                    throw new Error(errorMessage);
+                }
+                const blob = await response.blob();
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     try {
@@ -1627,11 +1623,9 @@ const App = () => {
                 };
                 reader.readAsText(blob);
             } else if (fileName.endsWith('.pdf')) {
-                // PDF Upload - Use URL for Range Requests (Fast Web View)
+                // PDF: construct URL only — no blob download needed (PDF.js uses Range Requests)
                 const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const name = file.name.replace(/\.pdf$/i, '');
-
-                // Construct URL for PDF.js Range Requests - DO NOT download the blob
                 const pdfUrl = `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`;
 
                 // Auto-fetch JSON logic
@@ -1675,21 +1669,22 @@ const App = () => {
                 if (!fetchedJson) {
                     console.warn("⚠️ No JSON metadata found for this document.");
                 }
-                const colorIndex = documents.length % DOC_COLORS.length;
-
                 // Store URL + blobPath for Azure files (enables Range Requests + URL reconstruction on reload)
-                setDocuments(prev => [...prev, {
-                    id,
-                    name,
-                    pdfData: null,
-                    pdfUrl: pdfUrl,
-                    blobPath: file.path,
-                    ocrData: fetchedJson,
-                    pdfTextData: null,
-                    totalPages: 1,
-                    colorIndex,
-                    isLoaded: false
-                }]);
+                setDocuments(prev => {
+                    const colorIndex = prev.length % DOC_COLORS.length;
+                    return [...prev, {
+                        id,
+                        name,
+                        pdfData: null,
+                        pdfUrl: pdfUrl,
+                        blobPath: file.path,
+                        ocrData: fetchedJson,
+                        pdfTextData: null,
+                        totalPages: 1,
+                        colorIndex,
+                        isLoaded: false
+                    }];
+                });
 
                 setActiveDocId(id);
                 setActivePage(1);
