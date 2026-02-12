@@ -1571,6 +1571,15 @@ const App = () => {
             if (currentType === 'pdf') {
                 try {
                     const result = await readFile(file, 'arrayBuffer');
+
+                    // DRM check: block Fasoo DRM-protected files before upload
+                    const headerLen = Math.min(result.byteLength, 1024);
+                    const headerStr = String.fromCharCode(...new Uint8Array(result.slice(0, headerLen)));
+                    if (headerStr.includes('DRMONE') || headerStr.includes('Fasoo DRM')) {
+                        alert(`⚠️ "${file.name}"\n\nFasoo DRM으로 보호된 파일입니다.\nDRM을 해제한 후 다시 업로드해주세요.`);
+                        continue;
+                    }
+
                     // Calculate color index correctly for batches
                     const colorIndex = (documents.length + newPending.length) % DOC_COLORS.length;
 
