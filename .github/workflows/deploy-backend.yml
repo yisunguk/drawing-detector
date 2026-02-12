@@ -38,8 +38,9 @@ jobs:
           service: 'drawing-detector-backend'
           region: 'us-central1'
           source: 'backend'
-          flags: '--min-instances=0 --memory=4Gi --cpu=2 --timeout=900'
-          # env_vars removed as BACKEND_CORS_ORIGINS defaults are sufficient and quoting was causing issues
+          flags: '--min-instances=0 --memory=4Gi --cpu=2 --timeout=3600 --concurrency=80'
+          env_vars: |
+            PYTHONUNBUFFERED=1
           secrets: |
             AZURE_OPENAI_ENDPOINT=AZURE_OPENAI_ENDPOINT:latest
             AZURE_OPENAI_KEY=AZURE_OPENAI_KEY:latest
@@ -52,3 +53,5 @@ jobs:
             AZURE_FORM_RECOGNIZER_KEY=AZURE_FORM_RECOGNIZER_KEY:latest
             AZURE_SEARCH_ENDPOINT=AZURE_SEARCH_ENDPOINT:latest
             AZURE_SEARCH_KEY=AZURE_SEARCH_KEY:latest
+            AZURE_DOC_INTEL_ENDPOINT=AZURE_DOC_INTEL_ENDPOINT:latest
+            AZURE_DOC_INTEL_KEY=AZURE_DOC_INTEL_KEY:latest
