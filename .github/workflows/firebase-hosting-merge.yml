@@ -22,6 +22,7 @@ jobs:
           VITE_AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.VITE_AZURE_STORAGE_ACCOUNT_NAME }}
           VITE_AZURE_CONTAINER_NAME: ${{ secrets.VITE_AZURE_CONTAINER_NAME }}
           VITE_AZURE_SAS_TOKEN: ${{ secrets.VITE_AZURE_SAS_TOKEN }}
+          VITE_API_URL: https://drawing-detector-backend-435353955407.us-central1.run.app
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'

@@ -28,7 +28,7 @@ const AZURE_SAS_TOKEN = rawSasToken.replace(/^"|"$/g, '');
 
 const AZURE_CONTAINER_URL = `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}?${AZURE_SAS_TOKEN}`;
 
-const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+const PRODUCTION_API_URL = 'https://drawing-detector-backend-435353955407.us-central1.run.app';
 const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
 
 import { cleanupOldChatHistory } from '../services/historyCleanup';
@@ -813,7 +813,7 @@ const App = () => {
         if (!url) return null;
 
         const promise = (async () => {
-            console.log(`[PDF] Downloading ${blobPath}...`);
+            console.log(`[PDF] Downloading blobPath="${blobPath}" → ${url}`);
             const response = await fetch(url);
             if (!response.ok) throw new Error(`PDF 다운로드 실패: ${response.status}`);
             const expectedSize = response.headers.get('Content-Length');
