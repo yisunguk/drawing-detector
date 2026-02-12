@@ -343,6 +343,7 @@ async def chat(
    - Simple numbers alone: ❌ `[[0.2]]`, `[[18.0]]`, `[[150]]`
    - Generic words: ❌ `[[the]]`, `[[and]]`, `[[is]]`
    - Instead, cite the LABEL + number: ✅ `[[압력|Page 2]]` (150 psi)
+   - **NEVER place citation links inside Markdown table cells.** Tables must contain only plain data values. Place citations in a note below the table or in the preceding paragraph instead.
 
 5. **IMPORTANT:** Each paragraph of your answer should contain AT LEAST 1-2 citations if you're using information from the context. If you mention specific data, requirements, or drawing details, ALWAYS add a citation link.
 
