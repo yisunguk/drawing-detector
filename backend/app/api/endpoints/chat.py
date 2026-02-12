@@ -106,28 +106,35 @@ async def chat(
                     except Exception as fs_err:
                         print(f"[Chat] Firestore user lookup failed: {fs_err}")
 
-                # Construct OData filter for Azure Search
-                # (user_id eq '이성욱') or (user_id eq 'piere')
-                filter_clauses = []
-                
-                # Clause 1: Name (e.g. '이성욱')
-                if user_name:
-                    safe_name = user_name.replace("'", "''")
-                    filter_clauses.append(f"user_id eq '{safe_name}'")
-                
-                # Clause 2: Email Prefix (e.g. 'piere')
-                if email_prefix:
-                    safe_email = email_prefix.replace("'", "''")
-                    # Avoid duplicate clause if name == email_prefix
-                    if safe_email != (user_name or "").replace("'", "''"):
-                        filter_clauses.append(f"user_id eq '{safe_email}'")
-                
-                if not filter_clauses:
-                     raise HTTPException(status_code=401, detail="Could not extract any user identifier from token or database")
-                
-                # Combine with OR
-                user_filter = " or ".join(filter_clauses)
-                print(f"[Chat] Built User Filter: {user_filter}")
+                # Admin detection: skip user_id filter for admin users
+                is_admin = (user_name and '관리자' in user_name) or (email_prefix and email_prefix.lower() == 'admin')
+
+                if is_admin:
+                    user_filter = None
+                    print(f"[Chat] Admin user detected ({user_name}/{email_prefix}). Bypassing user_id filter.")
+                else:
+                    # Construct OData filter for Azure Search
+                    # (user_id eq '이성욱') or (user_id eq 'piere')
+                    filter_clauses = []
+
+                    # Clause 1: Name (e.g. '이성욱')
+                    if user_name:
+                        safe_name = user_name.replace("'", "''")
+                        filter_clauses.append(f"user_id eq '{safe_name}'")
+
+                    # Clause 2: Email Prefix (e.g. 'piere')
+                    if email_prefix:
+                        safe_email = email_prefix.replace("'", "''")
+                        # Avoid duplicate clause if name == email_prefix
+                        if safe_email != (user_name or "").replace("'", "''"):
+                            filter_clauses.append(f"user_id eq '{safe_email}'")
+
+                    if not filter_clauses:
+                         raise HTTPException(status_code=401, detail="Could not extract any user identifier from token or database")
+
+                    # Combine with OR
+                    user_filter = " or ".join(filter_clauses)
+                    print(f"[Chat] Built User Filter: {user_filter}")
 
                 # Use the primary ID for logging/fallback
                 safe_user_id = user_name or email_prefix
@@ -172,7 +179,7 @@ async def chat(
             print(f"[Chat] Searching Azure Search for user '{safe_user_id}': {search_query}")
             
             # Apply doc_ids filter to Azure Search query (BEFORE relevance scoring)
-            search_filter = user_filter
+            search_filter = user_filter  # None for admin, OData string for regular users
             if request.doc_ids and len(request.doc_ids) > 0:
                 print(f"[Chat] Applying doc_ids filter at Azure Search level: {request.doc_ids}")
                 doc_filter_parts = []
@@ -183,10 +190,13 @@ async def chat(
                     doc_filter_parts.append(f"search.ismatch('{base_name}', 'source')")
                     doc_filter_parts.append(f"search.ismatch('{base_name}.pdf', 'source')")
                     doc_filter_parts.append(f"search.ismatch('{base_name}.pdf.pdf', 'source')")
-                
+
                 if doc_filter_parts:
                     combined_doc_filter = " or ".join(doc_filter_parts)
-                    search_filter = f"({user_filter}) and ({combined_doc_filter})"
+                    if search_filter:
+                        search_filter = f"({search_filter}) and ({combined_doc_filter})"
+                    else:
+                        search_filter = combined_doc_filter  # Admin: only doc_ids filter
                     print(f"[Chat] Final Azure Search filter: {search_filter[:200]}...")
             
             # ---------------------------------------------------------
