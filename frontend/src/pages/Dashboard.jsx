@@ -816,7 +816,9 @@ const App = () => {
             console.log(`[PDF] Downloading ${blobPath}...`);
             const response = await fetch(url);
             if (!response.ok) throw new Error(`PDF 다운로드 실패: ${response.status}`);
+            const expectedSize = response.headers.get('Content-Length');
             const arrayBuffer = await response.arrayBuffer();
+            console.log(`[PDF] Downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB (expected: ${expectedSize ? (parseInt(expectedSize) / 1024 / 1024).toFixed(2) + 'MB' : 'unknown'})`);
 
             if (arrayBuffer.byteLength < 5) throw new Error('다운로드된 파일이 비어있습니다.');
             const header = new Uint8Array(arrayBuffer.slice(0, 5));
