@@ -797,10 +797,11 @@ const App = () => {
     const pdfCache = useRef({}); // Cache for parsed PDF documents: { [docId]: pdfProxy }
     const pdfLoadingPromises = useRef({}); // In-flight download promises: { [docId]: Promise<pdf> }
 
-    // Build direct Azure Blob URL (same pattern as KnowhowDB.jsx / analysisService.js)
+    // Build direct Azure Blob URL — encode each path segment individually (keep / as separator)
     const getDirectBlobUrl = useCallback((blobPath) => {
         if (!blobPath || !AZURE_STORAGE_ACCOUNT_NAME || !AZURE_CONTAINER_NAME || !AZURE_SAS_TOKEN) return null;
-        return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodeURIComponent(blobPath)}?${AZURE_SAS_TOKEN}`;
+        const encodedPath = blobPath.split('/').map(segment => encodeURIComponent(segment)).join('/');
+        return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodedPath}?${AZURE_SAS_TOKEN}`;
     }, []);
 
     // Background JSON metadata fetcher — non-blocking, updates document when found
@@ -866,8 +867,13 @@ const App = () => {
 
             if (arrayBuffer.byteLength < 5) throw new Error('다운로드된 파일이 비어있습니다.');
             const header = new Uint8Array(arrayBuffer.slice(0, 5));
-            if (String.fromCharCode(...header) !== '%PDF-') {
-                throw new Error('서버 응답이 PDF 형식이 아닙니다.');
+            const headerStr = String.fromCharCode(...header);
+            if (headerStr !== '%PDF-') {
+                // Log actual bytes for debugging
+                const preview = new Uint8Array(arrayBuffer.slice(0, 50));
+                const previewStr = String.fromCharCode(...preview);
+                console.error(`[PDF] Invalid header: "${headerStr}" (bytes: ${Array.from(header).join(',')}), preview: "${previewStr}"`);
+                throw new Error(`서버 응답이 PDF 형식이 아닙니다. (header: ${headerStr})`);
             }
 
             const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
