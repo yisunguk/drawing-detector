@@ -1102,7 +1102,7 @@ const App = () => {
             while (!isComplete) {
                 await new Promise(r => setTimeout(r, 2000)); // Poll every 2s
 
-                const statusRes = await fetch(`${API_URL}/api/v1/analyze/status/${encodeURIComponent(file.name)}`);
+                const statusRes = await fetch(`${API_URL}/api/v1/analyze/status/${encodeURIComponent(file.name)}${uName ? `?username=${encodeURIComponent(uName)}` : ''}`);
                 if (statusRes.ok) {
                     const statusData = await statusRes.json();
 
@@ -1291,7 +1291,7 @@ const App = () => {
                 if (Date.now() > timeout) throw new Error('재인덱싱 시간 초과');
                 await new Promise(r => setTimeout(r, 2000));
 
-                const statusRes = await fetch(`${API_URL}/api/v1/analyze/status/${encodeURIComponent(filename)}`);
+                const statusRes = await fetch(`${API_URL}/api/v1/analyze/status/${encodeURIComponent(filename)}${uName ? `?username=${encodeURIComponent(uName)}` : ''}`);
                 if (statusRes.ok) {
                     const statusData = await statusRes.json();
 
