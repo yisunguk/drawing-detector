@@ -2188,26 +2188,30 @@ const App = () => {
                     {documents.map(doc => {
                         const docColor = DOC_COLORS[(doc.colorIndex || 0) % DOC_COLORS.length];
                         const isActive = activeDocId === doc.id;
+                        const tabCount = documents.length;
+                        // Dynamic tab sizing: shrink as more tabs are added
+                        const maxW = tabCount <= 2 ? 'max-w-64' : tabCount <= 4 ? 'max-w-48' : tabCount <= 6 ? 'max-w-36' : 'max-w-28';
+                        const px = tabCount <= 4 ? 'px-4' : tabCount <= 6 ? 'px-2.5' : 'px-1.5';
+                        const gap = tabCount <= 4 ? 'gap-2' : 'gap-1';
+                        const iconSize = tabCount <= 6 ? 14 : 12;
                         return (
                             <div key={doc.id} onClick={() => {
                                 setActiveDocId(doc.id);
                                 setActivePage(1);
                                 setSelectedResult(null);
-                                // Reset view state when switching docs to prevent zoom inheritance
                                 setRotation(0);
                                 setPanX(50);
                                 setPanY(50);
-                                // Note: Zoom will be handled by the fitToScreen useEffect
                             }}
-                                className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg text-xs font-medium cursor-pointer border-t-4 transition-all ${isActive ? `bg-white ${docColor.text} border-x border-[#e5e1d8] shadow-sm -mb-px z-10 ${docColor.activeBorder}` : 'text-[#888888] hover:bg-[#f4f1ea] hover:text-[#555555] border-t-transparent'}`}>
-                                {/* Icon color matches tab color */}
-                                {doc.ocrData ? <FileCheck size={14} className={isActive ? docColor.text : "text-emerald-500"} /> : doc.pdfTextData ? <FileText size={14} className={isActive ? docColor.text : "text-amber-500"} /> : <FileX size={14} className={isActive ? docColor.text : "text-red-500"} />}
-                                <span className="max-w-32 truncate">{doc.name}</span>
-                                {doc.totalPages > 1 && <span className="text-[10px] opacity-70">({doc.totalPages}p)</span>}
+                                title={doc.name}
+                                className={`group flex items-center ${gap} ${px} py-2 rounded-t-lg text-xs font-medium cursor-pointer border-t-4 transition-all shrink-0 ${isActive ? `bg-white ${docColor.text} border-x border-[#e5e1d8] shadow-sm -mb-px z-10 ${docColor.activeBorder}` : 'text-[#888888] hover:bg-[#f4f1ea] hover:text-[#555555] border-t-transparent'}`}>
+                                {doc.ocrData ? <FileCheck size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-emerald-500"}`} /> : doc.pdfTextData ? <FileText size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-amber-500"}`} /> : <FileX size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-red-500"}`} />}
+                                <span className={`${maxW} truncate`}>{doc.name}</span>
+                                {tabCount <= 4 && doc.totalPages > 1 && <span className="text-[10px] opacity-70 shrink-0">({doc.totalPages}p)</span>}
                                 {!doc.ocrData && !analysisState.isAnalyzing && (
-                                    <button onClick={(e) => { e.stopPropagation(); reindexDocument(doc); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#0078d4] hover:text-[#0063b1] transition-all" title="재인덱싱"><RotateCw size={12} /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); reindexDocument(doc); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#0078d4] hover:text-[#0063b1] transition-all shrink-0" title="재인덱싱"><RotateCw size={12} /></button>
                                 )}
-                                <button onClick={(e) => { e.stopPropagation(); closeDocument(doc.id); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#a0a0a0] hover:text-red-500 transition-all"><X size={12} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); closeDocument(doc.id); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#a0a0a0] hover:text-red-500 transition-all shrink-0"><X size={12} /></button>
                             </div>
                         )
                     })}

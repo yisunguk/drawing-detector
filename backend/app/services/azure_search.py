@@ -208,7 +208,7 @@ class AzureSearchService:
                 "category": category,
                 "drawing_no": page.get("도면번호(DWG. NO.)", ""),
                 "blob_path": blob_name,
-                "metadata_storage_path": f"https://{self.endpoint.split('//')[1].split('.')[0]}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{blob_name}" if blob_name and self.endpoint else "",
+                "metadata_storage_path": f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{blob_name}" if blob_name and settings.AZURE_STORAGE_ACCOUNT_NAME else "",
                 "coords": json.dumps(normalized_coords) if normalized_coords else None,
                 "type": content_type,
             })

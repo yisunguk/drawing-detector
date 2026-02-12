@@ -29,9 +29,7 @@ def get_blob_service_client():
     # Method 1: Try Explicit Account Name + SAS Token (Preferred)
     if not client and settings.AZURE_STORAGE_ACCOUNT_NAME and settings.AZURE_BLOB_SAS_TOKEN:
         try:
-            # Fix common gcloud escaping issue where comma must be encoded as %2C
-            # Also strip any accidental whitespace/newlines from secret injection
-            sas_token = settings.AZURE_BLOB_SAS_TOKEN.replace("%2C", ",").strip()
+            sas_token = _clean_sas_token(settings.AZURE_BLOB_SAS_TOKEN)
             
             account_url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
             temp_client = BlobServiceClient(account_url, credential=sas_token)
@@ -85,15 +83,26 @@ def get_container_client(container_name: str = None):
         
     return client.get_container_client(target_container)
 
+def _clean_sas_token(raw_token: str) -> str:
+    """Consistently clean a SAS token: strip whitespace, remove leading '?', decode %2C."""
+    token = raw_token.strip()
+    if token.startswith("?"):
+        token = token[1:]
+    token = token.replace("%2C", ",")
+    return token
+
 def generate_sas_url(blob_name):
-    # Helper to generate a SAS URL for a blob
+    """Generate a SAS-authenticated URL for a blob. Raises on missing config."""
     if not settings.AZURE_STORAGE_ACCOUNT_NAME or not settings.AZURE_BLOB_SAS_TOKEN:
-         pass
+        raise ValueError(
+            "Azure Storage account name or SAS token not configured. "
+            f"Account: {'set' if settings.AZURE_STORAGE_ACCOUNT_NAME else 'MISSING'}, "
+            f"SAS: {'set' if settings.AZURE_BLOB_SAS_TOKEN else 'MISSING'}"
+        )
 
-    # Clean SAS token
-    sas_token = settings.AZURE_BLOB_SAS_TOKEN.replace("%2C", ",").strip()
-    if sas_token.startswith("?"):
-        sas_token = sas_token[1:]
+    sas_token = _clean_sas_token(settings.AZURE_BLOB_SAS_TOKEN)
 
-    url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{blob_name}?{sas_token}"
+    import urllib.parse
+    encoded_blob_name = urllib.parse.quote(blob_name, safe="/~-_.")
+    url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{encoded_blob_name}?{sas_token}"
     return url

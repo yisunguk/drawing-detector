@@ -23,7 +23,7 @@ async def analyze_local_file(
         container_client = get_container_client()
         
         # Validate category
-        target_folder = category if category in ["drawings", "documents", "my documents"] else "drawings"
+        target_folder = category if category in ["drawings", "documents", "my-documents"] else "drawings"
         
         # Determine path (Force common folders, ignore username for folder structure)
         # Always save to {target_folder}/{filename}
@@ -174,10 +174,8 @@ async def analyze_document_sync(
             # Check if we assume SAS Token auth (Singleton initialized with SAS)
             if settings.AZURE_BLOB_SAS_TOKEN:
                  print("[AnalyzeSync] Using configured SAS Token (Account Key not found/needed)")
-                 # [MODIFIED] Do not replace %2C manually, trust the token or minimally clean
-                 sas_token = settings.AZURE_BLOB_SAS_TOKEN.strip()
-                 if sas_token.startswith("?"):
-                     sas_token = sas_token[1:]
+                 from app.services.blob_storage import _clean_sas_token
+                 sas_token = _clean_sas_token(settings.AZURE_BLOB_SAS_TOKEN)
             else:
                 print("[AnalyzeSync] Error: Could not extract account_key and no SAS Token configured")
                 raise HTTPException(status_code=500, detail="Azure Storage authentication failed (No Key/SAS)")
@@ -263,7 +261,7 @@ async def analyze_document_sync(
         print(f"[AnalyzeSync] Analysis complete: {len(all_chunks)} pages processed")
         
         # 5. Prepare paths
-        final_folder = category if category in ["drawings", "documents", "my documents"] else "drawings"
+        final_folder = category if category in ["drawings", "documents", "my-documents"] else "drawings"
         folder_prefix = f"{username}/{final_folder}" if username else final_folder
         final_blob_name = f"{folder_prefix}/{filename}"
         
@@ -436,11 +434,11 @@ from app.services.robust_analysis_manager import robust_analysis_manager
 from fastapi import BackgroundTasks
 
 @router.get("/status/{filename}")
-async def get_analysis_status(filename: str):
+async def get_analysis_status(filename: str, username: str = Query(None)):
     """
     Get the status of a background analysis task.
     """
-    status = status_manager.get_status(filename)
+    status = status_manager.get_status(filename, username=username)
     if not status:
         return {"status": "not_found", "filename": filename}
     return status
@@ -532,23 +530,21 @@ async def start_robust_analysis_task(
                 print(f"[StartAnalysis] RESUME: Found {len(existing_chunks)} existing chunks. Preserving progress.")
 
                 # Sync status blob with actual chunk files (fixes race condition gaps)
-                existing_status = status_manager.get_status(filename)
+                existing_status = status_manager.get_status(filename, username=username)
                 if existing_status:
                     existing_status["completed_chunks"] = sorted(existing_chunks, key=lambda x: int(x.split("-")[0]))
                     existing_status["status"] = "in_progress"
                     existing_status.pop("retry_count", None)
                     existing_status.pop("error", None)
                     existing_status.pop("error_message", None)
-                    blob_client_status = status_manager._get_blob_client(filename)
-                    blob_client_status.upload_blob(json_module.dumps(existing_status), overwrite=True)
+                    status_manager.write_status_direct(filename, existing_status, username=username)
                     print(f"[StartAnalysis] Synced status with {len(existing_chunks)} actual chunks")
                 else:
                     # No status exists, create with existing chunks
-                    status_manager.init_status(filename, total_pages, category)
-                    st = status_manager.get_status(filename)
+                    status_manager.init_status(filename, total_pages, category, username=username)
+                    st = status_manager.get_status(filename, username=username)
                     st["completed_chunks"] = sorted(existing_chunks, key=lambda x: int(x.split("-")[0]))
-                    blob_client_status = status_manager._get_blob_client(filename)
-                    blob_client_status.upload_blob(json_module.dumps(st), overwrite=True)
+                    status_manager.write_status_direct(filename, st, username=username)
 
                 # Delete final JSON if corrupted (but keep chunks!)
                 try:
@@ -579,7 +575,7 @@ async def start_robust_analysis_task(
                         print(f"[StartAnalysis] Cleanup warning: {e}")
 
                 # 3. Reset status
-                status_manager.reset_status(filename)
+                status_manager.reset_status(filename, username=username)
                 print(f"[StartAnalysis] Reset analysis status for fresh start")
 
         else:
@@ -592,7 +588,7 @@ async def start_robust_analysis_task(
             print(f"[StartAnalysis] CACHE HIT: Skipping analysis, queuing background re-indexing.")
 
             # Update status
-            status_manager.mark_completed(filename, json_location=json_path)
+            status_manager.mark_completed(filename, json_location=json_path, username=username)
 
             # Trigger Background Indexing (Re-index existing JSON)
             from app.services.azure_search import azure_search_service
@@ -621,13 +617,13 @@ async def start_robust_analysis_task(
         local_file_path = None # Signal to use Direct Streaming
         
         # Initialize Status if not already
-        existing_status = status_manager.get_status(filename)
+        existing_status = status_manager.get_status(filename, username=username)
         if not existing_status:
-            status_manager.init_status(filename, total_pages, category)
+            status_manager.init_status(filename, total_pages, category, username=username)
         elif total_pages > 1:
             # Update total_pages if a better count is provided
             existing_status["total_pages"] = total_pages
-            status_manager._get_blob_client(filename).upload_blob(json_module.dumps(existing_status), overwrite=True)
+            status_manager.write_status_direct(filename, existing_status, username=username)
         else:
             # Inherit total_pages from existing status (e.g. for re-indexing where frontend sends 1)
             total_pages = existing_status.get("total_pages", total_pages)
@@ -639,7 +635,8 @@ async def start_robust_analysis_task(
             blob_name=blob_name,
             total_pages=total_pages,
             category=category,
-            local_file_path=local_file_path
+            local_file_path=local_file_path,
+            username=username
         )
         
         return {"status": "started", "message": "Analysis loop started in background"}
@@ -703,8 +700,9 @@ async def reindex_document(
         # If found in a final location, copy to temp for the analysis pipeline
         if found_path != temp_path:
             print(f"[Reindex] Copying PDF to temp: {found_path} -> {temp_path}")
-            source_blob = container_client.get_blob_client(found_path)
-            temp_blob.start_copy_from_url(source_blob.url)
+            # C2 FIX: Use SAS-authenticated URL for copy source (private container)
+            source_sas_url = generate_sas_url(found_path)
+            temp_blob.start_copy_from_url(source_sas_url)
             import time
             for _ in range(60):
                 props = temp_blob.get_blob_properties()
@@ -743,10 +741,10 @@ async def reindex_document(
             print(f"[Reindex] Cleanup warning: {e}")
 
         # Reset status
-        status_manager.reset_status(filename)
+        status_manager.reset_status(filename, username=username)
 
         # 3. Initialize fresh status and start analysis
-        status_manager.init_status(filename, total_pages, category)
+        status_manager.init_status(filename, total_pages, category, username=username)
 
         blob_name = temp_path
         background_tasks.add_task(
@@ -755,7 +753,8 @@ async def reindex_document(
             blob_name=blob_name,
             total_pages=total_pages,
             category=category,
-            local_file_path=None
+            local_file_path=None,
+            username=username
         )
 
         print(f"[Reindex] Background analysis started for {filename}")
@@ -836,14 +835,16 @@ async def finalize_analysis(
         
         # 2. Move File from temp/ to final location
         temp_blob_name = f"temp/{filename}"
-        target_folder = category if category in ["drawings", "documents"] else "drawings"
+        target_folder = category if category in ["drawings", "documents", "my-documents"] else "drawings"
         final_blob_name = f"{target_folder}/{filename}"
         
         source_blob = container_client.get_blob_client(temp_blob_name)
         dest_blob = container_client.get_blob_client(final_blob_name)
         
         if source_blob.exists():
-            dest_blob.start_copy_from_url(source_blob.url)
+            # C2 FIX: Use SAS-authenticated URL for copy source (private container)
+            source_sas_url = generate_sas_url(temp_blob_name)
+            dest_blob.start_copy_from_url(source_sas_url)
             import time
             max_retries = 10
             while dest_blob.get_blob_properties().copy.status == 'pending' and max_retries > 0:
@@ -903,11 +904,12 @@ async def cleanup_analysis(filename: str):
         if blob_client.exists():
             blob_client.delete_blob()
             
-        # 2. Delete status file
-        status_blob_name = f"temp/status/{filename}.status.json"
-        status_client = container_client.get_blob_client(status_blob_name)
-        if status_client.exists():
-            status_client.delete_blob()
+        # 2. Delete status file (try both scoped and unscoped paths)
+        status_manager.reset_status(filename)
+        # Also try with username if available from temp blob path
+        for blob in container_client.list_blobs(name_starts_with="temp/status/"):
+            if filename in blob.name:
+                container_client.get_blob_client(blob.name).delete_blob()
             
         return {"status": "cleaned_up", "filename": filename}
         
@@ -1075,7 +1077,7 @@ async def delete_document(
                 print(f"[Delete] Warning: Failed to delete {path}: {e}")
 
         # 3. Cleanup temp chunks and status
-        status_manager.reset_status(filename)
+        status_manager.reset_status(filename, username=username)
         
         # 4. Delete from Azure Search
         try:
