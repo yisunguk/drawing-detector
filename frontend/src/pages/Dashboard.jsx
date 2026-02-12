@@ -864,13 +864,11 @@ const App = () => {
                 const arrayBuffer = await response.arrayBuffer();
                 console.log(`[PDF] ${label} downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB`);
                 if (arrayBuffer.byteLength < 5) throw new Error('empty');
-                // PDF spec: %PDF- header can appear within first 1024 bytes
+                // Log header info but let pdf.js be the final judge
                 const searchLen = Math.min(arrayBuffer.byteLength, 1024);
                 const searchStr = String.fromCharCode(...new Uint8Array(arrayBuffer.slice(0, searchLen)));
                 if (!searchStr.includes('%PDF-')) {
-                    const preview = searchStr.slice(0, 80);
-                    console.error(`[PDF] ${label} not PDF, preview: "${preview}"`);
-                    throw new Error(`not-pdf:${searchStr.slice(0, 5)}`);
+                    console.warn(`[PDF] ${label} header not standard PDF, but will try pdf.js anyway. Preview: "${searchStr.slice(0, 80)}"`);
                 }
                 return arrayBuffer;
             };
@@ -894,14 +892,16 @@ const App = () => {
             }
 
             if (!arrayBuffer) {
-                const msg = lastError?.message || '';
-                if (msg.startsWith('not-pdf:')) {
-                    throw new Error(`서버 응답이 PDF 형식이 아닙니다. (header: ${msg.slice(8)})`);
-                }
-                throw new Error(`PDF 다운로드 실패: ${msg}`);
+                throw new Error(`PDF 다운로드 실패: ${lastError?.message || 'unknown'}`);
             }
 
-            const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let pdf;
+            try {
+                pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            } catch (parseErr) {
+                console.error(`[PDF] pdf.js parse failed:`, parseErr);
+                throw new Error(`PDF 파싱 실패: 파일이 손상되었거나 지원하지 않는 형식입니다.`);
+            }
             pdfCache.current[docId] = pdf;
             console.log(`[PDF] ✅ ${docId} cached (${pdf.numPages} pages)`);
             return pdf;
@@ -2352,13 +2352,12 @@ const App = () => {
             {/* Main */}
             <div className="flex-1 flex flex-col overflow-hidden bg-[#fcfaf7]">
                 {/* Tabs */}
-                <div className="h-12 bg-[#fcfaf7] border-b border-[#e5e1d8] flex items-center px-2 gap-1 overflow-x-auto pt-2">
+                <div className="h-12 bg-[#fcfaf7] border-b border-[#e5e1d8] flex items-center px-2 gap-1 overflow-hidden pt-2">
                     {documents.map(doc => {
                         const docColor = DOC_COLORS[(doc.colorIndex || 0) % DOC_COLORS.length];
                         const isActive = activeDocId === doc.id;
                         const tabCount = documents.length;
                         // Dynamic tab sizing: shrink as more tabs are added
-                        const maxW = tabCount <= 2 ? 'max-w-64' : tabCount <= 4 ? 'max-w-48' : tabCount <= 6 ? 'max-w-36' : 'max-w-28';
                         const px = tabCount <= 4 ? 'px-4' : tabCount <= 6 ? 'px-2.5' : 'px-1.5';
                         const gap = tabCount <= 4 ? 'gap-2' : 'gap-1';
                         const iconSize = tabCount <= 6 ? 14 : 12;
@@ -2372,9 +2371,9 @@ const App = () => {
                                 setPanY(50);
                             }}
                                 title={doc.name}
-                                className={`group flex items-center ${gap} ${px} py-2 rounded-t-lg text-xs font-medium cursor-pointer border-t-4 transition-all shrink-0 ${isActive ? `bg-white ${docColor.text} border-x border-[#e5e1d8] shadow-sm -mb-px z-10 ${docColor.activeBorder}` : 'text-[#888888] hover:bg-[#f4f1ea] hover:text-[#555555] border-t-transparent'}`}>
+                                className={`group flex items-center ${gap} ${px} py-2 rounded-t-lg text-xs font-medium cursor-pointer border-t-4 transition-all min-w-0 ${isActive ? `bg-white ${docColor.text} border-x border-[#e5e1d8] shadow-sm -mb-px z-10 ${docColor.activeBorder}` : 'text-[#888888] hover:bg-[#f4f1ea] hover:text-[#555555] border-t-transparent'}`}>
                                 {doc.ocrData ? <FileCheck size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-emerald-500"}`} /> : doc.pdfTextData ? <FileText size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-amber-500"}`} /> : <FileX size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-red-500"}`} />}
-                                <span className={`${maxW} truncate`}>{doc.name}</span>
+                                <span className="truncate">{doc.name}</span>
                                 {tabCount <= 4 && doc.totalPages > 1 && <span className="text-[10px] opacity-70 shrink-0">({doc.totalPages}p)</span>}
                                 {!analysisState.isAnalyzing && (
                                     <button onClick={(e) => { e.stopPropagation(); setReindexConfirm(doc); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#0078d4] hover:text-[#0063b1] transition-all shrink-0" title="재인덱싱"><RotateCw size={12} /></button>
@@ -2383,7 +2382,7 @@ const App = () => {
                             </div>
                         )
                     })}
-                    <div className="flex gap-2 ml-3">
+                    <div className="flex gap-2 ml-3 shrink-0">
                         <button onClick={() => initiateUpload('pdf', 'drawings')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#555555] bg-[#f4f1ea] hover:bg-[#e5e1d8] hover:text-[#333333] rounded-md transition-colors"><Plus size={16} /> 도면 업로드</button>
                         <button onClick={() => initiateUpload('pdf', 'documents')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#d97757] bg-[#fff0eb] hover:bg-[#ffe0d6] hover:text-[#c05535] rounded-md transition-colors"><Plus size={16} /> 설계자료 업로드</button>
 
