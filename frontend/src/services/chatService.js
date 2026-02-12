@@ -19,6 +19,11 @@ export const sendChatRequest = async (queryText, history = [], docIds = []) => {
     try {
         const token = await auth.currentUser.getIdToken();
 
+        // Build history for conversation memory (last 20 messages)
+        const historyPayload = history.length > 0
+            ? history.slice(-20).map(m => ({ role: m.role, content: m.content }))
+            : null;
+
         const response = await fetch(`${API_URL}/api/v1/chat/`, { // Note: Trailing slash might be important depending on backend
             method: 'POST',
             headers: {
@@ -28,7 +33,8 @@ export const sendChatRequest = async (queryText, history = [], docIds = []) => {
             body: JSON.stringify({
                 query: queryText,
                 context: null, // Let backend handle RAG
-                doc_ids: docIds.length > 0 ? docIds : null
+                doc_ids: docIds.length > 0 ? docIds : null,
+                history: historyPayload
             })
         });
 

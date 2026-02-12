@@ -222,6 +222,12 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                 docIds = documents.map(d => d.name);
             }
 
+            // Build conversation history (last 10 exchanges, exclude initial greeting)
+            const history = messages
+                .filter(m => m.role === 'user' || (m.role === 'assistant' && !m.isError))
+                .slice(-20)  // Last 20 messages (10 exchanges)
+                .map(m => ({ role: m.role, content: m.content }));
+
             const response = await fetch(API_URL, {
                 method: 'POST',
                 headers: headers,
@@ -230,7 +236,8 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                     context: context,
                     filename: activeDoc?.name,
                     doc_ids: docIds,
-                    mode: 'chat'
+                    mode: 'chat',
+                    history: history.length > 0 ? history : null
                 }),
             });
 

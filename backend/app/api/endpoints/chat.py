@@ -9,12 +9,17 @@ from app.core.firebase_admin import verify_id_token
 
 router = APIRouter()
 
+class ChatMessage(BaseModel):
+    role: str  # "user" or "assistant"
+    content: str
+
 class ChatRequest(BaseModel):
     query: str
     filename: Optional[str] = None
     context: Optional[str] = None
     doc_ids: Optional[List[str]] = None  # NEW: List of document names to restrict search
     mode: Optional[str] = "chat" # chat or search
+    history: Optional[List[ChatMessage]] = None  # Conversation history for context memory
 
 class ChatResponse(BaseModel):
     response: str
@@ -343,10 +348,19 @@ async def chat(
 **Remember:** The more citations you provide, the better! Users rely on these links to verify information and navigate drawings quickly.
 """
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {request.query}"}
-        ]
+        # Build messages array with conversation history
+        messages = [{"role": "system", "content": system_prompt}]
+
+        # Include conversation history (last 10 exchanges max to stay within token limits)
+        if request.history:
+            history_msgs = request.history[-20:]  # Last 20 messages (10 exchanges)
+            for msg in history_msgs:
+                if msg.role in ("user", "assistant") and msg.content:
+                    # Truncate long history messages to save tokens
+                    content = msg.content[:2000] if len(msg.content) > 2000 else msg.content
+                    messages.append({"role": msg.role, "content": content})
+
+        messages.append({"role": "user", "content": f"Context:\n{context_text}\n\nQuestion: {request.query}"})
 
         response = client.chat.completions.create(
             model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
