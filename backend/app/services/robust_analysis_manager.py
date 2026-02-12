@@ -282,71 +282,91 @@ class RobustAnalysisManager:
 
     async def finalize_analysis(self, filename: str, category: str, blob_name: str, total_pages: int):
         """
-        Merges results and cleans up.
-        CORRECT ORDER: Validate JSON → Save JSON → Move PDF → Cleanup
-        PDF is moved ONLY after JSON is successfully saved.
+        Merges results and cleans up using STREAMING to avoid OOM.
+        Writes chunks one-by-one to /tmp file, then uploads to blob.
+        CORRECT ORDER: Stream JSON to /tmp → Upload → Move PDF → Cleanup
         """
+        import tempfile
+
         json_blob_name = None
         json_saved = False
         pdf_moved = False
         final_blob_name = None
+        tmp_path = None
 
         try:
-            print(f"[RobustAnalysis] Finalizing {filename}...")
+            print(f"[RobustAnalysis] Finalizing {filename} (streaming mode)...")
             container_client = get_container_client()
 
             status = status_manager.get_status(filename)
             chunks_list = status.get("completed_chunks", [])
 
-            # ── Step 1: Collect all completed chunk JSONs (parallel download) ──
-            completed_pages = []
-            valid_chunks = []
+            # Sort chunks by page range for correct ordering
+            chunks_list_sorted = sorted(chunks_list, key=lambda x: int(x.split("-")[0]))
 
-            def _download_chunk(chunk_range):
-                part_name = f"temp/json/{filename}_part_{chunk_range}.json"
-                blob_client = container_client.get_blob_client(part_name)
-                if blob_client.exists():
+            # ── Step 1: Stream chunk JSONs to /tmp file (one at a time, low memory) ──
+            valid_chunks = []
+            total_page_count = 0
+
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="finalize_")
+            os.close(tmp_fd)
+
+            print(f"[RobustAnalysis] Streaming {len(chunks_list_sorted)} chunks to {tmp_path}...", flush=True)
+
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write("[\n")
+                first_page = True
+
+                for chunk_range in chunks_list_sorted:
+                    part_name = f"temp/json/{filename}_part_{chunk_range}.json"
+                    blob_client = container_client.get_blob_client(part_name)
+
+                    if not blob_client.exists():
+                        print(f"[RobustAnalysis] Warning: Chunk blob missing: {part_name}")
+                        continue
+
                     try:
+                        # Download and parse one chunk at a time
                         data = blob_client.download_blob().readall()
-                        return chunk_range, json.loads(data)
+                        pages = json.loads(data)
+                        del data  # Free memory immediately
+
+                        for page in pages:
+                            if not first_page:
+                                f.write(",\n")
+                            json.dump(page, f, ensure_ascii=False)
+                            first_page = False
+                            total_page_count += 1
+
+                        del pages  # Free memory
+                        valid_chunks.append(chunk_range)
+                        gc.collect()
+
                     except Exception as e:
                         print(f"[RobustAnalysis] Warning: Failed to read chunk {chunk_range}: {e}")
-                        return chunk_range, None
-                else:
-                    print(f"[RobustAnalysis] Warning: Chunk blob missing: {part_name}")
-                    return chunk_range, None
 
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            print(f"[RobustAnalysis] Downloading {len(chunks_list)} chunk JSONs (parallel)...", flush=True)
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                futures = [executor.submit(_download_chunk, c) for c in chunks_list]
-                for future in as_completed(futures):
-                    chunk_range, data = future.result()
-                    if data is not None:
-                        completed_pages.extend(data)
-                        valid_chunks.append(chunk_range)
+                f.write("\n]")
 
-            completed_pages.sort(key=lambda x: x.get("page_number", 0))
+            file_size = os.path.getsize(tmp_path)
+            print(f"[RobustAnalysis] Streaming done: {total_page_count} pages, {file_size:,} bytes")
 
-            # ── Step 2: Validate JSON BEFORE any file movement ──
-            if not completed_pages or len(completed_pages) == 0:
+            # ── Step 2: Validate ──
+            if total_page_count == 0:
                 error_msg = f"DI analysis completed but extracted 0 pages for {filename}"
                 print(f"[RobustAnalysis] VALIDATION FAILED: {error_msg}")
                 raise Exception(error_msg)
 
-            if len(completed_pages) < total_pages:
-                print(f"[RobustAnalysis] WARNING: Partial result - {len(completed_pages)}/{total_pages} pages extracted")
+            if total_page_count < total_pages:
+                print(f"[RobustAnalysis] WARNING: Partial result - {total_page_count}/{total_pages} pages")
 
-            final_json_content = json.dumps(completed_pages, ensure_ascii=False, indent=2)
-
-            if len(final_json_content) < 100:
-                error_msg = f"JSON too small ({len(final_json_content)} bytes) - analysis incomplete"
+            if file_size < 100:
+                error_msg = f"JSON too small ({file_size} bytes) - analysis incomplete"
                 print(f"[RobustAnalysis] VALIDATION FAILED: {error_msg}")
                 raise Exception(error_msg)
 
-            print(f"[RobustAnalysis] Validation passed: {len(completed_pages)}/{total_pages} pages, {len(final_json_content)} bytes")
+            print(f"[RobustAnalysis] Validation passed: {total_page_count}/{total_pages} pages, {file_size:,} bytes")
 
-            # ── Step 3: Save Final JSON (before moving PDF) ──
+            # ── Step 3: Determine JSON blob path ──
             json_parts = blob_name.split('/')
             known_folders = ["temp", "my-documents", "documents", "drawings"]
             matched_folder = None
@@ -367,8 +387,11 @@ class RobustAnalysisManager:
                 else:
                     json_blob_name = f"json/{os.path.splitext(filename)[0]}.json"
 
+            # ── Step 4: Upload from /tmp file (streaming upload, not in-memory) ──
+            print(f"[RobustAnalysis] Uploading {file_size:,} bytes to {json_blob_name}...")
             json_client = container_client.get_blob_client(json_blob_name)
-            json_client.upload_blob(final_json_content, overwrite=True)
+            with open(tmp_path, "rb") as f:
+                json_client.upload_blob(f, overwrite=True, max_concurrency=4)
             json_saved = True
             print(f"[RobustAnalysis] Unified JSON Saved: {json_blob_name}")
 
@@ -432,10 +455,21 @@ class RobustAnalysisManager:
 
             print(f"[RobustAnalysis] Cleanup done.")
 
+            # Cleanup tmp file
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
         except Exception as e:
             print(f"[RobustAnalysis] Finalize Failed: {e}")
             import traceback
             traceback.print_exc()
+
+            # Cleanup tmp file on error
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
             # ── Rollback: delete JSON if it was saved but PDF move failed ──
             if json_saved and not pdf_moved and json_blob_name:
