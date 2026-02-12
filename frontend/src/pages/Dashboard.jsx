@@ -853,27 +853,52 @@ const App = () => {
         if (!blobPath) return null;
 
         const promise = (async () => {
-            // Primary: direct Azure Blob URL (bypasses backend, no CORS issue)
             const directUrl = getDirectBlobUrl(blobPath);
-            // Fallback: backend proxy
             const proxyUrl = `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(blobPath)}`;
-            const url = directUrl || proxyUrl;
 
-            console.log(`[PDF] Downloading blobPath="${blobPath}" → ${directUrl ? 'Direct Azure' : 'Backend Proxy'}`);
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`PDF 다운로드 실패: ${response.status}`);
-            const arrayBuffer = await response.arrayBuffer();
-            console.log(`[PDF] Downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB`);
+            // Try to fetch and validate PDF from a URL
+            const fetchPdf = async (url, label) => {
+                console.log(`[PDF] Trying ${label}: ${url.slice(0, 120)}...`);
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const arrayBuffer = await response.arrayBuffer();
+                console.log(`[PDF] ${label} downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB`);
+                if (arrayBuffer.byteLength < 5) throw new Error('empty');
+                // PDF spec: %PDF- header can appear within first 1024 bytes
+                const searchLen = Math.min(arrayBuffer.byteLength, 1024);
+                const searchStr = String.fromCharCode(...new Uint8Array(arrayBuffer.slice(0, searchLen)));
+                if (!searchStr.includes('%PDF-')) {
+                    const preview = searchStr.slice(0, 80);
+                    console.error(`[PDF] ${label} not PDF, preview: "${preview}"`);
+                    throw new Error(`not-pdf:${searchStr.slice(0, 5)}`);
+                }
+                return arrayBuffer;
+            };
 
-            if (arrayBuffer.byteLength < 5) throw new Error('다운로드된 파일이 비어있습니다.');
-            // PDF spec: %PDF- header can appear within first 1024 bytes (preamble/BOM/DRM wrapper allowed)
-            const searchLen = Math.min(arrayBuffer.byteLength, 1024);
-            const searchBytes = new Uint8Array(arrayBuffer.slice(0, searchLen));
-            const searchStr = String.fromCharCode(...searchBytes);
-            if (!searchStr.includes('%PDF-')) {
-                const preview = searchStr.slice(0, 50);
-                console.error(`[PDF] No %PDF- header in first ${searchLen} bytes, preview: "${preview}"`);
-                throw new Error(`서버 응답이 PDF 형식이 아닙니다. (header: ${searchStr.slice(0, 5)})`);
+            // Try direct Azure URL first, fallback to backend proxy (or vice versa)
+            const urls = directUrl
+                ? [{ url: directUrl, label: 'Direct Azure' }, { url: proxyUrl, label: 'Backend Proxy' }]
+                : [{ url: proxyUrl, label: 'Backend Proxy' }];
+
+            let arrayBuffer = null;
+            let lastError = null;
+            for (const { url, label } of urls) {
+                try {
+                    arrayBuffer = await fetchPdf(url, label);
+                    console.log(`[PDF] ✅ ${label} success`);
+                    break;
+                } catch (e) {
+                    console.warn(`[PDF] ${label} failed: ${e.message}`);
+                    lastError = e;
+                }
+            }
+
+            if (!arrayBuffer) {
+                const msg = lastError?.message || '';
+                if (msg.startsWith('not-pdf:')) {
+                    throw new Error(`서버 응답이 PDF 형식이 아닙니다. (header: ${msg.slice(8)})`);
+                }
+                throw new Error(`PDF 다운로드 실패: ${msg}`);
             }
 
             const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
