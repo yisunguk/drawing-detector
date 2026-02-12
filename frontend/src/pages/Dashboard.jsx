@@ -375,6 +375,7 @@ const App = () => {
     const pdfRef = useRef(null);
     const canvasRef = useRef(null);
     const renderTaskRef = useRef(null);
+    const fetchControllerRef = useRef(null); // Abort previous PDF download on tab switch
     const containerRef = useRef(null);
     const fileInputRef = useRef(null);
     const jsonInputRef = useRef(null);
@@ -802,6 +803,19 @@ const App = () => {
         setIsLoading(true);
         setPdfError(null);
 
+        // Abort any previous PDF download to avoid concurrent fetches
+        if (fetchControllerRef.current) {
+            fetchControllerRef.current.abort();
+            fetchControllerRef.current = null;
+        }
+
+        // Clear canvas immediately so stale content from previous doc doesn't show
+        const canvas = canvasRef.current;
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
         try {
             let pdf = pdfCache.current[doc.id];
 
@@ -817,6 +831,7 @@ const App = () => {
                     // (Range Requests disabled - backend uses chunked streaming without Content-Length)
                     console.log('Loading PDF from URL:', effectiveUrl);
                     const controller = new AbortController();
+                    fetchControllerRef.current = controller;
                     const timeoutId = setTimeout(() => controller.abort(), 120000); // 2min timeout for large files
 
                     try {
@@ -825,6 +840,7 @@ const App = () => {
                         if (!response.ok) throw new Error(`PDF 다운로드 실패: ${response.status}`);
 
                         const arrayBuffer = await response.arrayBuffer();
+                        fetchControllerRef.current = null;
                         console.log(`PDF downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB`);
 
                         // Validate PDF magic bytes
@@ -841,6 +857,12 @@ const App = () => {
                         console.log('✅ PDF loaded successfully');
                     } catch (fetchError) {
                         clearTimeout(timeoutId);
+                        fetchControllerRef.current = null;
+                        // Don't show error for user-initiated abort (tab switch)
+                        if (fetchError.name === 'AbortError') {
+                            console.log('[PDF] Previous download aborted (tab switch)');
+                            return;
+                        }
                         throw fetchError;
                     }
                 } else if (doc.pdfData) {
@@ -1005,6 +1027,8 @@ const App = () => {
 
 
         } catch (err) {
+            // Ignore abort errors from tab switching
+            if (err.name === 'AbortError') return;
             console.error('PDF error:', err);
             // Clear corrupted cache entry
             delete pdfCache.current[doc.id];
