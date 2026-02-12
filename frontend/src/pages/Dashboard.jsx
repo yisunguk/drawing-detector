@@ -28,6 +28,9 @@ const AZURE_SAS_TOKEN = rawSasToken.replace(/^"|"$/g, '');
 
 const AZURE_CONTAINER_URL = `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}?${AZURE_SAS_TOKEN}`;
 
+const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
+const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+
 import { cleanupOldChatHistory } from '../services/historyCleanup';
 
 const classifyTag = (content) => {
@@ -91,6 +94,7 @@ const App = () => {
     const [isDragging, setIsDragging] = useState(false);
     const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
     const [extractionProgress, setExtractionProgress] = useState(null); // { current, total }
+    const [pdfError, setPdfError] = useState(null); // { docId, message }
     // Chat Context Scope: 'active' (default) or 'all'
     const [chatScope, setChatScope] = useState('active');
     const [hasUserSelectedScope, setHasUserSelectedScope] = useState(false);
@@ -773,20 +777,26 @@ const App = () => {
 
     // PDF 로드 및 페이지 렌더링
     const loadAndRenderPage = useCallback(async (doc, pageNum) => {
-        if (!window.pdfjsLib || !canvasRef.current || (!doc?.pdfData && !doc?.pdfUrl)) return;
+        if (!window.pdfjsLib || !canvasRef.current || (!doc?.pdfData && !doc?.pdfUrl && !doc?.blobPath)) return;
         setIsLoading(true);
+        setPdfError(null);
 
         try {
             let pdf = pdfCache.current[doc.id];
 
             // If not in cache, load it and cache it
             if (!pdf) {
-                if (doc.pdfUrl) {
+                // Reconstruct pdfUrl from blobPath to avoid stale URLs from IDB
+                const effectiveUrl = doc.blobPath
+                    ? `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(doc.blobPath)}`
+                    : doc.pdfUrl;
+
+                if (effectiveUrl) {
                     // Try URL for Azure files first (Range Requests)
                     try {
-                        console.log('Loading PDF from URL with Range Requests:', doc.pdfUrl);
+                        console.log('Loading PDF from URL with Range Requests:', effectiveUrl);
                         const loadingTask = window.pdfjsLib.getDocument({
-                            url: doc.pdfUrl,
+                            url: effectiveUrl,
                             rangeChunkSize: 65536,
                             disableAutoFetch: true,
                             disableStream: false,
@@ -808,17 +818,28 @@ const App = () => {
                         console.log('✅ PDF loaded successfully via URL');
                     } catch (urlError) {
                         console.warn('⚠️ URL loading failed/timed out, falling back to full download:', urlError);
-                        setLoadingProgress(null); // Reset progress on error
+                        setLoadingProgress(null);
 
                         // Fallback: Download entire file as ArrayBuffer with Timeout
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout for full download
+                        const timeoutId = setTimeout(() => controller.abort(), 60000);
 
                         try {
-                            const response = await fetch(doc.pdfUrl, { signal: controller.signal });
+                            const response = await fetch(effectiveUrl, { signal: controller.signal });
                             clearTimeout(timeoutId);
                             if (!response.ok) throw new Error(`Failed to download PDF: ${response.status}`);
+
+                            // Validate Content-Type before parsing
+                            const contentType = response.headers.get('content-type') || '';
                             const arrayBuffer = await response.arrayBuffer();
+
+                            // Check PDF magic bytes (%PDF-)
+                            const header = new Uint8Array(arrayBuffer.slice(0, 5));
+                            const headerStr = String.fromCharCode(...header);
+                            if (!headerStr.startsWith('%PDF-') && !contentType.includes('pdf')) {
+                                throw new Error('서버 응답이 PDF 형식이 아닙니다. 백엔드 연결을 확인해주세요.');
+                            }
+
                             pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                             console.log('✅ PDF loaded via fallback ArrayBuffer');
                         } catch (fallbackError) {
@@ -826,11 +847,13 @@ const App = () => {
                             throw fallbackError;
                         }
                     }
-                } else {
+                } else if (doc.pdfData) {
                     // Use ArrayBuffer for local files
                     // Clone ArrayBuffer to avoid detachment (DataCloneError) during IDB save
                     const bufferClone = doc.pdfData.slice(0);
                     pdf = await window.pdfjsLib.getDocument({ data: bufferClone }).promise;
+                } else {
+                    throw new Error('PDF 데이터를 찾을 수 없습니다. 파일을 다시 열어주세요.');
                 }
                 pdfCache.current[doc.id] = pdf;
 
@@ -949,9 +972,16 @@ const App = () => {
 
         } catch (err) {
             console.error('PDF error:', err);
+            // Clear corrupted cache entry
+            delete pdfCache.current[doc.id];
+            const isInvalidPdf = err.name === 'InvalidPDFException' || err.message?.includes('Invalid PDF');
+            const errorMsg = isInvalidPdf
+                ? 'PDF 파일이 손상되었거나 형식이 올바르지 않습니다.'
+                : err.message || 'PDF 로드 중 오류가 발생했습니다.';
+            setPdfError({ docId: doc.id, message: errorMsg });
         } finally {
             setIsLoading(false);
-            setLoadingProgress(null); // Ensure progress is cleared
+            setLoadingProgress(null);
         }
     }, [extractPdfText, rotation]); // Removed inputPage dependency
 
@@ -1025,8 +1055,7 @@ const App = () => {
     const analyzeLocalDocument = async (file, docId, index = null, total = null) => {
         const prefix = (index !== null && total > 1) ? `[${index + 1}/${total}] ` : '';
         try {
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
-            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+
 
             // Step 1: Request SAS URL
             setAnalysisState({ isAnalyzing: true, progress: 0, status: `${prefix}업로드 채널 확보 중...` });
@@ -1246,8 +1275,7 @@ const App = () => {
     // ── Re-index handler for failed documents ──
     const reindexDocument = async (doc) => {
         try {
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
-            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+
             const uName = userProfile?.name || currentUser?.displayName;
             const filename = doc.name.endsWith('.pdf') ? doc.name : `${doc.name}.pdf`;
 
@@ -1489,8 +1517,7 @@ const App = () => {
             setAzureLoading(true);
             setError(null);
 
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
-            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+
             const response = await fetch(`${API_URL}/api/v1/azure/list?path=${encodeURIComponent(path)}`);
 
             if (!response.ok) {
@@ -1528,8 +1555,7 @@ const App = () => {
             setAzureLoading(true);
             setError(null);
 
-            const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
-            const API_URL = import.meta.env.VITE_API_URL || PRODUCTION_API_URL;
+
             const response = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`);
 
             if (!response.ok) {
@@ -1616,12 +1642,13 @@ const App = () => {
                 }
                 const colorIndex = documents.length % DOC_COLORS.length;
 
-                // Store URL instead of pdfData for Azure files (enables Range Requests)
+                // Store URL + blobPath for Azure files (enables Range Requests + URL reconstruction on reload)
                 setDocuments(prev => [...prev, {
                     id,
                     name,
                     pdfData: null,
                     pdfUrl: pdfUrl,
+                    blobPath: file.path,
                     ocrData: fetchedJson,
                     pdfTextData: null,
                     totalPages: 1,
@@ -2365,11 +2392,43 @@ const App = () => {
                 >
                     {activeDoc ? (
                         <>
-                            {isLoading && (
+                            {isLoading && !pdfError && (
                                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#f0ede6]/90 backdrop-blur-sm">
                                     <Loader2 size={48} className="animate-spin text-[#d97757] mb-4" />
                                     <h3 className="text-lg font-medium text-[#333333] mb-2">도면을 렌더링 중입니다</h3>
                                     <p className="text-sm text-[#888888]">잠시만 기다려 주세요...</p>
+                                </div>
+                            )}
+                            {pdfError && pdfError.docId === activeDocId && (
+                                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#f0ede6]/95 backdrop-blur-sm">
+                                    <div className="bg-white rounded-2xl shadow-lg border border-red-200 p-8 max-w-md text-center">
+                                        <div className="bg-red-50 p-3 rounded-full inline-block mb-4">
+                                            <FileX size={36} className="text-red-500" />
+                                        </div>
+                                        <h3 className="text-lg font-bold text-[#333333] mb-2">PDF 로드 실패</h3>
+                                        <p className="text-sm text-[#666666] mb-4">{pdfError.message}</p>
+                                        <div className="flex gap-3 justify-center">
+                                            <button
+                                                onClick={() => {
+                                                    setPdfError(null);
+                                                    delete pdfCache.current[activeDocId];
+                                                    loadAndRenderPage(activeDoc, activePage);
+                                                }}
+                                                className="px-4 py-2 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg text-sm font-medium transition-all flex items-center gap-2"
+                                            >
+                                                <RotateCw size={14} /> 다시 시도
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setPdfError(null);
+                                                    setDocuments(prev => prev.filter(d => d.id !== activeDocId));
+                                                }}
+                                                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-[#666666] rounded-lg text-sm font-medium transition-all flex items-center gap-2"
+                                            >
+                                                <X size={14} /> 문서 닫기
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                             <div style={{ transform: `scale(${zoom}) translate(${(50 - (isNaN(panX) ? 50 : panX))}%, ${(50 - (isNaN(panY) ? 50 : panY))}%)`, transformOrigin: 'center center' }} className="relative shadow-xl transition-transform duration-75 ease-out">
