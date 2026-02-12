@@ -1,5 +1,6 @@
 import time
 import asyncio
+import gc
 from app.services.azure_di import azure_di_service
 from app.services.status_manager import status_manager
 from app.services.blob_storage import get_container_client
@@ -16,17 +17,18 @@ class RobustAnalysisManager:
     Manages robust document analysis (Production Grade):
     - Uses Azure Form Recognizer SDK (via AzureDIService) for stable URL analysis.
     - Optimized: Supports Local File Caching + Parallel Processing.
-    - STRICTLY avoids sequential bottlenecks.
+    - Max 5 concurrent workers to prevent OOM on Cloud Run (4Gi).
+    - Per-chunk timeout (10min) and retry (2 attempts) for resilience.
     - Saves progress incrementally via StatusManager.
     """
-    
+
+    # Safety limits
+    MAX_PARALLEL_WORKERS = 5       # Cap concurrent Azure DI calls
+    CHUNK_TIMEOUT_SEC = 600        # 10 minutes per chunk
+    CHUNK_MAX_RETRIES = 2          # Retry failed chunks up to 2 times
+    RETRY_BACKOFF_SEC = 30         # Base backoff between retries
+
     def __init__(self):
-        # PAID TIER: Azure DI Standard has 50MB limit
-        # With 234KB/page average:
-        # 50 pages = ~11.7MB (WORKS for Paid Tier)
-        # 200 pages = ~46.8MB (WORKS for Paid Tier)
-        # Using 10 for better user feedback (more frequent updates)
-        # Performance impact is minimal due to parallelization
         self.CHUNK_SIZE = 10
 
     async def run_analysis_loop(self, filename: str, blob_name: str, total_pages: int, category: str, local_file_path: str = None):
@@ -79,16 +81,16 @@ class RobustAnalysisManager:
             status = status_manager.get_status(filename)
             completed_chunks = set(status.get("completed_chunks", [])) if status else set()
             
-            # Dynamic scaling based on document size
+            # Dynamic scaling based on document size (workers capped at MAX_PARALLEL_WORKERS)
             if total_pages <= 100:
                 self.CHUNK_SIZE = 50
-                parallel_workers = 5
+                parallel_workers = min(5, self.MAX_PARALLEL_WORKERS)
             elif total_pages <= 500:
                 self.CHUNK_SIZE = 100
-                parallel_workers = 8
+                parallel_workers = min(5, self.MAX_PARALLEL_WORKERS)
             else:
                 self.CHUNK_SIZE = 100
-                parallel_workers = 10
+                parallel_workers = min(5, self.MAX_PARALLEL_WORKERS)
 
             print(f"[RobustAnalysis] Dynamic config: {total_pages} pages → ChunkSize={self.CHUNK_SIZE}, Workers={parallel_workers}")
 
@@ -107,27 +109,39 @@ class RobustAnalysisManager:
             print(f"[RobustAnalysis] {len(pending_chunks)} chunks to process (out of {total_chunks}) | ChunkSize: {self.CHUNK_SIZE}")
             print(f"[RobustAnalysis] Pending list: {pending_chunks}")
 
-            # 4. Process chunks in PARALLEL batches
+            # 4. Process chunks in PARALLEL batches (with per-chunk timeout & retry)
             failed_chunks = []
+            total_batches = (len(pending_chunks) + parallel_workers - 1) // parallel_workers
 
             for batch_start in range(0, len(pending_chunks), parallel_workers):
                 batch = pending_chunks[batch_start:batch_start + parallel_workers]
-                print(f"[RobustAnalysis] ========== Processing batch {batch_start//parallel_workers + 1}: {batch} ==========")
+                batch_num = batch_start // parallel_workers + 1
+                print(f"[RobustAnalysis] ========== Batch {batch_num}/{total_batches}: {batch} ==========")
 
-                # Create tasks for this batch
+                # Create tasks with timeout wrapper for this batch
                 tasks = [
-                    self._process_chunk(filename, blob_name, blob_url, local_file_path, page_range, category)
+                    self._process_chunk_with_retry(
+                        filename, blob_name, blob_url, local_file_path, page_range, category
+                    )
                     for page_range in batch
                 ]
 
-                # Wait for batch
+                # Wait for batch - each task has its own timeout/retry
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 # Check results
+                batch_ok = 0
                 for i, res in enumerate(results):
                     if isinstance(res, Exception):
-                        print(f"[RobustAnalysis] Chunk {batch[i]} FAILED: {res}")
+                        print(f"[RobustAnalysis] Chunk {batch[i]} FAILED after retries: {res}")
                         failed_chunks.append(batch[i])
+                    else:
+                        batch_ok += 1
+
+                print(f"[RobustAnalysis] Batch {batch_num} done: {batch_ok}/{len(batch)} succeeded")
+
+                # Free memory between batches
+                gc.collect()
 
             # 5. Check if ALL chunks failed - abort without finalize
             status = status_manager.get_status(filename)
@@ -152,6 +166,34 @@ class RobustAnalysisManager:
             import traceback
             traceback.print_exc()
             self._mark_error(filename, f"Critical System Error: {str(e)}")
+
+    async def _process_chunk_with_retry(self, filename: str, blob_name: str, master_blob_url: str, local_file_path: str, page_range: str, category: str):
+        """
+        Wraps _process_chunk with timeout and retry logic.
+        - Timeout: CHUNK_TIMEOUT_SEC per attempt
+        - Retries: CHUNK_MAX_RETRIES times with exponential backoff
+        """
+        last_error = None
+        for attempt in range(self.CHUNK_MAX_RETRIES + 1):
+            try:
+                result = await asyncio.wait_for(
+                    self._process_chunk(filename, blob_name, master_blob_url, local_file_path, page_range, category),
+                    timeout=self.CHUNK_TIMEOUT_SEC
+                )
+                return result
+            except asyncio.TimeoutError:
+                last_error = TimeoutError(f"Chunk {page_range} timed out after {self.CHUNK_TIMEOUT_SEC}s (attempt {attempt + 1})")
+                print(f"[Chunk] TIMEOUT: {page_range} (attempt {attempt + 1}/{self.CHUNK_MAX_RETRIES + 1})", flush=True)
+            except Exception as e:
+                last_error = e
+                print(f"[Chunk] ERROR: {page_range} (attempt {attempt + 1}/{self.CHUNK_MAX_RETRIES + 1}): {e}", flush=True)
+
+            if attempt < self.CHUNK_MAX_RETRIES:
+                backoff = self.RETRY_BACKOFF_SEC * (attempt + 1)
+                print(f"[Chunk] Retrying {page_range} in {backoff}s...", flush=True)
+                await asyncio.sleep(backoff)
+
+        raise last_error
 
     async def _process_chunk(self, filename: str, blob_name: str, master_blob_url: str, local_file_path: str, page_range: str, category: str):
         """
@@ -392,6 +434,8 @@ class RobustAnalysisManager:
 
         except Exception as e:
             print(f"[RobustAnalysis] Finalize Failed: {e}")
+            import traceback
+            traceback.print_exc()
 
             # ── Rollback: delete JSON if it was saved but PDF move failed ──
             if json_saved and not pdf_moved and json_blob_name:
@@ -402,22 +446,17 @@ class RobustAnalysisManager:
                 except Exception as rb_err:
                     print(f"[RobustAnalysis] Rollback warning: {rb_err}")
 
-            # Retry logic - PDF is still in temp (never moved on failure)
+            # Retry finalize only (do NOT reset completed_chunks - they are valid data!)
             status = status_manager.get_status(filename)
             retry_count = status.get("retry_count", 0) if status else 0
 
             if retry_count < 3:
-                print(f"[RobustAnalysis] Retrying ({retry_count + 1}/3)...")
+                print(f"[RobustAnalysis] Retrying finalize ({retry_count + 1}/3)...")
                 status_manager.increment_retry(filename)
-                # Reset chunks for fresh re-analysis
-                if status:
-                    status["completed_chunks"] = []
-                    blob_client = status_manager._get_blob_client(filename)
-                    blob_client.upload_blob(json.dumps(status), overwrite=True)
-                # Re-run - blob_name still points to temp (PDF was never moved)
-                await self.run_analysis_loop(filename, blob_name, total_pages, category)
+                # Re-run finalize only - completed_chunks are preserved
+                await self.finalize_analysis(filename, category, blob_name, total_pages)
             else:
-                print(f"[RobustAnalysis] Max retries (3) exceeded for {filename}")
-                status_manager.mark_failed(filename, f"Analysis failed after 3 attempts: {str(e)}")
+                print(f"[RobustAnalysis] Max finalize retries (3) exceeded for {filename}")
+                status_manager.mark_failed(filename, f"Finalize failed after 3 attempts: {str(e)}")
 
 robust_analysis_manager = RobustAnalysisManager()

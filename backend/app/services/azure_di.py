@@ -31,11 +31,12 @@ class AzureDIService:
             logger.info(f"[AzureDIService] Analyzing URL: {document_url[:60]}... Pages={pages}")
             # Stable SDK v3.3 uses begin_analyze_document_from_url
             poller = self.client.begin_analyze_document_from_url(
-                "prebuilt-layout", 
+                "prebuilt-layout",
                 document_url,
                 pages=pages
             )
-            result = poller.result()
+            # Timeout: 8 minutes max for polling (prevents indefinite hang)
+            result = poller.result(timeout=480)
             
             # CRITICAL: Validate result before formatting
             if not result:
