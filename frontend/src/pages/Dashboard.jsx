@@ -1686,10 +1686,13 @@ const App = () => {
                     }];
                 });
 
-                setActiveDocId(id);
-                setActivePage(1);
-                setRotation(0);
-                if (!keepBrowserOpen) setShowAzureBrowser(false);
+                if (!keepBrowserOpen) {
+                    setActiveDocId(id);
+                    setActivePage(1);
+                    setRotation(0);
+                    setShowAzureBrowser(false);
+                }
+                return id;
             } else {
                 alert(`Unsupported file type: ${file.name}`);
             }
@@ -1700,6 +1703,7 @@ const App = () => {
         } finally {
             setAzureLoading(false);
         }
+        return null;
     };
 
     const handleAzureItemClick = (item) => {
@@ -1721,15 +1725,26 @@ const App = () => {
     const handleAzureBatchUpload = async () => {
         if (selectedAzureItems.length === 0) return;
 
-        // Process sequentially to ensure order and state stability
+        const batchCount = selectedAzureItems.length;
+        let firstDocId = null;
+
+        // Process sequentially — keepBrowserOpen=true skips setActiveDocId per file
         for (const item of selectedAzureItems) {
-            await handleAzureFileSelect(item, true);
+            const docId = await handleAzureFileSelect(item, true);
+            if (!firstDocId && docId) firstDocId = docId;
         }
         setShowAzureBrowser(false);
         setSelectedAzureItems([]);
 
+        // Activate the first uploaded document only (avoid concurrent PDF downloads)
+        if (firstDocId) {
+            setActiveDocId(firstDocId);
+            setActivePage(1);
+            setRotation(0);
+        }
+
         // Trigger scope selection modal if total documents > 1 (Existing + New)
-        if (documents.length + selectedAzureItems.length > 1 && !hasUserSelectedScope) {
+        if (documents.length + batchCount > 1 && !hasUserSelectedScope) {
             setShowScopeSelectionModal(true);
         }
     };
