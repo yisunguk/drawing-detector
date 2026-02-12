@@ -436,6 +436,26 @@ const App = () => {
         return null;
     }, [activeDoc, activePage]);
 
+    // Helper: resolve OCR page data from any format (flat array, analyzeResult.pages, single-page)
+    const getOcrPageData = useCallback((doc, pageNum) => {
+        if (!doc) return null;
+        const data = doc.ocrData || doc.pdfTextData;
+        if (!data) return null;
+
+        let pages;
+        if (Array.isArray(data)) {
+            pages = data;
+        } else if (data.analyzeResult?.pages) {
+            pages = data.analyzeResult.pages;
+        } else if (data.pages) {
+            pages = data.pages;
+        } else {
+            pages = [data]; // single-page object
+        }
+
+        return pages.find(p => (p.page_number || p.pageNumber || 1) === pageNum) || pages[pageNum - 1] || null;
+    }, []);
+
     // PDF 텍스트 추출
     const extractPdfText = useCallback(async (pdf, pageNum) => {
         try {
@@ -854,6 +874,44 @@ const App = () => {
                         }
                         setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, pdfTextData: textData } : d));
                         setExtractionProgress(null);
+                    })();
+                }
+
+                // Auto-detect OCR JSON availability (e.g. indexing completed after initial open)
+                if (!doc.ocrData && doc.blobPath) {
+                    (async () => {
+                        try {
+                            const decodedPath = decodeURIComponent(doc.blobPath);
+                            const jsonCandidates = [];
+                            if (decodedPath.toLowerCase().includes('drawings')) {
+                                jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                            } else if (decodedPath.toLowerCase().includes('documents')) {
+                                jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                            }
+                            // Fallback: username/json/filename.json
+                            const uName = userProfile?.name || currentUser?.displayName;
+                            if (uName) {
+                                const filename = doc.name || decodedPath.split('/').pop()?.replace(/\.pdf$/i, '');
+                                jsonCandidates.push(`${uName}/json/${filename}.json`);
+                            }
+
+                            for (const jsonPath of jsonCandidates) {
+                                try {
+                                    const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
+                                    if (jsonRes.ok) {
+                                        const jsonBlob = await jsonRes.blob();
+                                        const jsonText = await jsonBlob.text();
+                                        const fetchedOcrData = JSON.parse(jsonText);
+                                        setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, ocrData: fetchedOcrData, pdfTextData: null } : d));
+                                        console.log(`[AutoOCR] ✅ Found OCR JSON: ${jsonPath}`);
+                                        return;
+                                    }
+                                } catch (e) { /* continue to next candidate */ }
+                            }
+                            console.log('[AutoOCR] No OCR JSON available yet');
+                        } catch (e) {
+                            console.warn('[AutoOCR] Error checking for OCR data:', e);
+                        }
                     })();
                 }
             }
@@ -1737,11 +1795,12 @@ const App = () => {
         }
 
         const p = result.polygon;
-        // FIX: Use OCR Page Width
-        const pageIndex = (result.pageNum || 1) - 1;
-        const pageData = activeDoc?.ocrData?.analyzeResult?.pages?.[pageIndex];
-        const lw = result.layoutWidth || pageData?.width || canvasSize.width;
-        const lh = result.layoutHeight || pageData?.height || canvasSize.height;
+        // FIX: Use OCR Page Width - resolve from any OCR format
+        const pageData = getOcrPageData(activeDoc, result.pageNum || 1);
+        const pgW = pageData?.layout?.width || pageData?.width || pageData?.metadata?.width || 0;
+        const pgH = pageData?.layout?.height || pageData?.height || pageData?.metadata?.height || 0;
+        const lw = result.layoutWidth || pgW || canvasSize.width;
+        const lh = result.layoutHeight || pgH || canvasSize.height;
 
         const needScale = Math.abs(lw - canvasSize.width) > 5;
 
@@ -1760,11 +1819,12 @@ const App = () => {
     const getSelectedCenter = () => {
         if (!selectedResult || !canvasSize.width || !selectedResult.polygon) return null;
         const p = selectedResult.polygon;
-        // FIX: Use OCR Page Width
-        const pageIndex = (selectedResult.pageNum || 1) - 1;
-        const pageData = activeDoc?.ocrData?.analyzeResult?.pages?.[pageIndex];
-        const lw = selectedResult.layoutWidth || pageData?.width || canvasSize.width;
-        const lh = selectedResult.layoutHeight || pageData?.height || canvasSize.height;
+        // FIX: Use OCR Page Width - resolve from any OCR format
+        const pageData = getOcrPageData(activeDoc, selectedResult.pageNum || 1);
+        const pgW = pageData?.layout?.width || pageData?.width || pageData?.metadata?.width || 0;
+        const pgH = pageData?.layout?.height || pageData?.height || pageData?.metadata?.height || 0;
+        const lw = selectedResult.layoutWidth || pgW || canvasSize.width;
+        const lh = selectedResult.layoutHeight || pgH || canvasSize.height;
 
         const needScale = Math.abs(lw - canvasSize.width) > 1;
 
@@ -1935,8 +1995,8 @@ const App = () => {
                 const pageData = pages.find(p => (p.page_number || 1) === targetPage) || pages[targetPage - 1];
                 if (pageData) {
                     const lines = pageData.layout?.lines || pageData.lines || [];
-                    const layoutWidth = pageData.layout?.width || pageData.width || 0;
-                    const layoutHeight = pageData.layout?.height || pageData.height || 0;
+                    const layoutWidth = pageData.layout?.width || pageData.width || pageData.metadata?.width || 0;
+                    const layoutHeight = pageData.layout?.height || pageData.height || pageData.metadata?.height || 0;
                     const searchLower = searchText.toLowerCase();
 
                     // Find best matching line
