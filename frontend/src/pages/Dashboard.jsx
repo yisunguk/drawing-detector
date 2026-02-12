@@ -797,6 +797,12 @@ const App = () => {
     const pdfCache = useRef({}); // Cache for parsed PDF documents: { [docId]: pdfProxy }
     const pdfLoadingPromises = useRef({}); // In-flight download promises: { [docId]: Promise<pdf> }
 
+    // Build direct Azure Blob URL (same pattern as KnowhowDB.jsx / analysisService.js)
+    const getDirectBlobUrl = useCallback((blobPath) => {
+        if (!blobPath || !AZURE_STORAGE_ACCOUNT_NAME || !AZURE_CONTAINER_NAME || !AZURE_SAS_TOKEN) return null;
+        return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodeURIComponent(blobPath)}?${AZURE_SAS_TOKEN}`;
+    }, []);
+
     // Download + parse a single PDF, deduplicating concurrent requests
     const downloadAndCachePdf = useCallback(async (docId, blobPath) => {
         // Already cached
@@ -807,18 +813,20 @@ const App = () => {
             return pdfLoadingPromises.current[docId];
         }
 
-        const url = blobPath
-            ? `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(blobPath)}`
-            : null;
-        if (!url) return null;
+        if (!blobPath) return null;
 
         const promise = (async () => {
-            console.log(`[PDF] Downloading blobPath="${blobPath}" → ${url}`);
+            // Primary: direct Azure Blob URL (bypasses backend, no CORS issue)
+            const directUrl = getDirectBlobUrl(blobPath);
+            // Fallback: backend proxy
+            const proxyUrl = `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(blobPath)}`;
+            const url = directUrl || proxyUrl;
+
+            console.log(`[PDF] Downloading blobPath="${blobPath}" → ${directUrl ? 'Direct Azure' : 'Backend Proxy'}`);
             const response = await fetch(url);
             if (!response.ok) throw new Error(`PDF 다운로드 실패: ${response.status}`);
-            const expectedSize = response.headers.get('Content-Length');
             const arrayBuffer = await response.arrayBuffer();
-            console.log(`[PDF] Downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB (expected: ${expectedSize ? (parseInt(expectedSize) / 1024 / 1024).toFixed(2) + 'MB' : 'unknown'})`);
+            console.log(`[PDF] Downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB`);
 
             if (arrayBuffer.byteLength < 5) throw new Error('다운로드된 파일이 비어있습니다.');
             const header = new Uint8Array(arrayBuffer.slice(0, 5));
@@ -838,7 +846,7 @@ const App = () => {
         } finally {
             delete pdfLoadingPromises.current[docId];
         }
-    }, []);
+    }, [getDirectBlobUrl]);
 
     // Sequential PDF preloader — downloads and caches PDFs one at a time
     const preloadPdfs = useCallback(async (docInfos) => {
@@ -931,10 +939,12 @@ const App = () => {
 
                             for (const jsonPath of jsonCandidates) {
                                 try {
-                                    const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
+                                    // Direct Azure Blob URL (bypasses backend CORS)
+                                    const jsonUrl = getDirectBlobUrl(jsonPath)
+                                        || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`;
+                                    const jsonRes = await fetch(jsonUrl);
                                     if (jsonRes.ok) {
-                                        const jsonBlob = await jsonRes.blob();
-                                        const jsonText = await jsonBlob.text();
+                                        const jsonText = await jsonRes.text();
                                         const fetchedOcrData = JSON.parse(jsonText);
                                         setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, ocrData: fetchedOcrData, pdfTextData: null } : d));
                                         console.log(`[AutoOCR] ✅ Found OCR JSON: ${jsonPath}`);
@@ -1052,7 +1062,7 @@ const App = () => {
             setIsLoading(false);
             setLoadingProgress(null);
         }
-    }, [extractPdfText, rotation, downloadAndCachePdf]);
+    }, [extractPdfText, rotation, downloadAndCachePdf, getDirectBlobUrl]);
 
     useEffect(() => {
         if (activeDoc && pdfJsReady) {
@@ -1629,34 +1639,23 @@ const App = () => {
 
             // JSON files: download blob for parsing
             if (activeDocId && fileName.endsWith('.json')) {
-                const response = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`);
+                // Direct Azure Blob URL (bypasses backend CORS)
+                const jsonUrl = getDirectBlobUrl(file.path)
+                    || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`;
+                const response = await fetch(jsonUrl);
                 if (!response.ok) {
-                    const contentType = response.headers.get("content-type");
-                    let errorMessage = `Server Error (${response.status})`;
-                    if (contentType && contentType.includes("application/json")) {
-                        const errData = await response.json();
-                        errorMessage = errData.detail || errorMessage;
-                    } else {
-                        const text = await response.text();
-                        const titleMatch = text.match(/<title>(.*?)<\/title>/i);
-                        errorMessage = titleMatch ? titleMatch[1] : text.slice(0, 100);
-                    }
-                    throw new Error(errorMessage);
+                    throw new Error(`JSON 다운로드 실패: ${response.status}`);
                 }
-                const blob = await response.blob();
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    try {
-                        const json = JSON.parse(event.target.result);
-                        setDocuments(prev => prev.map(d => d.id === activeDocId ? { ...d, ocrData: json, pdfTextData: null } : d));
-                        setShowAzureBrowser(false);
-                        alert("Metadata loaded successfully!");
-                    } catch (e) {
-                        console.error("JSON Parse Error:", e);
-                        alert('Invalid JSON file.');
-                    }
-                };
-                reader.readAsText(blob);
+                const jsonText = await response.text();
+                try {
+                    const json = JSON.parse(jsonText);
+                    setDocuments(prev => prev.map(d => d.id === activeDocId ? { ...d, ocrData: json, pdfTextData: null } : d));
+                    setShowAzureBrowser(false);
+                    alert("Metadata loaded successfully!");
+                } catch (e) {
+                    console.error("JSON Parse Error:", e);
+                    alert('Invalid JSON file.');
+                }
             } else if (fileName.endsWith('.pdf')) {
                 // PDF: construct URL only — no blob download needed (PDF.js uses Range Requests)
                 const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -1687,10 +1686,12 @@ const App = () => {
 
                 for (const jsonPath of jsonCandidates) {
                     try {
-                        const jsonResponse = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
+                        // Direct Azure Blob URL (same pattern as KnowhowDB/analysisService)
+                        const jsonUrl = getDirectBlobUrl(jsonPath)
+                            || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`;
+                        const jsonResponse = await fetch(jsonUrl);
                         if (jsonResponse.ok) {
-                            const jsonBlob = await jsonResponse.blob();
-                            const jsonText = await jsonBlob.text();
+                            const jsonText = await jsonResponse.text();
                             fetchedJson = JSON.parse(jsonText);
                             console.log(`✅ Successfully fetched JSON metadata from: ${jsonPath}`);
                             break; // Stop after first success
