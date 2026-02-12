@@ -866,14 +866,14 @@ const App = () => {
             console.log(`[PDF] Downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB`);
 
             if (arrayBuffer.byteLength < 5) throw new Error('다운로드된 파일이 비어있습니다.');
-            const header = new Uint8Array(arrayBuffer.slice(0, 5));
-            const headerStr = String.fromCharCode(...header);
-            if (headerStr !== '%PDF-') {
-                // Log actual bytes for debugging
-                const preview = new Uint8Array(arrayBuffer.slice(0, 50));
-                const previewStr = String.fromCharCode(...preview);
-                console.error(`[PDF] Invalid header: "${headerStr}" (bytes: ${Array.from(header).join(',')}), preview: "${previewStr}"`);
-                throw new Error(`서버 응답이 PDF 형식이 아닙니다. (header: ${headerStr})`);
+            // PDF spec: %PDF- header can appear within first 1024 bytes (preamble/BOM/DRM wrapper allowed)
+            const searchLen = Math.min(arrayBuffer.byteLength, 1024);
+            const searchBytes = new Uint8Array(arrayBuffer.slice(0, searchLen));
+            const searchStr = String.fromCharCode(...searchBytes);
+            if (!searchStr.includes('%PDF-')) {
+                const preview = searchStr.slice(0, 50);
+                console.error(`[PDF] No %PDF- header in first ${searchLen} bytes, preview: "${preview}"`);
+                throw new Error(`서버 응답이 PDF 형식이 아닙니다. (header: ${searchStr.slice(0, 5)})`);
             }
 
             const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
