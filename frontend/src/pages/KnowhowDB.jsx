@@ -58,6 +58,8 @@ const KnowhowDB = () => {
     const [query, setQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [hasSearched, setHasSearched] = useState(false);
+    const [searchError, setSearchError] = useState(null);
     const [chatMessages, setChatMessages] = useState([
         { role: 'assistant', content: '안녕하세요! 문서에 대해 궁금한 점을 물어보세요.' }
     ]);
@@ -202,31 +204,49 @@ const KnowhowDB = () => {
     // =============================================
     const handleSearch = async () => {
         if (!query.trim() || isSearching) return;
+        console.log('[KnowhowDB] Starting search:', query.trim());
         setIsSearching(true);
         setSearchResults([]);
+        setSearchError(null);
+        setHasSearched(true);
 
         try {
             const user = auth.currentUser;
-            if (!user) throw new Error('Not authenticated');
+            if (!user) {
+                setSearchError('로그인이 필요합니다.');
+                return;
+            }
             const idToken = await user.getIdToken();
             const docIds = activeDoc ? [activeDoc.name] : null;
 
-            const response = await fetch(getChatApiUrl(), {
+            const apiUrl = getChatApiUrl();
+            const body = {
+                query: query.trim(),
+                context: null,
+                doc_ids: docIds,
+                mode: 'search'
+            };
+            console.log('[KnowhowDB] Search API:', apiUrl, 'body:', JSON.stringify(body));
+
+            const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json; charset=UTF-8',
                     'Authorization': `Bearer ${idToken}`
                 },
-                body: JSON.stringify({
-                    query: query.trim(),
-                    context: null,
-                    doc_ids: docIds,
-                    mode: 'search'
-                })
+                body: JSON.stringify(body)
             });
 
-            if (!response.ok) throw new Error('Search failed');
+            console.log('[KnowhowDB] Search response status:', response.status);
+
+            if (!response.ok) {
+                const errText = await response.text().catch(() => '');
+                console.error('[KnowhowDB] Search failed:', response.status, errText);
+                setSearchError(`검색 실패 (${response.status}): ${errText.substring(0, 100)}`);
+                return;
+            }
             const data = await response.json();
+            console.log('[KnowhowDB] Search results:', data.results?.length || 0);
 
             if (data.results && data.results.length > 0) {
                 setSearchResults(data.results);
@@ -241,7 +261,8 @@ const KnowhowDB = () => {
                 logActivity(currentUser.uid, currentUser.email, 'KNOWHOW_SEARCH', `Query: ${query.trim().substring(0, 50)}`);
             }
         } catch (e) {
-            console.error('Search error:', e);
+            console.error('[KnowhowDB] Search error:', e);
+            setSearchError(`검색 중 오류: ${e.message}`);
         } finally {
             setIsSearching(false);
         }
@@ -788,12 +809,19 @@ const KnowhowDB = () => {
                             {isSearching ? (
                                 <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                                     <Loader2 className="w-8 h-8 animate-spin text-[#d97757] mb-3" />
-                                    <span className="text-sm">Searching...</span>
+                                    <span className="text-sm">검색 중...</span>
+                                </div>
+                            ) : searchError ? (
+                                <div className="flex flex-col items-center justify-center py-20">
+                                    <div className="bg-red-50 border border-red-200 rounded-xl p-4 max-w-md text-center">
+                                        <p className="text-sm text-red-600 font-medium mb-1">검색 오류</p>
+                                        <p className="text-xs text-red-500">{searchError}</p>
+                                    </div>
                                 </div>
                             ) : searchResults.length > 0 ? (
                                 <div className="space-y-3">
                                     <div className="text-xs font-medium text-gray-500 mb-2">
-                                        {searchResults.length} results found
+                                        {searchResults.length}개 결과
                                     </div>
                                     {searchResults.map((result, i) => (
                                         <div
@@ -813,19 +841,25 @@ const KnowhowDB = () => {
                                                     </p>
                                                 </div>
                                                 {result.score != null && (
-                                                    <div className="flex-shrink-0 px-2 py-1 bg-green-50 text-green-700 text-xs font-medium rounded">
-                                                        {(result.score * 100).toFixed(0)}%
+                                                    <div className="flex-shrink-0 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded">
+                                                        {result.score.toFixed(1)}
                                                     </div>
                                                 )}
                                             </div>
                                         </div>
                                     ))}
                                 </div>
+                            ) : hasSearched ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+                                    <SearchIcon className="w-12 h-12 mb-3 opacity-30" />
+                                    <p className="text-sm">검색 결과가 없습니다</p>
+                                    <p className="text-xs mt-1 text-gray-300">다른 키워드로 검색해보세요</p>
+                                </div>
                             ) : (
                                 <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                                     <SearchIcon className="w-12 h-12 mb-3 opacity-30" />
                                     <p className="text-sm">검색어를 입력하고 Enter를 누르세요</p>
-                                    <p className="text-xs mt-1 text-gray-300">Azure AI Search를 활용한 의미 기반 검색</p>
+                                    <p className="text-xs mt-1 text-gray-300">Azure AI Search를 활용한 키워드 검색</p>
                                 </div>
                             )}
                         </div>
