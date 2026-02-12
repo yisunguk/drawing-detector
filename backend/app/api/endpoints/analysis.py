@@ -513,36 +513,74 @@ async def start_robust_analysis_task(
                 print(f"[StartAnalysis] Force re-analysis requested for: {filename}")
             should_reanalyze = True
         
-        # Cleanup corrupted files if needed
+        # Cleanup or resume logic
         if should_reanalyze:
-            print(f"[StartAnalysis] Cleaning up corrupted analysis files...")
-
-            # 1. Delete final JSON
-            try:
-                json_blob.delete_blob()
-                print(f"[StartAnalysis] Deleted corrupted JSON: {json_path}")
-            except Exception as e:
-                print(f"[StartAnalysis] Note: Could not delete JSON (may not exist): {e}")
-
-            # 2. Delete temp chunk JSONs (pattern: temp/json/{filename}_part_*)
-            temp_json_prefix = f"{username}/temp/json/" if username else "temp/json/"
             base_filename = os.path.splitext(filename)[0]
-            try:
-                blob_list = container_client.list_blobs(name_starts_with=temp_json_prefix)
-                deleted_count = 0
-                for blob in blob_list:
-                    # Only delete chunks for this specific file
-                    if base_filename in blob.name and "_part_" in blob.name:
-                        container_client.get_blob_client(blob.name).delete_blob()
-                        deleted_count += 1
-                if deleted_count > 0:
-                    print(f"[StartAnalysis] Deleted {deleted_count} temp chunk JSON files")
-            except Exception as e:
-                print(f"[StartAnalysis] Cleanup warning: {e}")
 
-            # 3. Reset status in status_manager
-            status_manager.reset_status(filename)
-            print(f"[StartAnalysis] Reset analysis status for fresh start")
+            # Check for existing chunk progress (chunks stored at temp/json/{filename}_part_*)
+            existing_chunks = []
+            try:
+                for blob in container_client.list_blobs(name_starts_with="temp/json/"):
+                    if filename in blob.name and "_part_" in blob.name:
+                        part = blob.name.split("_part_")[1].replace(".json", "")
+                        existing_chunks.append(part)
+            except Exception as e:
+                print(f"[StartAnalysis] Warning checking chunks: {e}")
+
+            if existing_chunks and not force:
+                # RESUME MODE: Existing chunk progress found — preserve it
+                print(f"[StartAnalysis] RESUME: Found {len(existing_chunks)} existing chunks. Preserving progress.")
+
+                # Sync status blob with actual chunk files (fixes race condition gaps)
+                existing_status = status_manager.get_status(filename)
+                if existing_status:
+                    existing_status["completed_chunks"] = sorted(existing_chunks, key=lambda x: int(x.split("-")[0]))
+                    existing_status["status"] = "in_progress"
+                    existing_status.pop("retry_count", None)
+                    existing_status.pop("error", None)
+                    existing_status.pop("error_message", None)
+                    blob_client_status = status_manager._get_blob_client(filename)
+                    blob_client_status.upload_blob(json_module.dumps(existing_status), overwrite=True)
+                    print(f"[StartAnalysis] Synced status with {len(existing_chunks)} actual chunks")
+                else:
+                    # No status exists, create with existing chunks
+                    status_manager.init_status(filename, total_pages, category)
+                    st = status_manager.get_status(filename)
+                    st["completed_chunks"] = sorted(existing_chunks, key=lambda x: int(x.split("-")[0]))
+                    blob_client_status = status_manager._get_blob_client(filename)
+                    blob_client_status.upload_blob(json_module.dumps(st), overwrite=True)
+
+                # Delete final JSON if corrupted (but keep chunks!)
+                try:
+                    json_blob.delete_blob()
+                    print(f"[StartAnalysis] Deleted incomplete JSON: {json_path}")
+                except Exception:
+                    pass
+            else:
+                # FRESH START: No chunks or force=true — full cleanup
+                print(f"[StartAnalysis] Fresh start: cleaning up all analysis files...")
+
+                # 1. Delete final JSON
+                try:
+                    json_blob.delete_blob()
+                    print(f"[StartAnalysis] Deleted corrupted JSON: {json_path}")
+                except Exception as e:
+                    print(f"[StartAnalysis] Note: Could not delete JSON (may not exist): {e}")
+
+                # 2. Delete temp chunk JSONs (search both paths)
+                for prefix in ["temp/json/", f"{username}/temp/json/" if username else ""]:
+                    if not prefix:
+                        continue
+                    try:
+                        for blob in container_client.list_blobs(name_starts_with=prefix):
+                            if filename in blob.name and "_part_" in blob.name:
+                                container_client.get_blob_client(blob.name).delete_blob()
+                    except Exception as e:
+                        print(f"[StartAnalysis] Cleanup warning: {e}")
+
+                # 3. Reset status
+                status_manager.reset_status(filename)
+                print(f"[StartAnalysis] Reset analysis status for fresh start")
 
         else:
             # [MODIFIED] Cache Hit Logic
