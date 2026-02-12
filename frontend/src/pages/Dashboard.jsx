@@ -102,6 +102,7 @@ const App = () => {
     const [autoSelectOnPage, setAutoSelectOnPage] = useState(null); // Page number to auto-select result from
     const [rightSidebarMode, setRightSidebarMode] = useState('chat'); // 'chat' | 'pdf'
     const [citedDoc, setCitedDoc] = useState(null); // { docId, page, term }
+    const [reindexConfirm, setReindexConfirm] = useState(null); // doc to confirm reindex
 
     useEffect(() => {
         setInputPage(activePage);
@@ -2269,8 +2270,8 @@ const App = () => {
                                 {doc.ocrData ? <FileCheck size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-emerald-500"}`} /> : doc.pdfTextData ? <FileText size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-amber-500"}`} /> : <FileX size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-red-500"}`} />}
                                 <span className={`${maxW} truncate`}>{doc.name}</span>
                                 {tabCount <= 4 && doc.totalPages > 1 && <span className="text-[10px] opacity-70 shrink-0">({doc.totalPages}p)</span>}
-                                {!doc.ocrData && !analysisState.isAnalyzing && (
-                                    <button onClick={(e) => { e.stopPropagation(); reindexDocument(doc); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#0078d4] hover:text-[#0063b1] transition-all shrink-0" title="재인덱싱"><RotateCw size={12} /></button>
+                                {!analysisState.isAnalyzing && (
+                                    <button onClick={(e) => { e.stopPropagation(); setReindexConfirm(doc); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#0078d4] hover:text-[#0063b1] transition-all shrink-0" title="재인덱싱"><RotateCw size={12} /></button>
                                 )}
                                 <button onClick={(e) => { e.stopPropagation(); closeDocument(doc.id); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#a0a0a0] hover:text-red-500 transition-all shrink-0"><X size={12} /></button>
                             </div>
@@ -2889,6 +2890,37 @@ const App = () => {
                     </div>
                 )
             }
+
+            {/* Reindex Confirmation Modal */}
+            {reindexConfirm && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40" onClick={() => setReindexConfirm(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4 border border-[#e5e1d8]" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="p-2 bg-amber-50 rounded-lg">
+                                <RotateCw size={20} className="text-amber-600" />
+                            </div>
+                            <h3 className="text-base font-semibold text-[#333]">재인덱싱 확인</h3>
+                        </div>
+                        <p className="text-sm text-[#555] mb-6 leading-relaxed">
+                            '<span className="font-medium text-[#333]">{reindexConfirm.name}</span>' 문서를 재인덱싱 하시겠습니까?<br />기존 데이터를 덮어씁니다.
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <button
+                                onClick={() => setReindexConfirm(null)}
+                                className="px-4 py-2 text-sm font-medium text-[#555] bg-[#f4f1ea] hover:bg-[#e5e1d8] rounded-lg transition-colors"
+                            >
+                                취소
+                            </button>
+                            <button
+                                onClick={() => { const doc = reindexConfirm; setReindexConfirm(null); reindexDocument(doc); }}
+                                className="px-4 py-2 text-sm font-medium text-white bg-[#0078d4] hover:bg-[#0063b1] rounded-lg transition-colors"
+                            >
+                                재인덱싱
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Messaging Modal */}
             <MessageModal
