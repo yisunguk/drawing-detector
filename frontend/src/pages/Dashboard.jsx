@@ -803,6 +803,42 @@ const App = () => {
         return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodeURIComponent(blobPath)}?${AZURE_SAS_TOKEN}`;
     }, []);
 
+    // Background JSON metadata fetcher — non-blocking, updates document when found
+    const fetchJsonForDoc = useCallback(async (docId, filePath) => {
+        try {
+            const decodedPath = decodeURIComponent(filePath);
+            const jsonCandidates = [];
+
+            if (decodedPath.toLowerCase().includes('drawings')) {
+                jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                jsonCandidates.push(decodedPath.replace(/drawings/i, 'json') + '.json');
+            } else if (decodedPath.toLowerCase().includes('documents')) {
+                jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                jsonCandidates.push(decodedPath.replace(/documents/i, 'json') + '.json');
+            }
+            jsonCandidates.push(filePath.replace(/\.pdf$/i, '.json'));
+            jsonCandidates.push(filePath + '.json');
+
+            for (const jsonPath of jsonCandidates) {
+                try {
+                    const jsonUrl = getDirectBlobUrl(jsonPath)
+                        || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`;
+                    const jsonResponse = await fetch(jsonUrl);
+                    if (jsonResponse.ok) {
+                        const jsonText = await jsonResponse.text();
+                        const fetchedJson = JSON.parse(jsonText);
+                        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: fetchedJson, pdfTextData: null } : d));
+                        console.log(`✅ JSON metadata loaded for ${docId}: ${jsonPath}`);
+                        return;
+                    }
+                } catch (e) { /* continue */ }
+            }
+            console.log(`[JSON] No metadata found for ${docId}`);
+        } catch (e) {
+            console.warn(`[JSON] Error fetching metadata for ${docId}:`, e);
+        }
+    }, [getDirectBlobUrl]);
+
     // Download + parse a single PDF, deduplicating concurrent requests
     const downloadAndCachePdf = useCallback(async (docId, blobPath) => {
         // Already cached
@@ -1657,55 +1693,12 @@ const App = () => {
                     alert('Invalid JSON file.');
                 }
             } else if (fileName.endsWith('.pdf')) {
-                // PDF: construct URL only — no blob download needed (PDF.js uses Range Requests)
+                // PDF: create document entry immediately (JSON fetched in background)
                 const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 const name = file.name.replace(/\.pdf$/i, '');
                 const pdfUrl = `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(file.path)}`;
 
-                // Auto-fetch JSON logic
-                let fetchedJson = null;
-                const jsonCandidates = [];
-
-                // Priority 1: Parallel 'json' folder (if in 'drawings' folder)
-                // Priority 1: Parallel 'json' folder (if in 'drawings' or 'documents' folder)
-                const decodedPath = decodeURIComponent(file.path);
-
-                if (decodedPath.toLowerCase().includes('drawings')) {
-                    jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
-                    jsonCandidates.push(decodedPath.replace(/drawings/i, 'json') + '.json');
-                } else if (decodedPath.toLowerCase().includes('documents')) {
-                    jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
-                    jsonCandidates.push(decodedPath.replace(/documents/i, 'json') + '.json');
-                }
-
-                // Priority 2: Same directory
-                jsonCandidates.push(file.path.replace(/\.pdf$/i, '.json'));
-                jsonCandidates.push(file.path + '.json');
-
-                console.log("Attempting to fetch JSON metadata from candidates:", jsonCandidates);
-
-                for (const jsonPath of jsonCandidates) {
-                    try {
-                        // Direct Azure Blob URL (same pattern as KnowhowDB/analysisService)
-                        const jsonUrl = getDirectBlobUrl(jsonPath)
-                            || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`;
-                        const jsonResponse = await fetch(jsonUrl);
-                        if (jsonResponse.ok) {
-                            const jsonText = await jsonResponse.text();
-                            fetchedJson = JSON.parse(jsonText);
-                            console.log(`✅ Successfully fetched JSON metadata from: ${jsonPath}`);
-                            break; // Stop after first success
-                        }
-                    } catch (jsonErr) {
-                        // Continue to next candidate
-                        console.warn(`Failed to fetch JSON from ${jsonPath}`, jsonErr);
-                    }
-                }
-
-                if (!fetchedJson) {
-                    console.warn("⚠️ No JSON metadata found for this document.");
-                }
-                // Store URL + blobPath for Azure files (enables Range Requests + URL reconstruction on reload)
+                // Create document entry IMMEDIATELY — no blocking JSON fetch
                 setDocuments(prev => {
                     const colorIndex = prev.length % DOC_COLORS.length;
                     return [...prev, {
@@ -1714,13 +1707,16 @@ const App = () => {
                         pdfData: null,
                         pdfUrl: pdfUrl,
                         blobPath: file.path,
-                        ocrData: fetchedJson,
+                        ocrData: null,
                         pdfTextData: null,
                         totalPages: 1,
                         colorIndex,
                         isLoaded: false
                     }];
                 });
+
+                // Background: fetch JSON metadata (non-blocking)
+                fetchJsonForDoc(id, file.path);
 
                 if (!keepBrowserOpen) {
                     setActiveDocId(id);
@@ -1758,35 +1754,57 @@ const App = () => {
         }
     };
 
-    const handleAzureBatchUpload = async () => {
+    const handleAzureBatchUpload = () => {
         if (selectedAzureItems.length === 0) return;
 
-        const batchCount = selectedAzureItems.length;
-        const docInfos = []; // Track { docId, blobPath } for preloading
+        const pdfItems = selectedAzureItems.filter(item => item.name.toLowerCase().endsWith('.pdf'));
+        if (pdfItems.length === 0) return;
 
-        // Process sequentially — keepBrowserOpen=true skips setActiveDocId per file
-        for (const item of selectedAzureItems) {
-            const docId = await handleAzureFileSelect(item, true);
-            if (docId) {
-                docInfos.push({ docId, blobPath: item.path });
+        // Step 1: Create ALL document entries INSTANTLY (no network requests)
+        const docInfos = [];
+        setDocuments(prev => {
+            const newDocs = [...prev];
+            for (const item of pdfItems) {
+                const id = `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                const name = item.name.replace(/\.pdf$/i, '');
+                newDocs.push({
+                    id,
+                    name,
+                    pdfData: null,
+                    pdfUrl: `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(item.path)}`,
+                    blobPath: item.path,
+                    ocrData: null,
+                    pdfTextData: null,
+                    totalPages: 1,
+                    colorIndex: newDocs.length % DOC_COLORS.length,
+                    isLoaded: false
+                });
+                docInfos.push({ docId: id, blobPath: item.path });
             }
-        }
+            return newDocs;
+        });
+
+        // Step 2: Close modal IMMEDIATELY
         setShowAzureBrowser(false);
         setSelectedAzureItems([]);
 
-        // Activate the first uploaded document
+        // Step 3: Activate first tab → triggers loadAndRenderPage via useEffect
         if (docInfos.length > 0) {
             setActiveDocId(docInfos[0].docId);
             setActivePage(1);
             setRotation(0);
         }
 
-        // Sequential PDF preloading — download one at a time to avoid overwhelming backend
-        // This runs in background; loadAndRenderPage will use cached PDFs when user switches tabs
-        preloadPdfs(docInfos);
+        // Step 4: Background — fetch JSON metadata for all docs in parallel
+        for (const { docId, blobPath } of docInfos) {
+            fetchJsonForDoc(docId, blobPath);
+        }
 
-        // Trigger scope selection modal if total documents > 1 (Existing + New)
-        if (documents.length + batchCount > 1 && !hasUserSelectedScope) {
+        // Step 5: Background — preload remaining PDFs (first is loaded by loadAndRenderPage)
+        preloadPdfs(docInfos.slice(1));
+
+        // Trigger scope selection modal if total documents > 1
+        if (documents.length + pdfItems.length > 1 && !hasUserSelectedScope) {
             setShowScopeSelectionModal(true);
         }
     };
