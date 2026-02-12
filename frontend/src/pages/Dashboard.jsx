@@ -375,7 +375,7 @@ const App = () => {
     const pdfRef = useRef(null);
     const canvasRef = useRef(null);
     const renderTaskRef = useRef(null);
-    const fetchControllerRef = useRef(null); // Abort previous PDF download on tab switch
+
     const containerRef = useRef(null);
     const fileInputRef = useRef(null);
     const jsonInputRef = useRef(null);
@@ -794,20 +794,69 @@ const App = () => {
         }
     };
 
-    // PDF 로드 및 페이지 렌더링
     const pdfCache = useRef({}); // Cache for parsed PDF documents: { [docId]: pdfProxy }
+    const pdfLoadingPromises = useRef({}); // In-flight download promises: { [docId]: Promise<pdf> }
+
+    // Download + parse a single PDF, deduplicating concurrent requests
+    const downloadAndCachePdf = useCallback(async (docId, blobPath) => {
+        // Already cached
+        if (pdfCache.current[docId]) return pdfCache.current[docId];
+
+        // Already downloading — wait for existing promise
+        if (pdfLoadingPromises.current[docId]) {
+            return pdfLoadingPromises.current[docId];
+        }
+
+        const url = blobPath
+            ? `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(blobPath)}`
+            : null;
+        if (!url) return null;
+
+        const promise = (async () => {
+            console.log(`[PDF] Downloading ${blobPath}...`);
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`PDF 다운로드 실패: ${response.status}`);
+            const arrayBuffer = await response.arrayBuffer();
+
+            if (arrayBuffer.byteLength < 5) throw new Error('다운로드된 파일이 비어있습니다.');
+            const header = new Uint8Array(arrayBuffer.slice(0, 5));
+            if (String.fromCharCode(...header) !== '%PDF-') {
+                throw new Error('서버 응답이 PDF 형식이 아닙니다.');
+            }
+
+            const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            pdfCache.current[docId] = pdf;
+            console.log(`[PDF] ✅ ${docId} cached (${pdf.numPages} pages)`);
+            return pdf;
+        })();
+
+        pdfLoadingPromises.current[docId] = promise;
+        try {
+            return await promise;
+        } finally {
+            delete pdfLoadingPromises.current[docId];
+        }
+    }, []);
+
+    // Sequential PDF preloader — downloads and caches PDFs one at a time
+    const preloadPdfs = useCallback(async (docInfos) => {
+        for (const { docId, blobPath } of docInfos) {
+            try {
+                const pdf = await downloadAndCachePdf(docId, blobPath);
+                if (pdf) {
+                    setDocuments(prev => prev.map(d => d.id === docId && d.totalPages !== pdf.numPages ? { ...d, totalPages: pdf.numPages } : d));
+                }
+            } catch (err) {
+                console.warn(`[Preload] Failed for ${docId}:`, err.message);
+            }
+        }
+    }, [downloadAndCachePdf]);
 
     // PDF 로드 및 페이지 렌더링
     const loadAndRenderPage = useCallback(async (doc, pageNum) => {
         if (!window.pdfjsLib || !canvasRef.current || (!doc?.pdfData && !doc?.pdfUrl && !doc?.blobPath)) return;
         setIsLoading(true);
         setPdfError(null);
-
-        // Abort any previous PDF download to avoid concurrent fetches
-        if (fetchControllerRef.current) {
-            fetchControllerRef.current.abort();
-            fetchControllerRef.current = null;
-        }
 
         // Clear canvas immediately so stale content from previous doc doesn't show
         const canvas = canvasRef.current;
@@ -821,59 +870,19 @@ const App = () => {
 
             // If not in cache, load it and cache it
             if (!pdf) {
-                // Reconstruct pdfUrl from blobPath to avoid stale URLs from IDB
-                const effectiveUrl = doc.blobPath
-                    ? `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(doc.blobPath)}`
-                    : doc.pdfUrl;
-
-                if (effectiveUrl) {
-                    // Download full file as ArrayBuffer then parse
-                    // (Range Requests disabled - backend uses chunked streaming without Content-Length)
-                    console.log('Loading PDF from URL:', effectiveUrl);
-                    const controller = new AbortController();
-                    fetchControllerRef.current = controller;
-                    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2min timeout for large files
-
-                    try {
-                        const response = await fetch(effectiveUrl, { signal: controller.signal });
-                        clearTimeout(timeoutId);
-                        if (!response.ok) throw new Error(`PDF 다운로드 실패: ${response.status}`);
-
-                        const arrayBuffer = await response.arrayBuffer();
-                        fetchControllerRef.current = null;
-                        console.log(`PDF downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB`);
-
-                        // Validate PDF magic bytes
-                        if (arrayBuffer.byteLength < 5) {
-                            throw new Error('다운로드된 파일이 비어있습니다.');
-                        }
-                        const header = new Uint8Array(arrayBuffer.slice(0, 5));
-                        const headerStr = String.fromCharCode(...header);
-                        if (!headerStr.startsWith('%PDF-')) {
-                            throw new Error('서버 응답이 PDF 형식이 아닙니다. 백엔드 연결을 확인해주세요.');
-                        }
-
-                        pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-                        console.log('✅ PDF loaded successfully');
-                    } catch (fetchError) {
-                        clearTimeout(timeoutId);
-                        fetchControllerRef.current = null;
-                        // Don't show error for user-initiated abort (tab switch)
-                        if (fetchError.name === 'AbortError') {
-                            console.log('[PDF] Previous download aborted (tab switch)');
-                            return;
-                        }
-                        throw fetchError;
-                    }
+                if (doc.blobPath || doc.pdfUrl) {
+                    // Use shared download function (deduplicates with preloader)
+                    const blobPath = doc.blobPath || decodeURIComponent(new URL(doc.pdfUrl).searchParams.get('path') || '');
+                    pdf = await downloadAndCachePdf(doc.id, blobPath);
+                    if (!pdf) throw new Error('PDF 다운로드에 실패했습니다.');
                 } else if (doc.pdfData) {
                     // Use ArrayBuffer for local files
-                    // Clone ArrayBuffer to avoid detachment (DataCloneError) during IDB save
                     const bufferClone = doc.pdfData.slice(0);
                     pdf = await window.pdfjsLib.getDocument({ data: bufferClone }).promise;
+                    pdfCache.current[doc.id] = pdf;
                 } else {
                     throw new Error('PDF 데이터를 찾을 수 없습니다. 파일을 다시 열어주세요.');
                 }
-                pdfCache.current[doc.id] = pdf;
 
                 // Update total pages in state only if it's new (to avoid infinite loops or unnecessary updates)
                 if (doc.totalPages !== pdf.numPages) {
@@ -1041,7 +1050,7 @@ const App = () => {
             setIsLoading(false);
             setLoadingProgress(null);
         }
-    }, [extractPdfText, rotation]); // Removed inputPage dependency
+    }, [extractPdfText, rotation, downloadAndCachePdf]);
 
     useEffect(() => {
         if (activeDoc && pdfJsReady) {
@@ -1750,22 +1759,28 @@ const App = () => {
         if (selectedAzureItems.length === 0) return;
 
         const batchCount = selectedAzureItems.length;
-        let firstDocId = null;
+        const docInfos = []; // Track { docId, blobPath } for preloading
 
         // Process sequentially — keepBrowserOpen=true skips setActiveDocId per file
         for (const item of selectedAzureItems) {
             const docId = await handleAzureFileSelect(item, true);
-            if (!firstDocId && docId) firstDocId = docId;
+            if (docId) {
+                docInfos.push({ docId, blobPath: item.path });
+            }
         }
         setShowAzureBrowser(false);
         setSelectedAzureItems([]);
 
-        // Activate the first uploaded document only (avoid concurrent PDF downloads)
-        if (firstDocId) {
-            setActiveDocId(firstDocId);
+        // Activate the first uploaded document
+        if (docInfos.length > 0) {
+            setActiveDocId(docInfos[0].docId);
             setActivePage(1);
             setRotation(0);
         }
+
+        // Sequential PDF preloading — download one at a time to avoid overwhelming backend
+        // This runs in background; loadAndRenderPage will use cached PDFs when user switches tabs
+        preloadPdfs(docInfos);
 
         // Trigger scope selection modal if total documents > 1 (Existing + New)
         if (documents.length + batchCount > 1 && !hasUserSelectedScope) {
