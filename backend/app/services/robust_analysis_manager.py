@@ -79,28 +79,35 @@ class RobustAnalysisManager:
             status = status_manager.get_status(filename)
             completed_chunks = set(status.get("completed_chunks", [])) if status else set()
             
-            # Optimized for Speed:
-            # Large chunks (150) to minimize API calls.
-            # High Parallelism (10) to saturate Azure DI capacity.
-            self.CHUNK_SIZE = 150
-            
+            # Dynamic scaling based on document size
+            if total_pages <= 100:
+                self.CHUNK_SIZE = 50
+                parallel_workers = 5
+            elif total_pages <= 500:
+                self.CHUNK_SIZE = 100
+                parallel_workers = 8
+            else:
+                self.CHUNK_SIZE = 100
+                parallel_workers = 10
+
+            print(f"[RobustAnalysis] Dynamic config: {total_pages} pages → ChunkSize={self.CHUNK_SIZE}, Workers={parallel_workers}")
+
             # 3. Build Pending Chunks
             total_chunks = (total_pages + self.CHUNK_SIZE - 1) // self.CHUNK_SIZE
             pending_chunks = []
-            
+
             for i in range(total_chunks):
                 start_page = i * self.CHUNK_SIZE + 1
                 end_page = min((i + 1) * self.CHUNK_SIZE, total_pages)
                 page_range = f"{start_page}-{end_page}"
-                
+
                 if page_range not in completed_chunks:
                     pending_chunks.append(page_range)
-            
+
             print(f"[RobustAnalysis] {len(pending_chunks)} chunks to process (out of {total_chunks}) | ChunkSize: {self.CHUNK_SIZE}")
             print(f"[RobustAnalysis] Pending list: {pending_chunks}")
-            
+
             # 4. Process chunks in PARALLEL batches
-            parallel_workers = 5  # Balanced: memory safe with 4Gi Cloud Run
             failed_chunks = []
 
             for batch_start in range(0, len(pending_chunks), parallel_workers):
