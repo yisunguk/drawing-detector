@@ -270,9 +270,9 @@ const App = () => {
                     del('sidebarWidth')
                 ]);
 
-                // Clear LocalStorage Chat History (ChatInterface)
+                // Clear LocalStorage Chat History (drawing context only)
                 Object.keys(localStorage).forEach(key => {
-                    if (key.startsWith('chat_history_')) {
+                    if (key.startsWith('chat_history_drawing_')) {
                         localStorage.removeItem(key);
                     }
                 });

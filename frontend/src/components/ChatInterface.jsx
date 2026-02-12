@@ -7,7 +7,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../services/logging';
 
-const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCitationClick }) => {
+const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatContext = 'drawing', onCitationClick }) => {
     const [messages, setMessages] = useState([
         { role: 'assistant', content: '안녕하세요! 도면에 대해 궁금한 점을 물어보세요.' }
     ]);
@@ -36,7 +36,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
             const contextKey = chatScope === 'active' ? activeDoc?.id : 'all_docs';
             if (!contextKey) return;
 
-            const savedKey = `chat_history_${contextKey}`;
+            const savedKey = `chat_history_${chatContext}_${contextKey}`;
             const savedMessages = localStorage.getItem(savedKey);
 
             if (savedMessages) {
@@ -47,7 +47,13 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
                 }
             } else {
                 // Initialize default greeting if no history
-                if (chatScope === 'active') {
+                if (chatContext === 'knowhow') {
+                    setMessages([
+                        { role: 'assistant', content: activeDoc
+                            ? `안녕하세요! "${activeDoc.name}"에 대해 궁금한 점을 물어보세요.`
+                            : `안녕하세요! 좌측 라이브러리에서 문서를 선택하고 질문해보세요.` }
+                    ]);
+                } else if (chatScope === 'active') {
                     setMessages([
                         { role: 'assistant', content: `안녕하세요! "${activeDoc?.name || '도면'}"에 대해 궁금한 점을 물어보세요.` }
                     ]);
@@ -60,16 +66,15 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
         };
 
         loadMessages();
-    }, [activeDoc?.id, chatScope, documents.length]);
+    }, [activeDoc?.id, chatScope, chatContext, documents.length]);
 
     // Save messages to LocalStorage
     useEffect(() => {
         const contextKey = chatScope === 'active' ? activeDoc?.id : 'all_docs';
         if (contextKey && messages.length > 0) {
-            // Avoid saving just the instruction message if we want, but saving everything is safer for state consistency
-            localStorage.setItem(`chat_history_${contextKey}`, JSON.stringify(messages));
+            localStorage.setItem(`chat_history_${chatContext}_${contextKey}`, JSON.stringify(messages));
         }
-    }, [messages, activeDoc?.id, chatScope]);
+    }, [messages, activeDoc?.id, chatScope, chatContext]);
 
     const formatContext = () => {
         // Decide which docs to include
@@ -288,10 +293,16 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', onCita
         if (confirm('대화 내용을 초기화 하시겠습니까?')) {
             const contextKey = chatScope === 'active' ? activeDoc?.id : 'all_docs';
             if (contextKey) {
-                localStorage.removeItem(`chat_history_${contextKey}`);
+                localStorage.removeItem(`chat_history_${chatContext}_${contextKey}`);
             }
 
-            if (chatScope === 'active') {
+            if (chatContext === 'knowhow') {
+                setMessages([
+                    { role: 'assistant', content: activeDoc
+                        ? `안녕하세요! "${activeDoc.name}"에 대해 궁금한 점을 물어보세요.`
+                        : `안녕하세요! 좌측 라이브러리에서 문서를 선택하고 질문해보세요.` }
+                ]);
+            } else if (chatScope === 'active') {
                 setMessages([
                     { role: 'assistant', content: `안녕하세요! "${activeDoc?.name || '도면'}"에 대해 궁금한 점을 물어보세요.` }
                 ]);

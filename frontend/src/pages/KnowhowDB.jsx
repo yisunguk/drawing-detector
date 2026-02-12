@@ -524,6 +524,7 @@ const KnowhowDB = () => {
                     activeDoc={activeDoc}
                     documents={documents}
                     chatScope="all"
+                    chatContext="knowhow"
                     onCitationClick={handleCitationClick}
                 />
 
