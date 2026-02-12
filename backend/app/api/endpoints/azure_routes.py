@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Depends, Header, Request, Response
+from fastapi.responses import StreamingResponse, JSONResponse
 from app.core.config import settings
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceNotFoundError
@@ -8,7 +8,17 @@ import io
 
 router = APIRouter()
 
-# get_container_client is now imported from app.services.blob_storage
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+}
+
+# Explicit OPTIONS handler for CORS preflight
+@router.options("/download")
+def download_options():
+    return Response(status_code=200, headers=CORS_HEADERS)
 
 @router.get("/list")
 def list_files(path: str = ""):
@@ -86,6 +96,7 @@ def download_file(path: str, range: str = Header(None)):
         headers = {
             "Accept-Ranges": "bytes",
             "Content-Length": str(file_size),
+            **CORS_HEADERS,
         }
         
         # Handle Range Header
@@ -128,9 +139,16 @@ def download_file(path: str, range: str = Header(None)):
             headers=headers, 
             media_type=media_type
         )
-    except HTTPException:
-        raise
+    except HTTPException as he:
+        return JSONResponse(
+            status_code=he.status_code,
+            content={"detail": he.detail},
+            headers=CORS_HEADERS,
+        )
     except Exception as e:
         print(f"Error in download_file: {e}")
-        # If headers already sent, this might be swallowed, but ensuring we catch startup errors
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(e)},
+            headers=CORS_HEADERS,
+        )
