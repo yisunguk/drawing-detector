@@ -1408,7 +1408,19 @@ const App = () => {
                             mainCtx.drawImage(offscreenCanvas, 0, 0);
                         }
                     }
-                    setCanvasSize({ width: viewport.width, height: viewport.height });
+                    // Store page.view (CropBox/MediaBox) for polygon offset correction
+                    // page.view = [x1, y1, x2, y2] in PDF points; non-zero x1/y1 = CropBox offset
+                    const pv = page.view || [0, 0, 0, 0];
+                    setCanvasSize({
+                        width: viewport.width,
+                        height: viewport.height,
+                        // PDF points per pixel at current scale
+                        pageView: pv,
+                        pageRotate: page.rotate || 0,
+                        // Effective page dimensions in points (after rotation)
+                        pageWidthPts: pv[2] - pv[0],
+                        pageHeightPts: pv[3] - pv[1],
+                    });
                     renderTaskRef.current = null;
                 }
             } catch (err) {
@@ -2276,19 +2288,9 @@ const App = () => {
     const getPolygonPoints = (result) => {
         if (!result || !result.polygon) return "";
 
-        // Debug Log
-        if (result === selectedResult) {
-            console.log("[PolygonDebug] processing:", result.content, result.polygon, "LW:", result.layoutWidth, "Canvas:", canvasSize.width);
-        }
-
-        // Relaxes Validation: Allow missing layoutWidth (will fallback)
-        if (!canvasSize.width || result.polygon.length < 8) {
-            // console.warn("[PolygonDebug] Invalid data for polygon generation");
-            return "";
-        }
+        if (!canvasSize.width || result.polygon.length < 8) return "";
 
         const p = result.polygon;
-        // FIX: Use OCR Page Width - resolve from any OCR format
         const pageData = getOcrPageData(activeDoc, result.pageNum || 1);
         const pgW = pageData?.layout?.width || pageData?.width || pageData?.metadata?.width || 0;
         const pgH = pageData?.layout?.height || pageData?.height || pageData?.metadata?.height || 0;
@@ -2296,28 +2298,43 @@ const App = () => {
         const lh = result.layoutHeight || pgH || canvasSize.height;
 
         const needScale = Math.abs(lw - canvasSize.width) > 5;
-
-        // Ensure points are numbers
         const nP = p.map(Number);
 
         if (!needScale) {
             return `${nP[0]},${nP[1]} ${nP[2]},${nP[3]} ${nP[4]},${nP[5]} ${nP[6]},${nP[7]}`;
-        } else {
-            const sx = canvasSize.width / lw;
-            const sy = canvasSize.height / lh;
-            return `${nP[0] * sx},${nP[1] * sy} ${nP[2] * sx},${nP[3] * sy} ${nP[4] * sx},${nP[5] * sy} ${nP[6] * sx},${nP[7] * sy}`;
         }
+
+        // Use page.view-based scaling for precision when available
+        // page.view = [x1, y1, x2, y2] in PDF points (CropBox or MediaBox)
+        const pv = canvasSize.pageView;
+        if (pv && canvasSize.pageWidthPts > 0) {
+            // Convert Azure DI inches → PDF points, accounting for CropBox offset
+            const ptPerInch = 72;
+            const scale = 2.0; // must match render scale
+            const offsetXPts = pv[0]; // CropBox left offset in points
+            const offsetYPts = pv[1]; // CropBox top offset in points
+            const points = [];
+            for (let i = 0; i < nP.length; i += 2) {
+                const xPts = nP[i] * ptPerInch - offsetXPts;
+                const yPts = nP[i + 1] * ptPerInch - offsetYPts;
+                points.push(`${xPts * scale},${yPts * scale}`);
+            }
+            return points.join(' ');
+        }
+
+        // Fallback: simple ratio scaling
+        const sx = canvasSize.width / lw;
+        const sy = canvasSize.height / lh;
+        return `${nP[0] * sx},${nP[1] * sy} ${nP[2] * sx},${nP[3] * sy} ${nP[4] * sx},${nP[5] * sy} ${nP[6] * sx},${nP[7] * sy}`;
     };
 
     const getSelectedCenter = () => {
         if (!selectedResult || !canvasSize.width || !selectedResult.polygon) return null;
-        const p = selectedResult.polygon;
-        // FIX: Use OCR Page Width - resolve from any OCR format
+        const p = selectedResult.polygon.map(Number);
         const pageData = getOcrPageData(activeDoc, selectedResult.pageNum || 1);
         const pgW = pageData?.layout?.width || pageData?.width || pageData?.metadata?.width || 0;
         const pgH = pageData?.layout?.height || pageData?.height || pageData?.metadata?.height || 0;
         const lw = selectedResult.layoutWidth || pgW || canvasSize.width;
-        const lh = selectedResult.layoutHeight || pgH || canvasSize.height;
 
         const needScale = Math.abs(lw - canvasSize.width) > 1;
 
@@ -2326,10 +2343,22 @@ const App = () => {
             cx = (p[0] + p[2]) / 2;
             cy = (p[1] + p[5]) / 2;
         } else {
-            const sx = canvasSize.width / lw;
-            const sy = canvasSize.height / lh;
-            cx = ((p[0] + p[2]) / 2) * sx;
-            cy = ((p[1] + p[5]) / 2) * sy;
+            // Use page.view-based conversion for precision
+            const pv = canvasSize.pageView;
+            if (pv && canvasSize.pageWidthPts > 0) {
+                const ptPerInch = 72;
+                const scale = 2.0;
+                const offsetXPts = pv[0];
+                const offsetYPts = pv[1];
+                cx = (((p[0] + p[2]) / 2) * ptPerInch - offsetXPts) * scale;
+                cy = (((p[1] + p[5]) / 2) * ptPerInch - offsetYPts) * scale;
+            } else {
+                const sx = canvasSize.width / lw;
+                const lh = selectedResult.layoutHeight || pgH || canvasSize.height;
+                const sy = canvasSize.height / lh;
+                cx = ((p[0] + p[2]) / 2) * sx;
+                cy = ((p[1] + p[5]) / 2) * sy;
+            }
         }
         return { cx, cy };
     };
