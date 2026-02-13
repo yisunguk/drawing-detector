@@ -533,6 +533,45 @@ const App = () => {
         return bubbles;
     }, []);
 
+    // 기기 태그 병합 (HS + 9717 → HS9717)
+    const parseEquipmentTags = useCallback((ocrData) => {
+        const lines = ocrData.layout?.lines || ocrData.lines || [];
+        if (lines.length === 0) return [];
+        const tags = [];
+        const used = new Set();
+
+        lines.forEach((line1, i) => {
+            if (used.has(i) || !line1?.content) return;
+            const t1 = line1.content.trim();
+            if (!/^[A-Z]{1,5}$/.test(t1)) return;
+
+            lines.forEach((line2, j) => {
+                if (i === j || used.has(j) || !line2?.content) return;
+                const t2 = line2.content.trim();
+                if (!/^\d{1,5}[A-Z]?$/.test(t2)) return;
+
+                const p1 = line1.polygon, p2 = line2.polygon;
+                if (!p1 || !p2 || p1.length < 2 || p2.length < 2) return;
+                const dx = Math.abs(p1[0] - p2[0]);
+                const dy = Math.abs(p1[1] - p2[1]);
+                if (dx < 0.15 && dy > 0.005 && dy < 0.25) {
+                    tags.push({
+                        content: `${t1}${t2}`,
+                        polygon: [
+                            Math.min(p1[0], p2[0]), Math.min(p1[1], p2[1]),
+                            Math.max(p1[2] || p1[0], p2[2] || p2[0]), p1[3] || p1[1],
+                            Math.max(p1[4] || p1[0], p2[4] || p2[0]), Math.max(p1[5] || p1[1], p2[5] || p2[1]),
+                            Math.min(p1[6] || p1[0], p2[6] || p2[0]), Math.max(p1[7] || p1[1], p2[7] || p2[1]),
+                        ],
+                    });
+                    used.add(i);
+                    used.add(j);
+                }
+            });
+        });
+        return tags;
+    }, []);
+
     // 검색
     const searchResults = useMemo(() => {
         const rawSearch = searchTerm.trim();
@@ -758,6 +797,28 @@ const App = () => {
                                 });
                             }
                         });
+
+                        // 기기 태그 병합 검색 (HS+9717 → HS9717)
+                        const equipTags = parseEquipmentTags(pageData);
+                        equipTags.forEach(tag => {
+                            const score = calculateScore(tag.content, rawSearch);
+                            if (score > 0) {
+                                const type = classifyTag(tag.content);
+                                if (filters[type]) {
+                                    results.push({
+                                        content: tag.content,
+                                        polygon: [...tag.polygon],
+                                        docId: doc.id,
+                                        docName: doc.name,
+                                        pageNum,
+                                        tagType: type,
+                                        layoutWidth: layoutWidth,
+                                        layoutHeight: layoutHeight,
+                                        score: score
+                                    });
+                                }
+                            }
+                        });
                     }
                 });
             } else {
@@ -774,7 +835,7 @@ const App = () => {
         return results
             .sort((a, b) => b.score - a.score)
             .slice(0, 200);
-    }, [searchTerm, documents, activeDocId, searchScope, filters, parseInstrumentBubbles, searchPreferPage]);
+    }, [searchTerm, documents, activeDocId, searchScope, filters, parseInstrumentBubbles, parseEquipmentTags, searchPreferPage]);
 
     const handlePageInputChange = (e) => {
         const val = e.target.value;

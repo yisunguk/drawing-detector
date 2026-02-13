@@ -273,15 +273,29 @@ async def chat(
                     print(f"[Chat] Final Azure Search filter: {search_filter[:200]}...")
             
             # ---------------------------------------------------------
+            # Tag pattern query expansion (HS9717 → "HS9717" OR "HS 9717" OR (HS AND 9717))
+            # ---------------------------------------------------------
+            query_type = "simple"
+            tag_match = re.match(r'^([A-Za-z]{1,5})(\d{1,5}[A-Za-z]?)$', search_query.strip())
+            if tag_match:
+                prefix = tag_match.group(1).upper()
+                number = tag_match.group(2)
+                combined = f"{prefix}{number}"
+                search_query = f'"{combined}" OR "{prefix} {number}" OR ({prefix} AND {number})'
+                query_type = "full"
+                print(f"[Chat] Tag pattern detected → expanded query: {search_query}")
+
+            # ---------------------------------------------------------
             # MODE: KEYWORD SEARCH
             # ---------------------------------------------------------
             if request.mode == "search":
                 print(f"[Chat] Executing Keyword Search for user '{safe_user_id}': {search_query}")
-                
+
                 # Execute Search
                 # Note: We rely on the constructed 'search_filter' (user_id + doc_ids)
                 search_results = azure_search_service.client.search(
                     search_text=search_query,
+                    query_type=query_type,
                     filter=search_filter,
                     top=50,
                     select=["content", "source", "page", "title", "user_id", "blob_path", "metadata_storage_path", "coords", "type"]
@@ -348,6 +362,7 @@ async def chat(
 
             search_results = azure_search_service.client.search(
                 search_text=search_query,
+                query_type=query_type,
                 filter=search_filter,
                 vector_queries=vector_queries if vector_queries else None,
                 top=50,

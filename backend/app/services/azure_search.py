@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import AzureOpenAI
@@ -161,6 +162,12 @@ class AzureSearchService:
                 table_md = self._format_tables_markdown(tables)
                 content_text += f"\n\n[Structured Tables]\n{table_md}"
 
+            # Concatenated equipment tags (HS + 9717 → HS9717)
+            page_lines = page.get("layout", {}).get("lines", [])
+            concat_tags = self._extract_concatenated_tags(page_lines)
+            if concat_tags:
+                content_text += f"\n[Concatenated Tags] {concat_tags}"
+
             content_texts.append(content_text)
 
             # Extract coords
@@ -269,6 +276,34 @@ class AzureSearchService:
                     future.result()
                 except Exception as e:
                     logger.error(f"Batch upload failed: {e}")
+
+    def _extract_concatenated_tags(self, lines_data: list) -> str:
+        """Adjacent letter+number OCR lines → combined tags (e.g., HS + 9717 → HS9717)"""
+        tags = []
+        used = set()
+        for i, l1 in enumerate(lines_data):
+            if i in used:
+                continue
+            t1 = l1.get("content", "").strip()
+            if not re.match(r'^[A-Z]{1,5}$', t1):
+                continue
+            p1 = l1.get("polygon", [])
+            for j, l2 in enumerate(lines_data):
+                if j == i or j in used:
+                    continue
+                t2 = l2.get("content", "").strip()
+                if not re.match(r'^\d{1,5}[A-Z]?$', t2):
+                    continue
+                p2 = l2.get("polygon", [])
+                if len(p1) >= 2 and len(p2) >= 2:
+                    dx = abs(p1[0] - p2[0])
+                    dy = abs(p1[1] - p2[1])
+                    if dx < 0.15 and 0.005 < dy < 0.25:
+                        tags.append(f"{t1}{t2}")
+                        used.add(i)
+                        used.add(j)
+                        break
+        return " ".join(tags)
 
     def _format_tables_markdown(self, tables: list) -> str:
         """
