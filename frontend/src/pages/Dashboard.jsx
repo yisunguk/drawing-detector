@@ -2472,64 +2472,71 @@ const App = () => {
         // Search for text in OCR/PDF data to get polygon for highlight
         const targetDoc = documents.find(d => d.id === targetDocId);
         if (targetDoc) {
-            const dataSource = targetDoc.ocrData || targetDoc.pdfTextData;
-            if (dataSource) {
-                let pages = [];
-                if (Array.isArray(dataSource)) {
-                    pages = dataSource;
-                } else if (dataSource.analyzeResult?.pages) {
-                    pages = dataSource.analyzeResult.pages;
-                } else if (dataSource.pages) {
-                    pages = dataSource.pages;
-                } else {
-                    pages = [dataSource];
+            // Resolve page data: ocrPageCache (accurate) > ocrData > pdfTextData
+            let pageData = null;
+            if (targetDoc.ocrMeta && targetDoc.ocrPageCache?.[targetPage]) {
+                // Split-format: use on-demand cached page (Azure DI accurate polygons)
+                pageData = targetDoc.ocrPageCache[targetPage];
+            } else {
+                const dataSource = targetDoc.ocrData || targetDoc.pdfTextData;
+                if (dataSource) {
+                    let pages = [];
+                    if (Array.isArray(dataSource)) {
+                        pages = dataSource;
+                    } else if (dataSource.analyzeResult?.pages) {
+                        pages = dataSource.analyzeResult.pages;
+                    } else if (dataSource.pages) {
+                        pages = dataSource.pages;
+                    } else {
+                        pages = [dataSource];
+                    }
+                    pageData = pages.find(p => (p.page_number || 1) === targetPage) || pages[targetPage - 1];
+                }
+            }
+
+            if (pageData) {
+                const lines = pageData.layout?.lines || pageData.lines || [];
+                const layoutWidth = pageData.layout?.width || pageData.width || pageData.metadata?.width || 0;
+                const layoutHeight = pageData.layout?.height || pageData.height || pageData.metadata?.height || 0;
+                const searchLower = searchText.toLowerCase();
+
+                // Find best matching line
+                let bestMatch = null;
+                let bestScore = 0;
+                for (const line of lines) {
+                    const content = line.content || line.text || '';
+                    const contentLower = content.toLowerCase();
+                    let score = 0;
+                    if (contentLower === searchLower) score = 100;
+                    else if (contentLower.includes(searchLower)) score = 80;
+                    else if (searchLower.includes(contentLower) && contentLower.length > 3) score = 60;
+                    else {
+                        // Token matching
+                        const tokens = searchLower.split(/\s+/).filter(t => t.length > 1);
+                        const hits = tokens.filter(t => contentLower.includes(t)).length;
+                        if (hits > 0) score = 30 + (hits / tokens.length * 30);
+                    }
+                    if (score > bestScore && (line.polygon || line.boundingBox)) {
+                        bestScore = score;
+                        let polygon = line.polygon || line.boundingBox || [];
+                        if (Array.isArray(polygon[0])) polygon = polygon.flat();
+                        bestMatch = {
+                            content,
+                            polygon: [...polygon],
+                            docId: targetDocId,
+                            docName: targetDoc.name,
+                            pageNum: targetPage,
+                            tagType: 'other',
+                            layoutWidth,
+                            layoutHeight,
+                            score
+                        };
+                    }
                 }
 
-                const pageData = pages.find(p => (p.page_number || 1) === targetPage) || pages[targetPage - 1];
-                if (pageData) {
-                    const lines = pageData.layout?.lines || pageData.lines || [];
-                    const layoutWidth = pageData.layout?.width || pageData.width || pageData.metadata?.width || 0;
-                    const layoutHeight = pageData.layout?.height || pageData.height || pageData.metadata?.height || 0;
-                    const searchLower = searchText.toLowerCase();
-
-                    // Find best matching line
-                    let bestMatch = null;
-                    let bestScore = 0;
-                    for (const line of lines) {
-                        const content = line.content || line.text || '';
-                        const contentLower = content.toLowerCase();
-                        let score = 0;
-                        if (contentLower === searchLower) score = 100;
-                        else if (contentLower.includes(searchLower)) score = 80;
-                        else if (searchLower.includes(contentLower) && contentLower.length > 3) score = 60;
-                        else {
-                            // Token matching
-                            const tokens = searchLower.split(/\s+/).filter(t => t.length > 1);
-                            const hits = tokens.filter(t => contentLower.includes(t)).length;
-                            if (hits > 0) score = 30 + (hits / tokens.length * 30);
-                        }
-                        if (score > bestScore && (line.polygon || line.boundingBox)) {
-                            bestScore = score;
-                            let polygon = line.polygon || line.boundingBox || [];
-                            if (Array.isArray(polygon[0])) polygon = polygon.flat();
-                            bestMatch = {
-                                content,
-                                polygon: [...polygon],
-                                docId: targetDocId,
-                                docName: targetDoc.name,
-                                pageNum: targetPage,
-                                tagType: 'other',
-                                layoutWidth,
-                                layoutHeight,
-                                score
-                            };
-                        }
-                    }
-
-                    if (bestMatch) {
-                        setSelectedResult(bestMatch);
-                        console.log(`Citation highlight: "${bestMatch.content}" on page ${targetPage}`);
-                    }
+                if (bestMatch) {
+                    setSelectedResult(bestMatch);
+                    console.log(`Citation highlight: "${bestMatch.content}" on page ${targetPage}`);
                 }
             }
         }
@@ -2537,6 +2544,9 @@ const App = () => {
         // Always populate left sidebar search so user can see all results
         setSearchTerm(searchText);
         setSearchPreferPage(targetPage);
+        // Trigger auto-select: when searchResults recompute (e.g. after ocrPageCache loads),
+        // the best result on targetPage will be auto-selected with accurate polygon
+        setAutoSelectOnPage(targetPage);
         console.log(`Citation → search: "${searchText}" page ${targetPage}`);
     };
 
