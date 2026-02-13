@@ -1723,8 +1723,18 @@ const App = () => {
     const reindexDocument = async (doc) => {
         try {
 
-            const uName = userProfile?.name || currentUser?.displayName;
             const filename = doc.name.endsWith('.pdf') ? doc.name : `${doc.name}.pdf`;
+
+            // Extract owner username from blobPath (e.g. "이승준/documents/file.pdf" → "이승준")
+            // Falls back to current user's name if blobPath doesn't contain a username prefix
+            let uName = userProfile?.name || currentUser?.displayName;
+            if (doc.blobPath) {
+                const pathParts = decodeURIComponent(doc.blobPath).split('/');
+                const knownFolders = ['temp', 'drawings', 'documents', 'my-documents', 'json'];
+                if (pathParts.length >= 2 && !knownFolders.includes(pathParts[0].toLowerCase())) {
+                    uName = pathParts[0]; // First segment is the username
+                }
+            }
 
             // Determine category from document context
             let category = 'drawings';
