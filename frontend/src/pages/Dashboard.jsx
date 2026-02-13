@@ -563,18 +563,23 @@ const App = () => {
             const searchWords = search.toLowerCase().split(/[^a-zA-Z0-9가-힣]+/).filter(Boolean);
 
             if (searchWords.length > 0) {
-                // Check if ALL search words appear as exact words in the content
-                const allWordsMatch = searchWords.every(sw => contentWords.includes(sw));
-                if (allWordsMatch) {
-                    // Tightness bonus: content closer in length to search → higher score
-                    // "Design Conditions" in "Design Conditions" → ratio≈1.0 → ~95
-                    // "Design Conditions" in "the contract design conditions" → ratio≈0.6 → ~91
+                // 1) Exact word match (highest precision, e.g. English words)
+                const exactWordMatches = searchWords.every(sw => contentWords.includes(sw));
+                if (exactWordMatches) {
                     const lengthRatio = Math.min(cleanSearch.length / Math.max(cleanContent.length, 1), 1.0);
-                    return 85 + Math.round(lengthRatio * 10);
+                    return 88 + Math.round(lengthRatio * 12);
                 }
 
-                // Partial word match (some words match exactly)
-                const matchCount = searchWords.filter(sw => contentWords.includes(sw)).length;
+                // 2) Substring match: handles Korean agglutination
+                //    "인출선" matches "인출선은", "굵기" matches "굵기이어야"
+                const substringAllMatch = searchWords.every(sw => cleanContent.includes(sw));
+                if (substringAllMatch) {
+                    const lengthRatio = Math.min(cleanSearch.length / Math.max(cleanContent.length, 1), 1.0);
+                    return 83 + Math.round(lengthRatio * 12);
+                }
+
+                // 3) Partial matches (some words found as substrings)
+                const matchCount = searchWords.filter(sw => cleanContent.includes(sw)).length;
                 if (matchCount > 0) {
                     return 60 + (matchCount / searchWords.length * 30);
                 }

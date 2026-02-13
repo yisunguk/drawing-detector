@@ -249,17 +249,20 @@ async def chat(
             print(f"[Chat] Searching Azure Search for user '{safe_user_id}': {search_query}")
             
             # Apply doc_ids filter to Azure Search query (BEFORE relevance scoring)
+            # IMPORTANT: Use OData 'source eq' for exact matching, NOT search.ismatch
+            # search.ismatch tokenizes Korean filenames and matches wrong documents
             search_filter = user_filter  # None for admin, OData string for regular users
             if request.doc_ids and len(request.doc_ids) > 0:
                 print(f"[Chat] Applying doc_ids filter at Azure Search level: {request.doc_ids}")
                 doc_filter_parts = []
                 for doc_id in request.doc_ids:
-                    # Try exact match and common variants (.pdf, .pdf.pdf)
-                    base_name = doc_id.replace('.pdf', '')  # Remove .pdf if present
-                    # Use search.ismatch to handle Korean characters
-                    doc_filter_parts.append(f"search.ismatch('{base_name}', 'source')")
-                    doc_filter_parts.append(f"search.ismatch('{base_name}.pdf', 'source')")
-                    doc_filter_parts.append(f"search.ismatch('{base_name}.pdf.pdf', 'source')")
+                    safe_id = doc_id.replace("'", "''")
+                    base_name = doc_id.replace('.pdf', '').replace("'", "''")
+                    # Exact match with common filename variants
+                    doc_filter_parts.append(f"source eq '{safe_id}'")
+                    doc_filter_parts.append(f"source eq '{base_name}'")
+                    doc_filter_parts.append(f"source eq '{base_name}.pdf'")
+                    doc_filter_parts.append(f"source eq '{base_name}.pdf.pdf'")
 
                 if doc_filter_parts:
                     combined_doc_filter = " or ".join(doc_filter_parts)
