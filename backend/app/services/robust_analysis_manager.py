@@ -267,11 +267,12 @@ class RobustAnalysisManager:
 
                 print(f"[Chunk] Uploaded {len(uploaded)} page JSONs for {page_range}", flush=True)
 
-            # 3. Save chunk JSON + status update (NON-FATAL: don't retry DI on status failure)
+            # 3. Update status only (page JSONs already uploaded — skip 17MB chunk JSON blob)
             try:
-                self._save_chunk_result(filename, page_range, chunks, username)
+                status_manager.update_chunk_progress(filename, page_range, username=username)
+                print(f"[Chunk] Status updated for {page_range}", flush=True)
             except Exception as e:
-                print(f"[Chunk] Warning: Status save failed for {page_range} (pages already uploaded): {e}", flush=True)
+                print(f"[Chunk] Warning: Status update failed for {page_range} (pages already uploaded): {e}", flush=True)
 
             # 4. Index
             try:
@@ -288,6 +289,7 @@ class RobustAnalysisManager:
             raise e
 
     def _save_chunk_result(self, filename, page_range, chunks, username=None):
+        """Legacy: only used if chunk JSON blob is needed for backward compat."""
         from app.services.blob_storage import get_container_client
         container_client = get_container_client()
         part_name = f"temp/json/{filename}_part_{page_range}.json"
@@ -297,7 +299,6 @@ class RobustAnalysisManager:
         blob_client = container_client.get_blob_client(part_name)
         blob_client.upload_blob(json_content, overwrite=True)
 
-        # Update Status Manager (with username for scoped status)
         status_manager.update_chunk_progress(filename, page_range, username=username)
         print(f"[Chunk] Saved JSON for {page_range}", flush=True)
 
@@ -402,18 +403,19 @@ class RobustAnalysisManager:
             status_manager.mark_completed(filename, json_location=json_folder, username=username)
             print(f"[Finalize] Complete.", flush=True)
 
-            # ── Step 5: Cleanup temp chunks ──
-            status = status_manager.get_status(filename, username=username)
-            chunks_list = status.get("completed_chunks", []) if status else []
-            if chunks_list:
-                print(f"[Finalize] Cleaning up {len(chunks_list)} temp chunks...", flush=True)
-                for c in chunks_list:
-                    try:
-                        part_name = f"temp/json/{filename}_part_{c}.json"
-                        container_client.get_blob_client(part_name).delete_blob()
-                    except Exception:
-                        pass
-                print(f"[Finalize] Cleanup done.", flush=True)
+            # ── Step 5: Cleanup any leftover temp chunk blobs (best-effort) ──
+            try:
+                leftover = list(container_client.list_blobs(name_starts_with=f"temp/json/{filename}_part_"))
+                if leftover:
+                    print(f"[Finalize] Cleaning up {len(leftover)} leftover temp blobs...", flush=True)
+                    for blob in leftover:
+                        try:
+                            container_client.get_blob_client(blob.name).delete_blob()
+                        except Exception:
+                            pass
+                    print(f"[Finalize] Cleanup done.", flush=True)
+            except Exception:
+                pass
 
         except Exception as e:
             print(f"[Finalize] Failed: {e}", flush=True)
