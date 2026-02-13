@@ -341,7 +341,12 @@ class RobustAnalysisManager:
                 raise Exception(f"No page JSONs found in {json_folder}/ - cannot finalize")
 
             if len(page_numbers) < total_pages:
-                print(f"[Finalize] WARNING: Partial result - {len(page_numbers)}/{total_pages} pages", flush=True)
+                # Only warn if significant gap (>2%) - total_pages from API can be stale/rounded
+                gap_pct = (total_pages - len(page_numbers)) / total_pages * 100
+                if gap_pct > 2:
+                    print(f"[Finalize] WARNING: Partial result - {len(page_numbers)}/{total_pages} pages ({gap_pct:.0f}% missing)", flush=True)
+                else:
+                    print(f"[Finalize] Page count OK: {len(page_numbers)} pages (expected ~{total_pages})", flush=True)
 
             # ── Step 2: Upload meta.json ──
             meta = {

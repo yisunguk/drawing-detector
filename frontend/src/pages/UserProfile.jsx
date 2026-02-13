@@ -194,18 +194,25 @@ const UserProfile = () => {
                 }
             }
 
-            // Capture Screenshot (Automatic)
+            // Capture Screenshot (Automatic) with timeout to prevent infinite loading
             let screenshot = null;
             try {
-                const canvas = await html2canvas(document.body, {
-                    scale: 1, // Default scale
+                const capturePromise = html2canvas(document.body, {
+                    scale: 0.5,
                     logging: false,
-                    useCORS: true // Attempt to capture cross-origin images if any
+                    useCORS: true,
+                    allowTaint: true,
+                    foreignObjectRendering: false,
+                    removeContainer: true,
+                    ignoreElements: (el) => el.tagName === 'CANVAS' || el.tagName === 'VIDEO' || el.tagName === 'IFRAME'
                 });
-                // Compress to JPEG with 0.5 quality to reduce size
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Screenshot timeout')), 5000)
+                );
+                const canvas = await Promise.race([capturePromise, timeoutPromise]);
                 screenshot = canvas.toDataURL('image/jpeg', 0.5);
             } catch (captureError) {
-                console.error("Screenshot capture failed:", captureError);
+                console.warn("Screenshot capture skipped:", captureError.message);
             }
 
             await addDoc(collection(db, 'feedback'), {
