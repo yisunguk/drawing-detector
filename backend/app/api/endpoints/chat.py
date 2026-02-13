@@ -211,7 +211,7 @@ async def chat(
                 search_results = azure_search_service.client.search(
                     search_text=search_query,
                     filter=search_filter,
-                    top=20, 
+                    top=50,
                     select=["content", "source", "page", "title", "user_id", "blob_path", "metadata_storage_path", "coords", "type"]
                 )
                 
@@ -269,7 +269,7 @@ async def chat(
                 vector_queries.append(
                     VectorizedQuery(
                         vector=query_vector,
-                        k_nearest_neighbors=15,
+                        k_nearest_neighbors=50,
                         fields="content_vector",
                     )
                 )
@@ -278,7 +278,7 @@ async def chat(
                 search_text=search_query,
                 filter=search_filter,
                 vector_queries=vector_queries if vector_queries else None,
-                top=15,
+                top=50,
                 select=["content", "source", "page", "title", "category", "user_id", "blob_path", "coords", "type"],
             )
 
