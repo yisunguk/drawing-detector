@@ -38,7 +38,7 @@ jobs:
           service: 'drawing-detector-backend'
           region: 'us-central1'
           source: 'backend'
-          flags: '--min-instances=0 --memory=8Gi --cpu=2 --timeout=3600 --concurrency=80'
+          flags: '--min-instances=0 --memory=8Gi --cpu=2 --timeout=3600 --concurrency=80 --execution-environment=gen2'
           env_vars: |
             PYTHONUNBUFFERED=1
           secrets: |
