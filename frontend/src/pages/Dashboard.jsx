@@ -1314,7 +1314,7 @@ const App = () => {
                 // ── Step 2: Text extraction ──
                 if (!doc.ocrData && !doc.pdfTextData) {
                     if (detectedSplitFormat) {
-                        // Split format: extract text silently in background (no progress bar)
+                        // Split format: extract text in background with lightweight progress
                         // Deferred by 2s to let page render first
                         const capturedPdf = pdf;
                         const capturedDocId = doc.id;
@@ -1322,15 +1322,23 @@ const App = () => {
                             (async () => {
                                 try {
                                     const textData = [];
-                                    for (let i = 1; i <= capturedPdf.numPages; i++) {
+                                    const total = capturedPdf.numPages;
+                                    setExtractionProgress({ current: 0, total, silent: true });
+                                    for (let i = 1; i <= total; i++) {
                                         const data = await extractPdfText(capturedPdf, i);
                                         if (data) textData.push(data);
+                                        // Update progress every 20 pages to minimize re-renders
+                                        if (i % 20 === 0 || i === total) {
+                                            setExtractionProgress({ current: i, total, silent: true });
+                                        }
                                         if (i % 10 === 0) await new Promise(r => setTimeout(r, 0));
                                     }
                                     setDocuments(prev => prev.map(d => d.id === capturedDocId && !d.pdfTextData ? { ...d, pdfTextData: textData } : d));
-                                    console.log(`[TextExtract] Silent extraction complete for ${capturedDocId} (${textData.length} pages)`);
+                                    setExtractionProgress(null);
+                                    console.log(`[TextExtract] Extraction complete for ${capturedDocId} (${textData.length} pages)`);
                                 } catch (e) {
-                                    console.warn(`[TextExtract] Silent extraction failed:`, e.message);
+                                    setExtractionProgress(null);
+                                    console.warn(`[TextExtract] Extraction failed:`, e.message);
                                 }
                             })();
                         }, 2000);
@@ -2833,16 +2841,29 @@ const App = () => {
 
                         {/* Extraction Progress Bar */}
                         {extractionProgress && (
-                            <div className="flex items-center gap-2 mr-4 bg-[#fff8f0] border border-[#ffecd6] px-2 py-1 rounded-md">
-                                <Loader2 size={14} className="animate-spin text-[#d97757]" />
-                                <div className="flex flex-col">
-                                    <span className="text-[10px] font-medium text-[#d97757] leading-tight">Processing Text</span>
-                                    <div className="w-20 h-1 bg-[#ffecd6] rounded-full mt-0.5 overflow-hidden">
-                                        <div className="h-full bg-[#d97757] transition-all duration-300" style={{ width: `${(extractionProgress.current / extractionProgress.total) * 100}%` }}></div>
+                            extractionProgress.silent ? (
+                                /* Split-format: lightweight search preparation indicator */
+                                <div className="flex items-center gap-1.5 mr-4 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-md" title="검색 데이터 준비 중 — '전체' 채팅은 즉시 사용 가능">
+                                    <Loader2 size={12} className="animate-spin text-blue-500" />
+                                    <span className="text-[10px] font-medium text-blue-600">검색 준비</span>
+                                    <div className="w-16 h-1 bg-blue-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${(extractionProgress.current / extractionProgress.total) * 100}%` }}></div>
                                     </div>
+                                    <span className="text-[9px] text-blue-500 font-mono">{Math.round((extractionProgress.current / extractionProgress.total) * 100)}%</span>
                                 </div>
-                                <span className="text-[9px] text-[#c05535] font-mono ml-1">{extractionProgress.current}/{extractionProgress.total}</span>
-                            </div>
+                            ) : (
+                                /* Non-OCR: full processing indicator */
+                                <div className="flex items-center gap-2 mr-4 bg-[#fff8f0] border border-[#ffecd6] px-2 py-1 rounded-md">
+                                    <Loader2 size={14} className="animate-spin text-[#d97757]" />
+                                    <div className="flex flex-col">
+                                        <span className="text-[10px] font-medium text-[#d97757] leading-tight">Processing Text</span>
+                                        <div className="w-20 h-1 bg-[#ffecd6] rounded-full mt-0.5 overflow-hidden">
+                                            <div className="h-full bg-[#d97757] transition-all duration-300" style={{ width: `${(extractionProgress.current / extractionProgress.total) * 100}%` }}></div>
+                                        </div>
+                                    </div>
+                                    <span className="text-[9px] text-[#c05535] font-mono ml-1">{extractionProgress.current}/{extractionProgress.total}</span>
+                                </div>
+                            )
                         )}
 
                         {/* Pagination - Always show if doc is loaded, even if 1 page, to be consistent */}
@@ -2919,12 +2940,12 @@ const App = () => {
                                     <>
                                         <div className="relative w-4 h-4 flex items-center justify-center">
                                             <svg className="w-full h-full transform -rotate-90">
-                                                <circle cx="8" cy="8" r="7" fill="none" stroke="#e5e1d8" strokeWidth="2" />
-                                                <circle cx="8" cy="8" r="7" fill="none" stroke="#d97757" strokeWidth="2" strokeDasharray="44" strokeDashoffset={44 - (44 * (extractionProgress.current / extractionProgress.total))} className="transition-all duration-300" />
+                                                <circle cx="8" cy="8" r="7" fill="none" stroke={extractionProgress.silent ? "#93c5fd" : "#e5e1d8"} strokeWidth="2" />
+                                                <circle cx="8" cy="8" r="7" fill="none" stroke={extractionProgress.silent ? "#3b82f6" : "#d97757"} strokeWidth="2" strokeDasharray="44" strokeDashoffset={44 - (44 * (extractionProgress.current / extractionProgress.total))} className="transition-all duration-300" />
                                             </svg>
                                         </div>
-                                        <span className="text-[10px] font-medium text-[#d97757]">
-                                            Analyzing {Math.round((extractionProgress.current / extractionProgress.total) * 100)}%
+                                        <span className={`text-[10px] font-medium ${extractionProgress.silent ? 'text-blue-600' : 'text-[#d97757]'}`}>
+                                            {extractionProgress.silent ? '검색 준비' : 'Analyzing'} {Math.round((extractionProgress.current / extractionProgress.total) * 100)}%
                                         </span>
                                     </>
                                 ) : (
