@@ -20,6 +20,7 @@ class ChatRequest(BaseModel):
     doc_ids: Optional[List[str]] = None  # NEW: List of document names to restrict search
     mode: Optional[str] = "chat" # chat or search
     history: Optional[List[ChatMessage]] = None  # Conversation history for context memory
+    viewing_context: Optional[str] = None  # Current page context from frontend (user's viewport)
 
 class ChatResponse(BaseModel):
     response: str
@@ -323,6 +324,14 @@ async def chat(
                     context_text += f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
                     context_text += (result.get('content') or '') + "\n"
         
+        # Prepend viewing context (user's current viewport) if provided
+        # This ensures the LLM always sees what the user is currently looking at
+        if request.viewing_context:
+            viewing_text = request.viewing_context.strip()
+            if viewing_text:
+                print(f"[Chat] Prepending viewing context ({len(viewing_text)} chars) to search results")
+                context_text = f"=== 사용자가 현재 보고 있는 페이지 (Currently Viewing) ===\n{viewing_text}\n\n=== 검색 결과 (Search Results) ===\n{context_text}"
+
         # Truncate context if too long (increased to 100k for multi-file support)
         if len(context_text) > 100000:
             context_text = context_text[:100000] + "...(truncated)"

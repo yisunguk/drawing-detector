@@ -2725,7 +2725,7 @@ const App = () => {
 
                 <div style={{ width: sidebarWidth }} className="h-full">
                     {rightSidebarMode === 'chat' ? (
-                        <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} onCitationClick={handleCitationClick} />
+                        <ChatInterface activeDoc={activeDoc} documents={documents} chatScope={chatScope} activePage={activePage} onCitationClick={handleCitationClick} />
                     ) : (
                         <PDFViewer
                             doc={citedDoc}

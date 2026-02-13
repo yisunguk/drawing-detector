@@ -7,7 +7,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../services/logging';
 
-const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatContext = 'drawing', onCitationClick }) => {
+const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatContext = 'drawing', activePage = 1, onCitationClick }) => {
     const [messages, setMessages] = useState([
         { role: 'assistant', content: '안녕하세요! 도면에 대해 궁금한 점을 물어보세요.' }
     ]);
@@ -182,6 +182,34 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
         return context;
     };
 
+    // Build minimal viewing context from current page area (±2 pages)
+    // Used in 'all' mode so the LLM always sees what the user is currently looking at
+    const buildViewingContext = () => {
+        if (!activeDoc) return null;
+        const dataSource = activeDoc.ocrData || activeDoc.pdfTextData;
+        if (!dataSource) return null;
+
+        const pages = Array.isArray(dataSource) ? dataSource : [dataSource];
+        if (pages.length === 0) return null;
+
+        const currentIdx = Math.max(0, (activePage || 1) - 1);
+        const startIdx = Math.max(0, currentIdx - 2);
+        const endIdx = Math.min(pages.length - 1, currentIdx + 2);
+
+        let ctx = `Document: ${activeDoc.name}\n`;
+        for (let i = startIdx; i <= endIdx; i++) {
+            const page = pages[i];
+            if (!page) continue;
+            ctx += `\n[Page ${page.page_number || i + 1}]\n`;
+            const lines = page.layout?.lines || page.lines || [];
+            lines.forEach(line => {
+                ctx += `${line.content || line.text || ''}\n`;
+            });
+        }
+        console.log(`[ChatContext] Built viewing context: pages ${startIdx + 1}-${endIdx + 1}, ${ctx.length} chars`);
+        return ctx;
+    };
+
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 
@@ -197,8 +225,12 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
 
         try {
             let context = null;
+            let viewingContext = null;
             if (chatScope === 'active') {
                 context = formatContext();
+            } else if (chatScope === 'all') {
+                // In 'all' mode, send current viewing pages so LLM sees what user is looking at
+                viewingContext = buildViewingContext();
             }
 
             const PRODUCTION_API_URL = 'https://drawing-detector-backend-kr7kyy4mza-uc.a.run.app';
@@ -242,7 +274,8 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
                     filename: activeDoc?.name,
                     doc_ids: docIds,
                     mode: 'chat',
-                    history: history.length > 0 ? history : null
+                    history: history.length > 0 ? history : null,
+                    viewing_context: viewingContext
                 }),
             });
 
