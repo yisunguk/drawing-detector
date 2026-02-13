@@ -90,6 +90,7 @@ class ChatRequest(BaseModel):
     mode: Optional[str] = "chat" # chat or search
     history: Optional[List[ChatMessage]] = None  # Conversation history for context memory
     viewing_context: Optional[str] = None  # Current page context from frontend (user's viewport)
+    target_user: Optional[str] = None  # Admin-only: filter search to a specific user folder
 
 class ChatResponse(BaseModel):
     response: str
@@ -180,8 +181,13 @@ async def chat(
                 is_admin = (user_name and '관리자' in user_name) or (email_prefix and email_prefix.lower() == 'admin')
 
                 if is_admin:
-                    user_filter = None
-                    print(f"[Chat] Admin user detected ({user_name}/{email_prefix}). Bypassing user_id filter.")
+                    if request.target_user:
+                        safe_target = validate_and_sanitize_user_id(request.target_user)
+                        user_filter = f"user_id eq '{safe_target}'"
+                        print(f"[Chat] Admin targeting user folder: {request.target_user}")
+                    else:
+                        user_filter = None
+                        print(f"[Chat] Admin user detected ({user_name}/{email_prefix}). Bypassing user_id filter.")
                 else:
                     # Construct OData filter for Azure Search
                     # (user_id eq '이성욱') or (user_id eq 'piere')

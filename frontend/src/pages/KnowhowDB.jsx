@@ -45,6 +45,12 @@ const KnowhowDB = () => {
     const navigate = useNavigate();
     const { currentUser } = useAuth();
     const username = currentUser?.displayName || currentUser?.email?.split('@')[0];
+    const isAdmin = currentUser?.email === 'admin@poscoenc.com' || currentUser?.displayName?.includes('관리자');
+
+    // === Admin User Folder State ===
+    const [userFolders, setUserFolders] = useState([]);
+    const [selectedUserFolder, setSelectedUserFolder] = useState(null);
+    const browseUsername = isAdmin && selectedUserFolder ? selectedUserFolder : username;
 
     // === Left Sidebar State ===
     const [folders, setFolders] = useState([]);
@@ -88,16 +94,37 @@ const KnowhowDB = () => {
     const fileMapRef = useRef({});
 
     // =============================================
-    // LOAD FOLDERS ON MOUNT
+    // LOAD USER FOLDERS (Admin only - root level)
     // =============================================
     useEffect(() => {
-        if (!username) return;
+        if (!isAdmin) return;
+        (async () => {
+            try {
+                const res = await fetch(getListApiUrl(''));
+                if (!res.ok) throw new Error('Failed to list user folders');
+                const data = await res.json();
+                const items = Array.isArray(data) ? data : (data.items || []);
+                const names = items
+                    .filter(item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase()))
+                    .map(item => item.name);
+                setUserFolders(names);
+            } catch (e) {
+                console.error('Failed to load user folders:', e);
+            }
+        })();
+    }, [isAdmin]);
+
+    // =============================================
+    // LOAD FOLDERS ON MOUNT / USER CHANGE
+    // =============================================
+    useEffect(() => {
+        if (!browseUsername) return;
         loadFolders();
-    }, [username]);
+    }, [browseUsername]);
 
     const loadFolders = async () => {
         try {
-            const res = await fetch(getListApiUrl(`${username}/`));
+            const res = await fetch(getListApiUrl(`${browseUsername}/`));
             if (!res.ok) throw new Error('Failed to list folders');
             const data = await res.json();
             const items = Array.isArray(data) ? data : (data.items || []);
@@ -114,17 +141,17 @@ const KnowhowDB = () => {
     // LOAD FILES WHEN FOLDER CHANGES
     // =============================================
     useEffect(() => {
-        if (!activeFolder || !username) {
+        if (!activeFolder || !browseUsername) {
             setFiles([]);
             return;
         }
         loadFiles(activeFolder);
-    }, [activeFolder, username]);
+    }, [activeFolder, browseUsername]);
 
     const loadFiles = async (folderName) => {
         setLoadingFiles(true);
         try {
-            const path = `${username}/${folderName}`;
+            const path = `${browseUsername}/${folderName}`;
             const res = await fetch(getListApiUrl(path));
             if (!res.ok) throw new Error('Failed to list files');
             const data = await res.json();
@@ -138,7 +165,7 @@ const KnowhowDB = () => {
             const filesWithUrl = fileItems.map(f => ({
                 ...f,
                 folder: folderName,
-                pdfUrl: buildBlobUrl(`${username}/${folderName}/${f.name}`),
+                pdfUrl: buildBlobUrl(`${browseUsername}/${folderName}/${f.name}`),
                 id: f.name
             }));
             setFiles(filesWithUrl);
@@ -224,7 +251,8 @@ const KnowhowDB = () => {
                 query: query.trim(),
                 context: null,
                 doc_ids: docIds,
-                mode: 'search'
+                mode: 'search',
+                ...(isAdmin && selectedUserFolder && { target_user: selectedUserFolder })
             };
             console.log('[KnowhowDB] Search API:', apiUrl, 'body:', JSON.stringify(body));
 
@@ -305,7 +333,8 @@ const KnowhowDB = () => {
                     filename: activeDoc?.name,
                     doc_ids: docIds,
                     mode: 'chat',
-                    history: history.length > 0 ? history : null
+                    history: history.length > 0 ? history : null,
+                    ...(isAdmin && selectedUserFolder && { target_user: selectedUserFolder })
                 })
             });
 
@@ -381,7 +410,8 @@ const KnowhowDB = () => {
         if (!folder && activeDoc && activeDoc.name === filename) folder = activeDoc.folder;
         if (!folder) folder = 'documents';
 
-        const url = buildBlobUrl(`${username}/${folder}/${filename}`);
+        const resultUser = result.user_id || browseUsername;
+        const url = buildBlobUrl(`${resultUser}/${folder}/${filename}`);
         openPdf(url, page);
     };
 
@@ -421,7 +451,7 @@ const KnowhowDB = () => {
             openPdf(targetFile.pdfUrl, targetPage);
         } else if (targetDocName) {
             const folder = fileMapRef.current[targetDocName] || 'documents';
-            const url = buildBlobUrl(`${username}/${folder}/${targetDocName}`);
+            const url = buildBlobUrl(`${browseUsername}/${folder}/${targetDocName}`);
             openPdf(url, targetPage);
         }
     };
@@ -601,6 +631,28 @@ const KnowhowDB = () => {
                         Knowhow DB
                     </h1>
                 </div>
+
+                {/* Admin User Folder Selector */}
+                {isAdmin && userFolders.length > 0 && (
+                    <div className="px-3 py-2 border-b border-gray-200">
+                        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">사용자 선택</div>
+                        <select
+                            value={selectedUserFolder || ''}
+                            onChange={(e) => {
+                                setSelectedUserFolder(e.target.value || null);
+                                setActiveFolder(null);
+                                setActiveDoc(null);
+                                setFiles([]);
+                            }}
+                            className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-colors"
+                        >
+                            <option value="">전체 (모든 사용자)</option>
+                            {userFolders.map(name => (
+                                <option key={name} value={name}>{name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
 
                 {/* Folders */}
                 <div className="px-3 py-2">
