@@ -485,9 +485,11 @@ const App = () => {
                 const w = item.width * scale;
                 const h = item.height * scale;
 
+                // y from viewport.transform is the text baseline in canvas space
+                // Text renders ABOVE the baseline, so bounding box is [y-h, y]
                 items.push({
                     content: item.str.trim(),
-                    polygon: [x, y, x + w, y, x + w, y + h, x, y + h],
+                    polygon: [x, y - h, x + w, y - h, x + w, y, x, y],
                 });
             }
 
@@ -2305,35 +2307,19 @@ const App = () => {
         const lw = result.layoutWidth || pgW || canvasSize.width;
         const lh = result.layoutHeight || pgH || canvasSize.height;
 
-        const needScale = Math.abs(lw - canvasSize.width) > 5;
         const nP = p.map(Number);
 
-        if (!needScale) {
-            return `${nP[0]},${nP[1]} ${nP[2]},${nP[3]} ${nP[4]},${nP[5]} ${nP[6]},${nP[7]}`;
-        }
+        // Ratio scaling: works for both inch-based (Azure DI) and pixel-based (pdfTextData) coordinates
+        // Azure DI: lw ≈ 8.26 inches, canvasSize.width ≈ 1190px → ratio ≈ 144 (= 72 DPI × scale 2.0)
+        // pdfTextData: lw ≈ 1190px, canvasSize.width ≈ 1190px → ratio ≈ 1 (no scaling needed)
+        const sx = lw > 0 ? canvasSize.width / lw : 1;
+        const sy = lh > 0 ? canvasSize.height / lh : 1;
 
-        // Use page.view-based scaling for precision when available
-        // page.view = [x1, y1, x2, y2] in PDF points (CropBox or MediaBox)
-        const pv = canvasSize.pageView;
-        if (pv && canvasSize.pageWidthPts > 0) {
-            // Convert Azure DI inches → PDF points, accounting for CropBox offset
-            const ptPerInch = 72;
-            const scale = 2.0; // must match render scale
-            const offsetXPts = pv[0]; // CropBox left offset in points
-            const offsetYPts = pv[1]; // CropBox top offset in points
-            const points = [];
-            for (let i = 0; i < nP.length; i += 2) {
-                const xPts = nP[i] * ptPerInch - offsetXPts;
-                const yPts = nP[i + 1] * ptPerInch - offsetYPts;
-                points.push(`${xPts * scale},${yPts * scale}`);
-            }
-            return points.join(' ');
+        const points = [];
+        for (let i = 0; i < nP.length; i += 2) {
+            points.push(`${nP[i] * sx},${nP[i + 1] * sy}`);
         }
-
-        // Fallback: simple ratio scaling
-        const sx = canvasSize.width / lw;
-        const sy = canvasSize.height / lh;
-        return `${nP[0] * sx},${nP[1] * sy} ${nP[2] * sx},${nP[3] * sy} ${nP[4] * sx},${nP[5] * sy} ${nP[6] * sx},${nP[7] * sy}`;
+        return points.join(' ');
     };
 
     const getSelectedCenter = () => {
@@ -2343,31 +2329,12 @@ const App = () => {
         const pgW = pageData?.layout?.width || pageData?.width || pageData?.metadata?.width || 0;
         const pgH = pageData?.layout?.height || pageData?.height || pageData?.metadata?.height || 0;
         const lw = selectedResult.layoutWidth || pgW || canvasSize.width;
+        const lh = selectedResult.layoutHeight || pgH || canvasSize.height;
 
-        const needScale = Math.abs(lw - canvasSize.width) > 1;
-
-        let cx, cy;
-        if (!needScale) {
-            cx = (p[0] + p[2]) / 2;
-            cy = (p[1] + p[5]) / 2;
-        } else {
-            // Use page.view-based conversion for precision
-            const pv = canvasSize.pageView;
-            if (pv && canvasSize.pageWidthPts > 0) {
-                const ptPerInch = 72;
-                const scale = 2.0;
-                const offsetXPts = pv[0];
-                const offsetYPts = pv[1];
-                cx = (((p[0] + p[2]) / 2) * ptPerInch - offsetXPts) * scale;
-                cy = (((p[1] + p[5]) / 2) * ptPerInch - offsetYPts) * scale;
-            } else {
-                const sx = canvasSize.width / lw;
-                const lh = selectedResult.layoutHeight || pgH || canvasSize.height;
-                const sy = canvasSize.height / lh;
-                cx = ((p[0] + p[2]) / 2) * sx;
-                cy = ((p[1] + p[5]) / 2) * sy;
-            }
-        }
+        const sx = lw > 0 ? canvasSize.width / lw : 1;
+        const sy = lh > 0 ? canvasSize.height / lh : 1;
+        const cx = ((p[0] + p[2]) / 2) * sx;
+        const cy = ((p[1] + p[5]) / 2) * sy;
         return { cx, cy };
     };
 
