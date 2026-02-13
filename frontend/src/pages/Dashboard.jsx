@@ -1249,11 +1249,9 @@ const App = () => {
         const userName = (userProfile?.name || currentUser?.displayName || '').trim();
         const categoryFolder = uploadCategory === 'documents' ? 'documents' : 'drawings';
 
-        // Admin sees all user folders; regular users go to their own folder
+        // Navigate to user's category folder (admin can navigate up later)
         let initialPath = '';
-        if (currentUser?.email === 'admin@poscoenc.com') {
-            initialPath = ''; // admin sees all user folders
-        } else if (userName) {
+        if (userName) {
             initialPath = `${userName}/${categoryFolder}`;
         }
         console.log(`[Azure] Auto-navigating to locked path: ${initialPath}`);
@@ -2787,28 +2785,31 @@ const App = () => {
 
                             <div className="p-2 bg-[#f4f1ea] border-b border-[#e5e1d8] flex items-center gap-2 text-sm">
                                 <button onClick={() => {
-                                    // Calculate locked root again for Home button
-                                    const userName = (userProfile?.name || currentUser?.displayName || '').trim();
-                                    const categoryFolder = uploadCategory === 'documents' ? 'documents' : 'drawings';
-                                    const lockedRootPath = userName ? `${userName}/${categoryFolder}` : '';
-                                    fetchAzureItems(lockedRootPath);
+                                    const isAdmin = currentUser?.email === 'admin@poscoenc.com';
+                                    if (isAdmin) {
+                                        fetchAzureItems(''); // admin: go to root (all user folders)
+                                    } else {
+                                        const userName = (userProfile?.name || currentUser?.displayName || '').trim();
+                                        const categoryFolder = uploadCategory === 'documents' ? 'documents' : 'drawings';
+                                        const lockedRootPath = userName ? `${userName}/${categoryFolder}` : '';
+                                        fetchAzureItems(lockedRootPath);
+                                    }
                                 }} className="p-1 hover:bg-[#e5e1d8] rounded" title="Home"><RotateCcw size={14} /></button>
                                 <span className="text-[#666666]">Path:</span>
                                 <span className="font-mono text-[#333333] bg-white px-2 py-0.5 rounded border border-[#dcd8d0] flex-1 truncate">/{azurePath}</span>
                                 {(() => {
-                                    // Calculate strict root to decide if "Up" is allowed
+                                    const isAdmin = currentUser?.email === 'admin@poscoenc.com';
                                     const userName = (userProfile?.name || currentUser?.displayName || '').trim();
                                     const categoryFolder = uploadCategory === 'documents' ? 'documents' : 'drawings';
-                                    const lockedRootPath = userName ? `${userName}/${categoryFolder}` : '';
+                                    // Admin: no lock (root = ''), regular user: locked to their category folder
+                                    const lockedRootPath = isAdmin ? '' : (userName ? `${userName}/${categoryFolder}` : '');
 
-                                    // Check if current path depends on locked path
                                     const normalize = (p) => p.replace(/\/$/, '');
                                     const current = normalize(azurePath);
                                     const root = normalize(lockedRootPath);
 
-                                    // allow going up only if deeper than root
-                                    // Ensure simple string comparison works by handling slashes
-                                    const canGoUp = current.length > root.length && current.startsWith(root);
+                                    // Admin can always go up (unless already at root), regular users stay within locked path
+                                    const canGoUp = isAdmin ? current.length > 0 : (current.length > root.length && current.startsWith(root));
 
                                     return canGoUp ? (
                                         <button onClick={() => fetchAzureItems(azurePath.split('/').slice(0, -2).join('/') + (azurePath.split('/').length > 2 ? '/' : ''))} className="px-2 py-0.5 bg-[#e5e1d8] hover:bg-[#dcd8d0] rounded text-xs">Up</button>
