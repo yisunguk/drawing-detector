@@ -718,12 +718,18 @@ const App = () => {
 
             if (hasOcrStructure || doc.pdfTextData) {
                 pages.forEach((pageData, idx) => {
-                    const lines = pageData.layout?.lines || pageData.lines || [];
+                    const pageNum = pageData.page_number || idx + 1;
+
+                    // For split-format: prefer ocrPageCache (Azure DI accurate polygons) over pdfTextData
+                    const effectivePageData = (doc.ocrMeta && doc.ocrPageCache?.[pageNum])
+                        ? doc.ocrPageCache[pageNum]
+                        : pageData;
+
+                    const lines = effectivePageData.layout?.lines || effectivePageData.lines || [];
                     if (lines.length === 0) return;
 
-                    const pageNum = pageData.page_number || idx + 1;
-                    let layoutWidth = pageData.layout?.width || pageData.metadata?.width || pageData.width || 0;
-                    let layoutHeight = pageData.layout?.height || pageData.metadata?.height || pageData.height || 0;
+                    let layoutWidth = effectivePageData.layout?.width || effectivePageData.metadata?.width || effectivePageData.width || 0;
+                    let layoutHeight = effectivePageData.layout?.height || effectivePageData.metadata?.height || effectivePageData.height || 0;
 
                     // Fix: Auto-detect dimensions if missing (handles Azure DI 'Inch' vs 'Pixel' mismatch)
                     if (layoutWidth <= 0 || layoutHeight <= 0) {
