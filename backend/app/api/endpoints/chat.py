@@ -252,8 +252,9 @@ async def chat(
             except Exception as e:
                 print(f"[Chat] Warning: Keyword generation failed: {e}. Using original query.")
             
-            print(f"[Chat] Searching Azure Search for user '{safe_user_id}': {search_query}")
-            
+            print(f"[Chat] Searching Azure Search for user '{safe_user_id}': {search_query}", flush=True)
+            print(f"[Chat] user_filter = {user_filter}", flush=True)
+
             # Apply doc_ids filter to Azure Search query (BEFORE relevance scoring)
             # IMPORTANT: Use OData 'source eq' for exact matching, NOT search.ismatch
             # search.ismatch tokenizes Korean filenames and matches wrong documents
@@ -295,7 +296,7 @@ async def chat(
             # MODE: KEYWORD SEARCH
             # ---------------------------------------------------------
             if request.mode == "search":
-                print(f"[Chat] Executing Keyword Search for user '{safe_user_id}': {search_query}")
+                print(f"[Chat] Executing Keyword Search for user '{safe_user_id}': {search_query} | filter={search_filter}", flush=True)
 
                 # Execute Search
                 # Note: We rely on the constructed 'search_filter' (user_id + doc_ids)
@@ -304,31 +305,27 @@ async def chat(
                     query_type=query_type,
                     filter=search_filter,
                     top=50,
-                    select=["content", "source", "page", "title", "user_id", "blob_path", "metadata_storage_path", "coords", "type"]
+                    select=["content", "source", "page", "title", "user_id", "category", "blob_path", "metadata_storage_path", "coords", "type"]
                 )
-                
+
                 results = []
                 seen_pages = set()
-                
+
                 for res in search_results:
                     path = res.get("metadata_storage_path") or res.get("blob_path") or ""
                     filename = res.get("source")
                     page = res.get("page")
-                    
+
                     # Deduplication Key: Filename + Page
                     # We only keep the first (highest score) occurrence per page
                     dedup_key = (filename, page)
                     if dedup_key in seen_pages:
                         continue
-                    
-                    # Filter out low relevance scores (Threshold: 5.0)
-                    # This helps mask "ghost" files that match weakly
+
                     score = res.get("@search.score", 0)
-                    if score < 5.0:
-                        continue
-                        
+
                     seen_pages.add(dedup_key)
-                    
+
                     results.append({
                         "filename": filename,
                         "page": page,
@@ -336,7 +333,9 @@ async def chat(
                         "score": score,
                         "path": path,
                         "coords": res.get("coords"),
-                        "type": res.get("type")
+                        "type": res.get("type"),
+                        "category": res.get("category"),
+                        "user_id": res.get("user_id")
                     })
                 
                 print(f"[Chat] Keyword Search found {len(results)} unique pages.")
@@ -560,7 +559,9 @@ async def chat(
                 "content": (res.get("content") or "")[:200] + "...",
                 "score": score,
                 "coords": res.get("coords"),
-                "type": res.get("type")
+                "type": res.get("type"),
+                "category": res.get("category"),
+                "user_id": res.get("user_id")
             })
 
         return ChatResponse(
