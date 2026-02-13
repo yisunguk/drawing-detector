@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import ChatInterface from '../components/ChatInterface';
 import PDFViewer from '../components/PDFViewer';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { doc, getDoc, setDoc, collection, query, where, onSnapshot, orderBy, limit, serverTimestamp } from 'firebase/firestore';
 import MessageModal from '../components/MessageModal';
 import InboxModal from '../components/InboxModal';
@@ -1249,9 +1249,11 @@ const App = () => {
         const userName = (userProfile?.name || currentUser?.displayName || '').trim();
         const categoryFolder = uploadCategory === 'documents' ? 'documents' : 'drawings';
 
-        // Strict Navigation: Go to [User]/[Category]
+        // Admin sees all user folders; regular users go to their own folder
         let initialPath = '';
-        if (userName) {
+        if (currentUser?.email === 'admin@poscoenc.com') {
+            initialPath = ''; // admin sees all user folders
+        } else if (userName) {
             initialPath = `${userName}/${categoryFolder}`;
         }
         console.log(`[Azure] Auto-navigating to locked path: ${initialPath}`);
@@ -1505,10 +1507,11 @@ const App = () => {
             // Show progress modal
             setAnalysisState({ isAnalyzing: true, progress: 0, status: '재인덱싱 요청 중...' });
 
-            // Call reindex endpoint
+            // Call reindex endpoint (admin-only, requires Firebase auth)
+            const idToken = await auth.currentUser.getIdToken();
             const startRes = await fetch(`${API_URL}/api/v1/analyze/reindex`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
                 body: JSON.stringify({
                     filename,
                     total_pages: totalPages,
@@ -2452,7 +2455,7 @@ const App = () => {
                                 {doc.ocrData ? <FileCheck size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-emerald-500"}`} /> : doc.pdfTextData ? <FileText size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-amber-500"}`} /> : <FileX size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-red-500"}`} />}
                                 <span className="truncate">{doc.name}</span>
                                 {tabCount <= 4 && doc.totalPages > 1 && <span className="text-[10px] opacity-70 shrink-0">({doc.totalPages}p)</span>}
-                                {!analysisState.isAnalyzing && (
+                                {!analysisState.isAnalyzing && currentUser?.email === 'admin@poscoenc.com' && (
                                     <button onClick={(e) => { e.stopPropagation(); setReindexConfirm(doc); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#0078d4] hover:text-[#0063b1] transition-all shrink-0" title="재인덱싱"><RotateCw size={12} /></button>
                                 )}
                                 <button onClick={(e) => { e.stopPropagation(); closeDocument(doc.id); }} className="p-0.5 opacity-0 group-hover:opacity-100 text-[#a0a0a0] hover:text-red-500 transition-all shrink-0"><X size={12} /></button>

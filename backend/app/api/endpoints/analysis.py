@@ -1,6 +1,8 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Body, Query
+from typing import Optional
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Body, Query, Header
 from app.services.azure_di import azure_di_service
 from app.services.blob_storage import get_container_client, generate_sas_url
+from app.core.firebase_admin import verify_id_token
 from app.services.status_manager import status_manager
 from app.services.blob_monitor import _count_pdf_pages
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
@@ -673,15 +675,31 @@ async def reindex_document(
     filename: str = Body(...),
     total_pages: int = Body(...),
     category: str = Body(...),
-    username: str = Body(None)
+    username: str = Body(None),
+    authorization: Optional[str] = Header(None)
 ):
     """
     Re-indexes a document that failed during initial analysis.
     Locates the PDF in temp/ or final location, cleans up old artifacts,
     and restarts the analysis pipeline.
+    Admin-only: requires Firebase auth token from admin@poscoenc.com.
     """
+    # ── Admin authentication check ──
+    ADMIN_EMAIL = "admin@poscoenc.com"
+    if not authorization or not authorization.startswith('Bearer '):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    id_token = authorization.replace('Bearer ', '')
     try:
-        print(f"[Reindex] Starting for {filename} (user={username}, category={category}, pages={total_pages})")
+        decoded_token = verify_id_token(id_token)
+        user_email = decoded_token.get('email', '')
+        if user_email != ADMIN_EMAIL:
+            print(f"[Reindex] Forbidden: {user_email} is not admin", flush=True)
+            raise HTTPException(status_code=403, detail="Reindexing is restricted to administrators only")
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+    try:
+        print(f"[Reindex] Starting for {filename} (user={username}, category={category}, pages={total_pages})", flush=True)
         container_client = get_container_client()
 
         # 1. Locate PDF - search temp first, then all possible final locations
