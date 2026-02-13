@@ -9,6 +9,75 @@ from app.core.firebase_admin import verify_id_token
 
 router = APIRouter()
 
+
+def _rerank_by_keywords(results_list: list, original_query: str) -> list:
+    """
+    Re-rank Azure Search results by exact keyword match density.
+    Ensures pages with precise Korean keyword matches rank higher.
+    E.g., "변류기 2차 인출선의 굵기" should strongly boost a page containing
+    "변류기 2차 인출선은 10 mm² 이상 굵기이어야".
+    """
+    query_lower = original_query.lower().strip()
+
+    # Split query into words
+    raw_words = re.split(r'\s+', query_lower)
+
+    # Strip common Korean particles from end of words
+    _PARTICLES = ['에서', '으로', '까지', '부터', '해서', '세요',
+                   '을', '를', '의', '이', '가', '에', '도', '는', '은', '로', '와', '과', '하']
+
+    def strip_particle(w):
+        for p in sorted(_PARTICLES, key=len, reverse=True):
+            if w.endswith(p) and len(w) - len(p) >= 2:
+                return w[:-len(p)]
+        return w
+
+    # Filter filler words (request verbs, etc.)
+    _FILLER = {'알려', '주세요', '알려주세요', '하세요', '해주세요', '설명', '뭐',
+               '입니다', '합니다', '있는', '대해', '무엇', '어떤', '어떻게',
+               'please', 'tell', 'what', 'about', 'the', 'show'}
+
+    keywords = []
+    for w in raw_words:
+        stripped = strip_particle(w)
+        if len(stripped) >= 2 and stripped not in _FILLER:
+            keywords.append(stripped)
+
+    if not keywords:
+        return results_list
+
+    print(f"[Chat] Re-ranking {len(results_list)} results by keywords: {keywords}", flush=True)
+
+    for result in results_list:
+        content = (result.get('content') or '').lower()
+        azure_score = result.get('@search.score', 0)
+
+        # 1) Count keyword hits (substring match handles Korean conjugation)
+        hits = sum(1 for kw in keywords if kw in content)
+        keyword_ratio = hits / len(keywords)
+
+        # 2) Adjacency bonus: consecutive keywords appearing near each other
+        adjacency_bonus = 0
+        for i in range(len(keywords) - 1):
+            pattern = re.escape(keywords[i]) + r'.{0,30}' + re.escape(keywords[i + 1])
+            if re.search(pattern, content):
+                adjacency_bonus += 1
+
+        # 3) Combined score: Azure score + keyword match + adjacency
+        #    keyword_ratio * 200 ensures exact keyword match strongly boosts ranking
+        #    adjacency * 100 rewards phrase-level matches
+        result['_rerank_score'] = azure_score + (keyword_ratio * 200) + (adjacency_bonus * 100)
+
+    results_list.sort(key=lambda r: r.get('_rerank_score', 0), reverse=True)
+
+    # Log top 5 for debugging
+    for i, r in enumerate(results_list[:5]):
+        print(f"[Chat] Rerank #{i+1}: {r.get('source','?')} p.{r.get('page','?')} "
+              f"azure={r.get('@search.score', 0):.1f} rerank={r.get('_rerank_score', 0):.1f}", flush=True)
+
+    return results_list
+
+
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
@@ -308,12 +377,22 @@ async def chat(
                 else:
                     print(f"[Chat] doc_ids filter matched 0 results. Using all {len(results_list)} search results as fallback.")
 
+            # ---------------------------------------------------------
+            # Re-ranking: Boost results with exact keyword matches
+            # Azure Search may under-rank pages with precise keyword matches
+            # (e.g. "변류기 2차 인출선 굵기" on page 80 of a 707-page doc)
+            # ---------------------------------------------------------
+            if results_list and request.query:
+                try:
+                    results_list = _rerank_by_keywords(results_list, request.query)
+                except Exception as e:
+                    print(f"[Chat] Re-ranking failed (using original order): {e}", flush=True)
+
             if not results_list:
                 context_text = "No relevant documents found in the index."
                 print("[Chat] No results found in Azure Search.")
             else:
-                # Build context directly from the search index content field
-                # (content already includes table markdown from indexing)
+                # Build context from re-ranked results (most relevant first)
                 for idx, result in enumerate(results_list):
                     source_filename = result.get('source', 'Unknown')
                     target_page = int(result.get('page', 0))
