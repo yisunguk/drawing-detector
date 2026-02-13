@@ -426,21 +426,30 @@ const App = () => {
     // 현재 페이지 OCR/PDF텍스트 데이터
     const currentPageData = useMemo(() => {
         if (!activeDoc) return null;
+        // Priority 1: Split-format page cache
+        if (activeDoc.ocrPageCache?.[activePage]) {
+            return activeDoc.ocrPageCache[activePage];
+        }
+        // Priority 2: Single-format ocrData
         if (activeDoc.ocrData) {
             if (Array.isArray(activeDoc.ocrData)) {
                 return activeDoc.ocrData.find(p => p.page_number === activePage) || activeDoc.ocrData[activePage - 1];
             }
             return activePage === 1 ? activeDoc.ocrData : null;
         }
+        // Priority 3: pdfTextData fallback
         if (activeDoc.pdfTextData) {
             return activeDoc.pdfTextData[activePage - 1];
         }
         return null;
     }, [activeDoc, activePage]);
 
-    // Helper: resolve OCR page data from any format (flat array, analyzeResult.pages, single-page)
+    // Helper: resolve OCR page data from any format (split cache, flat array, analyzeResult.pages, single-page)
     const getOcrPageData = useCallback((doc, pageNum) => {
         if (!doc) return null;
+        // Priority: split-format page cache
+        if (doc.ocrPageCache?.[pageNum]) return doc.ocrPageCache[pageNum];
+
         const data = doc.ocrData || doc.pdfTextData;
         if (!data) return null;
 
@@ -677,7 +686,15 @@ const App = () => {
                 });
             }
 
-            const dataSource = doc.ocrData || doc.pdfTextData;
+            // Determine data source: ocrData (single format) > pdfTextData (split format fallback / pdf.js)
+            let dataSource = null;
+            if (doc.ocrData) {
+                dataSource = doc.ocrData;
+            } else if (doc.ocrMeta && doc.pdfTextData) {
+                dataSource = doc.pdfTextData; // Split format: use pdfTextData for full-text search
+            } else if (doc.pdfTextData) {
+                dataSource = doc.pdfTextData;
+            }
             if (!dataSource) return;
 
             // Robustly extract pages array from different Azure DI formats
@@ -779,8 +796,10 @@ const App = () => {
                         }
                     });
 
-                    if (doc.ocrData) {
-                        const bubbles = parseInstrumentBubbles(pageData);
+                    // Use ocrData or ocrPageCache for rich OCR features (bubbles, equipment tags)
+                    const richPageData = doc.ocrData ? pageData : doc.ocrPageCache?.[pageNum];
+                    if (richPageData && (richPageData.layout?.lines || richPageData.lines)) {
+                        const bubbles = parseInstrumentBubbles(richPageData);
                         bubbles.forEach(bubble => {
                             const score = calculateScore(bubble.content, rawSearch);
                             if (score > 0 && filters.instrument) {
@@ -799,7 +818,7 @@ const App = () => {
                         });
 
                         // 기기 태그 병합 검색 (HS+9717 → HS9717)
-                        const equipTags = parseEquipmentTags(pageData);
+                        const equipTags = parseEquipmentTags(richPageData);
                         equipTags.forEach(tag => {
                             const score = calculateScore(tag.content, rawSearch);
                             if (score > 0) {
@@ -876,12 +895,45 @@ const App = () => {
         return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodedPath}?${AZURE_SAS_TOKEN}`;
     }, []);
 
-    // Background JSON metadata fetcher — non-blocking, updates document when found
+    // Background JSON metadata fetcher — tries split-format (meta.json) first, then single JSON fallback
     const fetchJsonForDoc = useCallback(async (docId, filePath) => {
         try {
             const decodedPath = decodeURIComponent(filePath);
-            const jsonCandidates = [];
 
+            // ── Try split-format meta.json first ──
+            const metaCandidates = [];
+            if (decodedPath.toLowerCase().includes('drawings')) {
+                metaCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+            } else if (decodedPath.toLowerCase().includes('documents')) {
+                metaCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+            } else if (decodedPath.toLowerCase().includes('my-documents')) {
+                metaCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+            }
+
+            for (const metaPath of metaCandidates) {
+                try {
+                    const metaUrl = getDirectBlobUrl(metaPath);
+                    if (!metaUrl) continue;
+                    const metaRes = await fetch(metaUrl);
+                    if (metaRes.ok) {
+                        const metaData = JSON.parse(await metaRes.text());
+                        if (metaData.format === 'split' && metaData.total_pages > 0) {
+                            const folderPath = metaPath.replace('/meta.json', '');
+                            setDocuments(prev => prev.map(d => d.id === docId ? {
+                                ...d,
+                                ocrMeta: { ...metaData, folderPath },
+                                ocrPageCache: {},
+                                ocrData: null
+                            } : d));
+                            console.log(`[JSON] Split-format meta loaded for ${docId}: ${metaPath} (${metaData.total_pages} pages)`);
+                            return;
+                        }
+                    }
+                } catch (e) { /* continue */ }
+            }
+
+            // ── Fallback: single JSON file ──
+            const jsonCandidates = [];
             if (decodedPath.toLowerCase().includes('drawings')) {
                 jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
                 jsonCandidates.push(decodedPath.replace(/drawings/i, 'json') + '.json');
@@ -901,7 +953,7 @@ const App = () => {
                         const jsonText = await jsonResponse.text();
                         const fetchedJson = JSON.parse(jsonText);
                         setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: fetchedJson, pdfTextData: null } : d));
-                        console.log(`✅ JSON metadata loaded for ${docId}: ${jsonPath}`);
+                        console.log(`[JSON] Single JSON metadata loaded for ${docId}: ${jsonPath}`);
                         return;
                     }
                 } catch (e) { /* continue */ }
@@ -911,6 +963,49 @@ const App = () => {
             console.warn(`[JSON] Error fetching metadata for ${docId}:`, e);
         }
     }, [getDirectBlobUrl]);
+
+    // Fetch a single page JSON for split-format on-demand loading
+    const ocrPageLoading = useRef({}); // Track in-flight page loads: { "docId-pageNum": Promise }
+    const fetchOcrPage = useCallback(async (docId, pageNum, folderPath) => {
+        const key = `${docId}-${pageNum}`;
+        if (ocrPageLoading.current[key]) return ocrPageLoading.current[key];
+
+        const promise = (async () => {
+            try {
+                const pageBlobPath = `${folderPath}/page_${pageNum}.json`;
+                const pageUrl = getDirectBlobUrl(pageBlobPath);
+                if (!pageUrl) return;
+                const res = await fetch(pageUrl);
+                if (res.ok) {
+                    const pageData = JSON.parse(await res.text());
+                    setDocuments(prev => prev.map(d => {
+                        if (d.id !== docId) return d;
+                        return { ...d, ocrPageCache: { ...d.ocrPageCache, [pageNum]: pageData } };
+                    }));
+                }
+            } catch (e) {
+                console.warn(`[OcrPage] Failed to load page ${pageNum}:`, e.message);
+            } finally {
+                delete ocrPageLoading.current[key];
+            }
+        })();
+
+        ocrPageLoading.current[key] = promise;
+        return promise;
+    }, [getDirectBlobUrl]);
+
+    // On-demand page preloading: load current page + neighbors when activePage changes
+    useEffect(() => {
+        if (!activeDoc?.ocrMeta?.folderPath) return;
+        const folderPath = activeDoc.ocrMeta.folderPath;
+        const pages = activeDoc.ocrMeta.pages || [];
+        const pagesToLoad = [activePage - 1, activePage, activePage + 1].filter(
+            p => p >= 1 && pages.includes(p) && !activeDoc.ocrPageCache?.[p]
+        );
+        for (const p of pagesToLoad) {
+            fetchOcrPage(activeDoc.id, p, folderPath);
+        }
+    }, [activeDoc?.id, activeDoc?.ocrMeta, activePage, fetchOcrPage]);
 
     // Download + parse a single PDF, deduplicating concurrent requests
     const downloadAndCachePdf = useCallback(async (docId, blobPath) => {
@@ -1018,11 +1113,45 @@ const App = () => {
                     }
                 })();
 
-                // Background OCR JSON detection (non-blocking)
+                // Background OCR JSON detection (non-blocking) — try split-format first
                 if (blobPath) {
                     (async () => {
                         try {
                             const decodedPath = decodeURIComponent(blobPath);
+
+                            // Try split-format meta.json first
+                            const metaCandidates = [];
+                            if (decodedPath.toLowerCase().includes('drawings')) {
+                                metaCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+                            } else if (decodedPath.toLowerCase().includes('documents')) {
+                                metaCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+                            } else if (decodedPath.toLowerCase().includes('my-documents')) {
+                                metaCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+                            }
+
+                            for (const metaPath of metaCandidates) {
+                                try {
+                                    const metaUrl = getDirectBlobUrl(metaPath);
+                                    if (!metaUrl) continue;
+                                    const metaRes = await fetch(metaUrl);
+                                    if (metaRes.ok) {
+                                        const metaData = JSON.parse(await metaRes.text());
+                                        if (metaData.format === 'split' && metaData.total_pages > 0) {
+                                            const folderPath = metaPath.replace('/meta.json', '');
+                                            setDocuments(prev => prev.map(d => d.id === docId ? {
+                                                ...d,
+                                                ocrMeta: { ...metaData, folderPath },
+                                                ocrPageCache: {},
+                                                ocrData: null
+                                            } : d));
+                                            console.log(`[Preload] Split-format meta found for ${docId}: ${metaPath}`);
+                                            return;
+                                        }
+                                    }
+                                } catch (e) { /* continue */ }
+                            }
+
+                            // Fallback: single JSON
                             const jsonCandidates = [];
                             if (decodedPath.toLowerCase().includes('drawings')) {
                                 jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
@@ -1042,7 +1171,7 @@ const App = () => {
                                     if (jsonRes.ok) {
                                         const fetchedOcrData = JSON.parse(await jsonRes.text());
                                         setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: fetchedOcrData, pdfTextData: null } : d));
-                                        console.log(`[Preload] ✅ OCR JSON found for ${docId}: ${jsonPath}`);
+                                        console.log(`[Preload] Single JSON found for ${docId}: ${jsonPath}`);
                                         return;
                                     }
                                 } catch (e) { /* continue */ }
@@ -1116,17 +1245,50 @@ const App = () => {
                 }
 
                 // Auto-detect OCR JSON availability (e.g. indexing completed after initial open)
-                if (!doc.ocrData && doc.blobPath) {
+                if (!doc.ocrData && !doc.ocrMeta && doc.blobPath) {
                     (async () => {
                         try {
                             const decodedPath = decodeURIComponent(doc.blobPath);
+
+                            // Try split-format meta.json first
+                            const metaCandidates = [];
+                            if (decodedPath.toLowerCase().includes('drawings')) {
+                                metaCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+                            } else if (decodedPath.toLowerCase().includes('documents')) {
+                                metaCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+                            } else if (decodedPath.toLowerCase().includes('my-documents')) {
+                                metaCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+                            }
+
+                            for (const metaPath of metaCandidates) {
+                                try {
+                                    const metaUrl = getDirectBlobUrl(metaPath);
+                                    if (!metaUrl) continue;
+                                    const metaRes = await fetch(metaUrl);
+                                    if (metaRes.ok) {
+                                        const metaData = JSON.parse(await metaRes.text());
+                                        if (metaData.format === 'split' && metaData.total_pages > 0) {
+                                            const folderPath = metaPath.replace('/meta.json', '');
+                                            setDocuments(prev => prev.map(d => d.id === doc.id ? {
+                                                ...d,
+                                                ocrMeta: { ...metaData, folderPath },
+                                                ocrPageCache: {},
+                                                ocrData: null
+                                            } : d));
+                                            console.log(`[AutoOCR] Split-format meta found: ${metaPath}`);
+                                            return;
+                                        }
+                                    }
+                                } catch (e) { /* continue */ }
+                            }
+
+                            // Fallback: single JSON
                             const jsonCandidates = [];
                             if (decodedPath.toLowerCase().includes('drawings')) {
                                 jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
                             } else if (decodedPath.toLowerCase().includes('documents')) {
                                 jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
                             }
-                            // Fallback: username/json/filename.json
                             const uName = userProfile?.name || currentUser?.displayName;
                             if (uName) {
                                 const filename = doc.name || decodedPath.split('/').pop()?.replace(/\.pdf$/i, '');
@@ -1135,7 +1297,6 @@ const App = () => {
 
                             for (const jsonPath of jsonCandidates) {
                                 try {
-                                    // Direct Azure Blob URL (bypasses backend CORS)
                                     const jsonUrl = getDirectBlobUrl(jsonPath)
                                         || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`;
                                     const jsonRes = await fetch(jsonUrl);
@@ -1143,7 +1304,7 @@ const App = () => {
                                         const jsonText = await jsonRes.text();
                                         const fetchedOcrData = JSON.parse(jsonText);
                                         setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, ocrData: fetchedOcrData, pdfTextData: null } : d));
-                                        console.log(`[AutoOCR] ✅ Found OCR JSON: ${jsonPath}`);
+                                        console.log(`[AutoOCR] Single JSON found: ${jsonPath}`);
                                         return;
                                     }
                                 } catch (e) { /* continue to next candidate */ }
@@ -1471,71 +1632,81 @@ const App = () => {
             // alert(`분석 완료! ${result.total_pages} 페이지 처리가 완료되었습니다.`); // Removed blocking alert
 
             // --- Context Fix: Fetch the generated JSON and update local state ---
-            // --- Context Fix: Fetch the generated JSON and update local state ---
             try {
-                let fetchedOcrData = null;
-                const jsonCandidates = [];
+                // Check if split-format (json_location doesn't end with .json)
+                const jsonLocation = result?.json_location || '';
+                const isSplitFormat = jsonLocation && !jsonLocation.endsWith('.json');
 
-                // 1. Try precise location from backend
-                if (result.json_location) {
-                    jsonCandidates.push(result.json_location);
-                }
-
-                // 2. Fallback: Construct path from blob_name
-                // blob_name example: "username/drawings/filename.pdf" or "username/documents/filename.pdf"
-                if (blob_name) {
-                    const decodedBlobName = decodeURIComponent(blob_name);
-                    console.log("[ContextFix] Fallback using decoded blob_name:", decodedBlobName);
-
-                    // Always try to look in the parallel 'json' folder (backend standard)
-                    // Method A: Replace parent folder (drawings/documents/temp) with 'json'
-                    // Ensure username is preserved or added if missing in the inferred path
-                    const safeUsername = userProfile?.name || currentUser?.displayName || '';
-
-                    if (decodedBlobName.toLowerCase().includes('drawings')) {
-                        // Case: username/drawings/file.pdf -> username/json/file.json
-                        jsonCandidates.push(decodedBlobName.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
-                    } else if (decodedBlobName.toLowerCase().includes('documents')) {
-                        jsonCandidates.push(decodedBlobName.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
-                    } else if (decodedBlobName.toLowerCase().includes('temp')) {
-                        // Backend saves JSON to /json/ folder (temp -> json)
-                        // If path is just "temp/file.pdf", we need "username/json/file.json" or "json/file.json"
-                        // But backend `finalize` moves it to final struct. 
-                        // If we are here, analysis just finished. Backend returns `json_location` usually.
-                        // If we fallback, try both with and without username
-                        jsonCandidates.push(decodedBlobName.replace(/temp/i, 'json').replace(/\.pdf$/i, '.json'));
-                        if (safeUsername) {
-                            jsonCandidates.push(`${safeUsername}/json/${file.name.replace(/\.pdf$/i, '.json')}`);
-                        }
-                    }
-
-                    // Method B: Same directory (just in case)
-                    jsonCandidates.push(decodedBlobName.replace(/\.pdf$/i, '.json'));
-                }
-
-                console.log("[ContextFix] Attempting to fetch derived JSON from candidates:", jsonCandidates);
-
-                for (const jsonPath of jsonCandidates) {
+                if (isSplitFormat) {
+                    // Split format: fetch meta.json
+                    const metaPath = `${jsonLocation}/meta.json`;
+                    console.log("[ContextFix] Split-format detected, fetching meta:", metaPath);
                     try {
-                        const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
-                        if (jsonRes.ok) {
-                            const jsonBlob = await jsonRes.blob();
-                            const jsonText = await jsonBlob.text();
-                            fetchedOcrData = JSON.parse(jsonText);
-                            console.log(`[ContextFix] ✅ JSON context fetched from: ${jsonPath}`);
-                            break;
+                        const metaUrl = getDirectBlobUrl(metaPath)
+                            || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(metaPath)}`;
+                        const metaRes = await fetch(metaUrl);
+                        if (metaRes.ok) {
+                            const metaData = JSON.parse(await metaRes.text());
+                            setDocuments(prev => prev.map(d => d.id === docId ? {
+                                ...d,
+                                ocrMeta: { ...metaData, folderPath: jsonLocation },
+                                ocrPageCache: {},
+                                ocrData: null,
+                                isLoaded: true
+                            } : d));
+                            console.log(`[ContextFix] Split-format meta loaded: ${metaData.total_pages} pages`);
                         }
                     } catch (e) {
-                        console.warn(`[ContextFix] Failed to fetch from ${jsonPath}`, e);
+                        console.warn("[ContextFix] Failed to fetch split meta:", e);
                     }
-                }
-
-                if (fetchedOcrData) {
-                    setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: fetchedOcrData, isLoaded: true } : d));
-                    console.log("[ContextFix] Document state updated with OCR data.");
                 } else {
-                    console.warn("[ContextFix] ⚠️ Could not fetch generated JSON. Chat context may be empty.");
-                    // Optional: Show a non-blocking toast or indicator?
+                    // Single-format: try to fetch full JSON
+                    let fetchedOcrData = null;
+                    const jsonCandidates = [];
+
+                    if (jsonLocation) {
+                        jsonCandidates.push(jsonLocation);
+                    }
+
+                    if (blob_name) {
+                        const decodedBlobName = decodeURIComponent(blob_name);
+                        const safeUsername = userProfile?.name || currentUser?.displayName || '';
+
+                        if (decodedBlobName.toLowerCase().includes('drawings')) {
+                            jsonCandidates.push(decodedBlobName.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                        } else if (decodedBlobName.toLowerCase().includes('documents')) {
+                            jsonCandidates.push(decodedBlobName.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                        } else if (decodedBlobName.toLowerCase().includes('temp')) {
+                            jsonCandidates.push(decodedBlobName.replace(/temp/i, 'json').replace(/\.pdf$/i, '.json'));
+                            if (safeUsername) {
+                                jsonCandidates.push(`${safeUsername}/json/${file.name.replace(/\.pdf$/i, '.json')}`);
+                            }
+                        }
+                        jsonCandidates.push(decodedBlobName.replace(/\.pdf$/i, '.json'));
+                    }
+
+                    for (const jsonPath of jsonCandidates) {
+                        try {
+                            const jsonUrl = getDirectBlobUrl(jsonPath)
+                                || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`;
+                            const jsonRes = await fetch(jsonUrl);
+                            if (jsonRes.ok) {
+                                const jsonBlob = await jsonRes.blob();
+                                const jsonText = await jsonBlob.text();
+                                fetchedOcrData = JSON.parse(jsonText);
+                                console.log(`[ContextFix] Single JSON fetched from: ${jsonPath}`);
+                                break;
+                            }
+                        } catch (e) {
+                            console.warn(`[ContextFix] Failed to fetch from ${jsonPath}`, e);
+                        }
+                    }
+
+                    if (fetchedOcrData) {
+                        setDocuments(prev => prev.map(d => d.id === docId ? { ...d, ocrData: fetchedOcrData, isLoaded: true } : d));
+                    } else {
+                        console.warn("[ContextFix] Could not fetch generated JSON.");
+                    }
                 }
             } catch (ctxErr) {
                 console.error("[ContextFix] Error fetching context JSON:", ctxErr);
@@ -1624,17 +1795,44 @@ const App = () => {
 
             setAnalysisState({ isAnalyzing: false, progress: 100, status: '완료!' });
 
-            // Fetch the generated JSON and update document state
+            // Fetch the generated JSON and update document state (try split-format first)
             try {
-                const jsonFilename = filename.replace(/\.pdf$/i, '.json');
-                const jsonPath = uName ? `${uName}/json/${jsonFilename}` : `json/${jsonFilename}`;
-                const jsonRes = await fetch(`${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`);
-                if (jsonRes.ok) {
-                    const jsonBlob = await jsonRes.blob();
-                    const jsonText = await jsonBlob.text();
-                    const fetchedOcrData = JSON.parse(jsonText);
-                    setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, ocrData: fetchedOcrData } : d));
-                    console.log('[Reindex] Document state updated with new OCR data');
+                const filenameStem = filename.replace(/\.pdf$/i, '');
+                const metaPath = uName ? `${uName}/json/${filenameStem}/meta.json` : `json/${filenameStem}/meta.json`;
+
+                // Try split-format meta.json first
+                let loaded = false;
+                try {
+                    const metaUrl = getDirectBlobUrl(metaPath)
+                        || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(metaPath)}`;
+                    const metaRes = await fetch(metaUrl);
+                    if (metaRes.ok) {
+                        const metaData = JSON.parse(await metaRes.text());
+                        if (metaData.format === 'split' && metaData.total_pages > 0) {
+                            const folderPath = metaPath.replace('/meta.json', '');
+                            setDocuments(prev => prev.map(d => d.id === doc.id ? {
+                                ...d,
+                                ocrMeta: { ...metaData, folderPath },
+                                ocrPageCache: {},
+                                ocrData: null
+                            } : d));
+                            console.log('[Reindex] Split-format meta loaded');
+                            loaded = true;
+                        }
+                    }
+                } catch (e) { /* continue */ }
+
+                // Fallback: single JSON
+                if (!loaded) {
+                    const jsonPath = uName ? `${uName}/json/${filenameStem}.json` : `json/${filenameStem}.json`;
+                    const jsonUrl = getDirectBlobUrl(jsonPath)
+                        || `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(jsonPath)}`;
+                    const jsonRes = await fetch(jsonUrl);
+                    if (jsonRes.ok) {
+                        const fetchedOcrData = JSON.parse(await jsonRes.text());
+                        setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, ocrData: fetchedOcrData } : d));
+                        console.log('[Reindex] Single JSON loaded');
+                    }
                 }
             } catch (ctxErr) {
                 console.error('[Reindex] Error fetching JSON after reindex:', ctxErr);
@@ -1713,7 +1911,7 @@ const App = () => {
 
                     // Sequential update guarantees no race condition
                     // Initialize with ocrData: null. Analysis will update it later.
-                    setDocuments(prev => [...prev, { id, name, pdfData: clonedBuffer, ocrData: null, pdfTextData: null, totalPages: 1, colorIndex, isLoaded: false }]);
+                    setDocuments(prev => [...prev, { id, name, pdfData: clonedBuffer, ocrData: null, ocrMeta: null, ocrPageCache: {}, pdfTextData: null, totalPages: 1, colorIndex, isLoaded: false }]);
                     setActiveDocId(id);
                     setActivePage(1);
                     setRotation(0);
@@ -1878,6 +2076,8 @@ const App = () => {
                         pdfUrl: pdfUrl,
                         blobPath: file.path,
                         ocrData: null,
+                        ocrMeta: null,
+                        ocrPageCache: {},
                         pdfTextData: null,
                         totalPages: 1,
                         colorIndex,
@@ -1941,6 +2141,8 @@ const App = () => {
                 pdfUrl: `${API_URL}/api/v1/azure/download?path=${encodeURIComponent(item.path)}`,
                 blobPath: item.path,
                 ocrData: null,
+                ocrMeta: null,
+                ocrPageCache: {},
                 pdfTextData: null,
                 totalPages: 1,
                 isLoaded: false
@@ -2166,7 +2368,7 @@ const App = () => {
     };
     const panRange = getPanRange();
     const selectedCenter = getSelectedCenter();
-    const hasOcr = !!activeDoc?.ocrData;
+    const hasOcr = !!(activeDoc?.ocrData || activeDoc?.ocrMeta);
     const hasPdfText = !!activeDoc?.pdfTextData;
 
     // Citation Handler - Highlight on center canvas (keep chat visible)
@@ -2511,7 +2713,7 @@ const App = () => {
                             }}
                                 title={doc.name}
                                 className={`group flex items-center ${gap} ${px} py-2 rounded-t-lg text-xs font-medium cursor-pointer border-t-4 transition-all min-w-0 ${isActive ? `bg-white ${docColor.text} border-x border-[#e5e1d8] shadow-sm -mb-px z-10 ${docColor.activeBorder}` : 'text-[#888888] hover:bg-[#f4f1ea] hover:text-[#555555] border-t-transparent'}`}>
-                                {doc.ocrData ? <FileCheck size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-emerald-500"}`} /> : doc.pdfTextData ? <FileText size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-amber-500"}`} /> : <FileX size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-red-500"}`} />}
+                                {(doc.ocrData || doc.ocrMeta) ? <FileCheck size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-emerald-500"}`} /> : doc.pdfTextData ? <FileText size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-amber-500"}`} /> : <FileX size={iconSize} className={`shrink-0 ${isActive ? docColor.text : "text-red-500"}`} />}
                                 <span className="truncate">{doc.name}</span>
                                 {tabCount <= 4 && doc.totalPages > 1 && <span className="text-[10px] opacity-70 shrink-0">({doc.totalPages}p)</span>}
                                 {!analysisState.isAnalyzing && currentUser?.email === 'admin@poscoenc.com' && (

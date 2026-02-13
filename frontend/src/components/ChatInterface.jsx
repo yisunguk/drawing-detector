@@ -88,80 +88,80 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
 
         let context = '';
 
+        // Helper: render a single page's OCR context
+        const renderPageContext = (page, idx) => {
+            let ctx = `\n[Page ${page.page_number || idx + 1}]\n`;
+
+            const lines = page.layout?.lines || page.lines;
+            if (lines) {
+                lines.forEach(line => {
+                    ctx += `${line.content || line.text}\n`;
+                });
+            }
+
+            if (page.tables && page.tables.length > 0) {
+                ctx += `\n[Structured Tables from Page ${page.page_number || idx + 1}]\n`;
+                page.tables.forEach((table, tIdx) => {
+                    ctx += `\nTable ${tIdx + 1}:\n`;
+
+                    let grid = [];
+                    if (table.rows && Array.isArray(table.rows)) {
+                        grid = table.rows;
+                    } else {
+                        for (let r = 0; r < table.row_count; r++) {
+                            grid[r] = new Array(table.column_count).fill("");
+                        }
+                        if (table.cells) {
+                            table.cells.forEach(cell => {
+                                if (cell.row_index < table.row_count && cell.column_index < table.column_count) {
+                                    grid[cell.row_index][cell.column_index] = (cell.content || "").replace(/\n/g, " ");
+                                }
+                            });
+                        }
+                    }
+
+                    if (grid.length > 0) {
+                        ctx += "| " + grid[0].join(" | ") + " |\n";
+                        ctx += "| " + grid[0].map(() => "---").join(" | ") + " |\n";
+                        for (let r = 1; r < grid.length; r++) {
+                            ctx += "| " + grid[r].join(" | ") + " |\n";
+                        }
+                    }
+                    ctx += "\n";
+                });
+            }
+            return ctx;
+        };
+
         docsToInclude.forEach(doc => {
             let docContext = `\n=== Document Name: ${doc.name} ===\n`;
 
             if (doc.ocrData) {
-                // Check if it's the standard OCR structure (Array or Object with layout.lines)
+                // Single-format OCR (full array)
                 const pages = Array.isArray(doc.ocrData) ? doc.ocrData : [doc.ocrData];
                 const hasOcrStructure = pages.some(p => p?.layout?.lines || p?.lines || (p?.tables && p.tables.length > 0));
 
                 console.log(`[ChatContext] Processing ${doc.name}: Has OCR Data (Pages: ${pages.length}, Structured: ${hasOcrStructure})`);
 
                 if (hasOcrStructure) {
-                    // Use OCR data if available
                     pages.forEach((page, idx) => {
-                        docContext += `\n[Page ${page.page_number || idx + 1}]\n`;
-
-                        // Add line-based content first
-                        const lines = page.layout?.lines || page.lines;
-                        if (lines) {
-                            lines.forEach(line => {
-                                docContext += `${line.content || line.text}\n`;
-                            });
-                        }
-
-                        // Add structured table content if available
-                        if (page.tables && page.tables.length > 0) {
-                            docContext += `\n[Structured Tables from Page ${page.page_number || idx + 1}]\n`;
-                            page.tables.forEach((table, tIdx) => {
-                                docContext += `\nTable ${tIdx + 1}:\n`;
-
-                                // Initialize grid
-                                let grid = [];
-
-                                if (table.rows && Array.isArray(table.rows)) {
-                                    // Backend already constructed the 2D grid
-                                    grid = table.rows;
-                                } else {
-                                    // Fallback: Construct from cells (Direct Azure DI response)
-                                    for (let r = 0; r < table.row_count; r++) {
-                                        grid[r] = new Array(table.column_count).fill("");
-                                    }
-
-                                    // Fill grid
-                                    if (table.cells) {
-                                        table.cells.forEach(cell => {
-                                            if (cell.row_index < table.row_count && cell.column_index < table.column_count) {
-                                                grid[cell.row_index][cell.column_index] = (cell.content || "").replace(/\n/g, " ");
-                                            }
-                                        });
-                                    }
-                                }
-
-                                // Render Markdown Table
-                                if (grid.length > 0) {
-                                    // Header
-                                    docContext += "| " + grid[0].join(" | ") + " |\n";
-                                    docContext += "| " + grid[0].map(() => "---").join(" | ") + " |\n";
-
-                                    // Body
-                                    for (let r = 1; r < grid.length; r++) {
-                                        docContext += "| " + grid[r].join(" | ") + " |\n";
-                                    }
-                                }
-                                docContext += "\n";
-                            });
-                        }
+                        docContext += renderPageContext(page, idx);
                     });
                 } else {
-                    // Fallback: Dump the entire JSON as context (for custom metadata)
                     console.log(`[ChatContext] ${doc.name}: Using JSON dump fallback`);
                     docContext += `\n[Metadata / JSON Content]\n${JSON.stringify(doc.ocrData, null, 2)}\n`;
                 }
+            } else if (doc.ocrMeta && doc.pdfTextData) {
+                // Split-format: use pdfTextData for all pages, enrich with ocrPageCache where available
+                console.log(`[ChatContext] ${doc.name}: Split-format (${doc.ocrMeta.total_pages} pages, ${Object.keys(doc.ocrPageCache || {}).length} cached)`);
+                doc.pdfTextData.forEach((page, idx) => {
+                    const pageNum = page.page_number || idx + 1;
+                    const richer = doc.ocrPageCache?.[pageNum];
+                    const pageToUse = richer || page;
+                    docContext += renderPageContext(pageToUse, idx);
+                });
             } else if (doc.pdfTextData) {
                 console.log(`[ChatContext] ${doc.name}: Using PDF Text Data`);
-                // Use PDF text data if available
                 doc.pdfTextData.forEach((page, idx) => {
                     docContext += `\n[Page ${page.page_number || idx + 1}]\n`;
                     if (page.layout?.lines) {
@@ -186,17 +186,39 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
     // Used in 'all' mode so the LLM always sees what the user is currently looking at
     const buildViewingContext = () => {
         if (!activeDoc) return null;
+
+        const currentPage = activePage || 1;
+        const startPage = Math.max(1, currentPage - 2);
+        const endPage = currentPage + 2;
+
+        let ctx = `Document: ${activeDoc.name}\n`;
+
+        // Split-format: prefer ocrPageCache, fallback to pdfTextData
+        if (activeDoc.ocrMeta) {
+            for (let p = startPage; p <= endPage; p++) {
+                const pageData = activeDoc.ocrPageCache?.[p]
+                    || activeDoc.pdfTextData?.[p - 1];
+                if (!pageData) continue;
+                ctx += `\n[Page ${pageData.page_number || p}]\n`;
+                const lines = pageData.layout?.lines || pageData.lines || [];
+                lines.forEach(line => {
+                    ctx += `${line.content || line.text || ''}\n`;
+                });
+            }
+            console.log(`[ChatContext] Built viewing context (split): pages ${startPage}-${endPage}, ${ctx.length} chars`);
+            return ctx;
+        }
+
+        // Single-format or pdfTextData
         const dataSource = activeDoc.ocrData || activeDoc.pdfTextData;
         if (!dataSource) return null;
 
         const pages = Array.isArray(dataSource) ? dataSource : [dataSource];
         if (pages.length === 0) return null;
 
-        const currentIdx = Math.max(0, (activePage || 1) - 1);
-        const startIdx = Math.max(0, currentIdx - 2);
-        const endIdx = Math.min(pages.length - 1, currentIdx + 2);
+        const startIdx = Math.max(0, startPage - 1);
+        const endIdx = Math.min(pages.length - 1, endPage - 1);
 
-        let ctx = `Document: ${activeDoc.name}\n`;
         for (let i = startIdx; i <= endIdx; i++) {
             const page = pages[i];
             if (!page) continue;

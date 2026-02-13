@@ -501,6 +501,43 @@ async def start_robust_analysis_task(
         json_filename = os.path.splitext(filename)[0] + ".json"
         json_path = f"{username}/json/{json_filename}" if username else f"json/{json_filename}"
         
+        # Check for split-format meta.json first
+        json_folder = f"{username}/json/{os.path.splitext(filename)[0]}" if username else f"json/{os.path.splitext(filename)[0]}"
+        meta_path = f"{json_folder}/meta.json"
+        meta_blob = container_client.get_blob_client(meta_path)
+
+        if meta_blob.exists() and not force:
+            print(f"[StartAnalysis] Split-format meta.json found: {meta_path}")
+            try:
+                meta_data = json_module.loads(meta_blob.download_blob().readall())
+                meta_total = meta_data.get("total_pages", 0)
+                if meta_total > 0 and meta_total >= total_pages:
+                    print(f"[StartAnalysis] CACHE HIT (split): {meta_total} pages, skipping analysis")
+                    status_manager.mark_completed(filename, json_location=json_folder, username=username)
+
+                    from app.services.azure_search import azure_search_service
+                    final_blob_name = f"{username}/{category}/{filename}" if username else f"{category}/{filename}"
+
+                    # Background re-indexing: read page JSONs one by one
+                    def reindex_split_pages():
+                        all_pages = []
+                        for pg in meta_data.get("pages", []):
+                            try:
+                                pg_blob = container_client.get_blob_client(f"{json_folder}/page_{pg}.json")
+                                pg_data = json_module.loads(pg_blob.download_blob().readall())
+                                all_pages.append(pg_data)
+                            except Exception:
+                                pass
+                        if all_pages:
+                            azure_search_service.index_documents(filename, category, all_pages, blob_name=final_blob_name)
+
+                    background_tasks.add_task(reindex_split_pages)
+                    return {"status": "started", "message": "Analysis skipped (cached split), Re-indexing started in background"}
+                else:
+                    print(f"[StartAnalysis] Split meta incomplete ({meta_total}/{total_pages}), will re-analyze")
+            except Exception as e:
+                print(f"[StartAnalysis] Error reading split meta: {e}")
+
         json_blob = container_client.get_blob_client(json_path)
         if json_blob.exists() and not force:
             print(f"[StartAnalysis] Existing JSON found: {json_path}")
@@ -581,12 +618,22 @@ async def start_robust_analysis_task(
                 # FRESH START: No chunks or force=true — full cleanup
                 print(f"[StartAnalysis] Fresh start: cleaning up all analysis files...")
 
-                # 1. Delete final JSON
+                # 1. Delete final JSON (single format)
                 try:
                     json_blob.delete_blob()
                     print(f"[StartAnalysis] Deleted corrupted JSON: {json_path}")
                 except Exception as e:
                     print(f"[StartAnalysis] Note: Could not delete JSON (may not exist): {e}")
+
+                # 1b. Delete split-format JSON folder
+                try:
+                    split_blobs = list(container_client.list_blobs(name_starts_with=f"{json_folder}/"))
+                    if split_blobs:
+                        for blob in split_blobs:
+                            container_client.get_blob_client(blob.name).delete_blob()
+                        print(f"[StartAnalysis] Deleted {len(split_blobs)} split-format JSON blobs")
+                except Exception as e:
+                    print(f"[StartAnalysis] Note: Could not delete split JSON folder: {e}")
 
                 # 2. Delete temp chunk JSONs (search both paths)
                 for prefix in ["temp/json/", f"{username}/temp/json/" if username else ""]:
@@ -786,6 +833,17 @@ async def reindex_document(
                 print(f"[Reindex] Deleted old JSON: {json_path}")
         except Exception as e:
             print(f"[Reindex] Note: Could not delete JSON: {e}")
+
+        # Delete split-format JSON folder (page-level JSONs + meta.json)
+        json_folder = f"{username}/json/{os.path.splitext(filename)[0]}" if username else f"json/{os.path.splitext(filename)[0]}"
+        try:
+            split_blobs = list(container_client.list_blobs(name_starts_with=f"{json_folder}/"))
+            if split_blobs:
+                for blob in split_blobs:
+                    container_client.get_blob_client(blob.name).delete_blob()
+                print(f"[Reindex] Deleted {len(split_blobs)} split-format JSON blobs in {json_folder}/")
+        except Exception as e:
+            print(f"[Reindex] Note: Could not delete split JSON folder: {e}")
 
         # Delete temp chunk JSONs
         temp_json_prefix = f"temp/json/"
@@ -1128,7 +1186,7 @@ async def delete_document(
         
         container_client = get_container_client()
 
-        # 2. Delete Blobs
+        # 2. Delete Blobs (single JSON + PDF)
         for path in [pdf_path, json_path]:
             try:
                 blob_client = container_client.get_blob_client(path)
@@ -1137,6 +1195,17 @@ async def delete_document(
                     print(f"[Delete] Deleted blob: {path}")
             except Exception as e:
                 print(f"[Delete] Warning: Failed to delete {path}: {e}")
+
+        # 2b. Delete split-format JSON folder (page-level JSONs + meta.json)
+        json_folder = f"{username}/json/{os.path.splitext(filename)[0]}" if username else f"json/{os.path.splitext(filename)[0]}"
+        try:
+            split_blobs = list(container_client.list_blobs(name_starts_with=f"{json_folder}/"))
+            if split_blobs:
+                for blob in split_blobs:
+                    container_client.get_blob_client(blob.name).delete_blob()
+                print(f"[Delete] Deleted {len(split_blobs)} split-format JSON blobs in {json_folder}/")
+        except Exception as e:
+            print(f"[Delete] Warning: Failed to delete split JSON folder: {e}")
 
         # 3. Cleanup temp chunks and status
         status_manager.reset_status(filename, username=username)
