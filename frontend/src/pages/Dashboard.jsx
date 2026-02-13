@@ -686,12 +686,13 @@ const App = () => {
                 });
             }
 
-            // Determine data source: ocrData (single format) > pdfTextData (split format fallback / pdf.js)
+            // Determine data source: ocrData (single format) > ocrPageCache (split) > pdfTextData (fallback)
             let dataSource = null;
             if (doc.ocrData) {
                 dataSource = doc.ocrData;
-            } else if (doc.ocrMeta && doc.pdfTextData) {
-                dataSource = doc.pdfTextData; // Split format: use pdfTextData for full-text search
+            } else if (doc.ocrMeta && doc.ocrPageCache && Object.keys(doc.ocrPageCache).length > 0) {
+                // Split format: use cached page JSONs (progressively loaded)
+                dataSource = Object.values(doc.ocrPageCache);
             } else if (doc.pdfTextData) {
                 dataSource = doc.pdfTextData;
             }
@@ -1006,6 +1007,53 @@ const App = () => {
             fetchOcrPage(activeDoc.id, p, folderPath);
         }
     }, [activeDoc?.id, activeDoc?.ocrMeta, activePage, fetchOcrPage]);
+
+    // Background bulk loader: progressively load ALL page JSONs for search/chat
+    const bulkLoadingRef = useRef({}); // { docId: true } to prevent duplicate bulk loads
+    useEffect(() => {
+        if (!activeDoc?.ocrMeta?.folderPath) return;
+        if (bulkLoadingRef.current[activeDoc.id]) return; // Already loading
+        const cachedCount = Object.keys(activeDoc.ocrPageCache || {}).length;
+        const totalPages = activeDoc.ocrMeta.total_pages || 0;
+        if (cachedCount >= totalPages) return; // All loaded
+
+        bulkLoadingRef.current[activeDoc.id] = true;
+        const docId = activeDoc.id;
+        const folderPath = activeDoc.ocrMeta.folderPath;
+        const allPages = activeDoc.ocrMeta.pages || [];
+
+        console.log(`[BulkLoad] Starting background load of ${allPages.length} pages for ${docId}`);
+
+        (async () => {
+            const BATCH_SIZE = 10; // Load 10 pages concurrently
+            for (let i = 0; i < allPages.length; i += BATCH_SIZE) {
+                const batch = allPages.slice(i, i + BATCH_SIZE);
+                const promises = batch.map(async (pageNum) => {
+                    const key = `${docId}-${pageNum}`;
+                    if (ocrPageLoading.current[key]) return; // Already loading
+                    try {
+                        const pageBlobPath = `${folderPath}/page_${pageNum}.json`;
+                        const pageUrl = getDirectBlobUrl(pageBlobPath);
+                        if (!pageUrl) return;
+                        const res = await fetch(pageUrl);
+                        if (res.ok) {
+                            const pageData = JSON.parse(await res.text());
+                            setDocuments(prev => prev.map(d => {
+                                if (d.id !== docId) return d;
+                                if (d.ocrPageCache?.[pageNum]) return d; // Already cached
+                                return { ...d, ocrPageCache: { ...d.ocrPageCache, [pageNum]: pageData } };
+                            }));
+                        }
+                    } catch (e) { /* skip failed pages */ }
+                });
+                await Promise.all(promises);
+                // Yield to main thread
+                await new Promise(r => setTimeout(r, 50));
+            }
+            console.log(`[BulkLoad] Completed loading all pages for ${docId}`);
+            delete bulkLoadingRef.current[docId];
+        })();
+    }, [activeDoc?.id, activeDoc?.ocrMeta, getDirectBlobUrl]);
 
     // Download + parse a single PDF, deduplicating concurrent requests
     const downloadAndCachePdf = useCallback(async (docId, blobPath) => {

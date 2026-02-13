@@ -151,15 +151,28 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
                     console.log(`[ChatContext] ${doc.name}: Using JSON dump fallback`);
                     docContext += `\n[Metadata / JSON Content]\n${JSON.stringify(doc.ocrData, null, 2)}\n`;
                 }
-            } else if (doc.ocrMeta && doc.pdfTextData) {
-                // Split-format: use pdfTextData for all pages, enrich with ocrPageCache where available
-                console.log(`[ChatContext] ${doc.name}: Split-format (${doc.ocrMeta.total_pages} pages, ${Object.keys(doc.ocrPageCache || {}).length} cached)`);
-                doc.pdfTextData.forEach((page, idx) => {
-                    const pageNum = page.page_number || idx + 1;
-                    const richer = doc.ocrPageCache?.[pageNum];
-                    const pageToUse = richer || page;
-                    docContext += renderPageContext(pageToUse, idx);
-                });
+            } else if (doc.ocrMeta) {
+                // Split-format: use ocrPageCache (progressively loaded) + pdfTextData fallback
+                const cachedPages = doc.ocrPageCache || {};
+                const cachedCount = Object.keys(cachedPages).length;
+                console.log(`[ChatContext] ${doc.name}: Split-format (${doc.ocrMeta.total_pages} pages, ${cachedCount} cached)`);
+
+                if (doc.pdfTextData) {
+                    // pdfTextData available: use it as base, enrich with ocrPageCache
+                    doc.pdfTextData.forEach((page, idx) => {
+                        const pageNum = page.page_number || idx + 1;
+                        const richer = cachedPages[pageNum];
+                        const pageToUse = richer || page;
+                        docContext += renderPageContext(pageToUse, idx);
+                    });
+                } else if (cachedCount > 0) {
+                    // pdfTextData not ready yet: use whatever ocrPageCache we have
+                    const sortedPages = Object.entries(cachedPages)
+                        .sort(([a], [b]) => Number(a) - Number(b));
+                    sortedPages.forEach(([pageNum, page]) => {
+                        docContext += renderPageContext(page, Number(pageNum) - 1);
+                    });
+                }
             } else if (doc.pdfTextData) {
                 console.log(`[ChatContext] ${doc.name}: Using PDF Text Data`);
                 doc.pdfTextData.forEach((page, idx) => {
@@ -193,11 +206,11 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
 
         let ctx = `Document: ${activeDoc.name}\n`;
 
-        // Split-format: prefer ocrPageCache, fallback to pdfTextData
+        // Split-format: use ocrPageCache (always available), pdfTextData as fallback
         if (activeDoc.ocrMeta) {
             for (let p = startPage; p <= endPage; p++) {
                 const pageData = activeDoc.ocrPageCache?.[p]
-                    || activeDoc.pdfTextData?.[p - 1];
+                    || (activeDoc.pdfTextData ? activeDoc.pdfTextData[p - 1] : null);
                 if (!pageData) continue;
                 ctx += `\n[Page ${pageData.page_number || p}]\n`;
                 const lines = pageData.layout?.lines || pageData.lines || [];
