@@ -12,8 +12,8 @@ class StatusManager:
     - ETag-based conditional writes for cross-process safety (H4)
     """
 
-    ETAG_MAX_RETRIES = 5
-    ETAG_BACKOFF_BASE = 0.1  # seconds
+    ETAG_MAX_RETRIES = 10
+    ETAG_BACKOFF_BASE = 0.05  # seconds
 
     def _get_blob_client(self, filename, username=None):
         container = get_container_client()

@@ -15,28 +15,49 @@ import json
 class RobustAnalysisManager:
     """
     Manages robust document analysis (Production Grade):
-    - Uses Azure Form Recognizer SDK (via AzureDIService) for stable URL analysis.
-    - Optimized: Supports Local File Caching + Parallel Processing.
-    - Max 5 concurrent workers to prevent OOM on Cloud Run (8Gi).
+    - Semaphore-based concurrency (no idle workers between batches).
+    - Direct per-page JSON upload during chunk processing (no heavy finalize re-read).
+    - Non-fatal status updates (ETag conflicts don't trigger expensive DI retries).
     - Per-chunk timeout (10min) and retry (2 attempts) for resilience.
-    - Saves progress incrementally via StatusManager (ETag-safe).
     """
 
     # Safety limits
     MAX_PARALLEL_WORKERS = 5       # Cap concurrent Azure DI calls
     CHUNK_TIMEOUT_SEC = 600        # 10 minutes per chunk
     CHUNK_MAX_RETRIES = 2          # Retry failed chunks up to 2 times
-    RETRY_BACKOFF_SEC = 30         # Base backoff between retries
+    RETRY_BACKOFF_SEC = 15         # Base backoff between retries
 
     def __init__(self):
         self.CHUNK_SIZE = 10  # Default, overridden by local variable in run_analysis_loop
 
+    def _compute_json_folder(self, blob_name, filename):
+        """Compute the JSON folder path from blob_name."""
+        json_parts = blob_name.split('/')
+        known_folders = ["temp", "my-documents", "documents", "drawings"]
+        matched_folder = None
+        for folder in known_folders:
+            if folder in json_parts:
+                matched_folder = folder
+                break
+
+        if matched_folder:
+            f_idx = json_parts.index(matched_folder)
+            json_parts[f_idx] = "json"
+            base_name = os.path.splitext(json_parts[-1])[0]
+            json_parts[-1] = base_name
+            return "/".join(json_parts)
+        else:
+            if len(json_parts) > 1:
+                return f"{json_parts[0]}/json/{os.path.splitext(filename)[0]}"
+            else:
+                return f"json/{os.path.splitext(filename)[0]}"
+
     async def run_analysis_loop(self, filename: str, blob_name: str, total_pages: int, category: str, local_file_path: str = None, username: str = None):
         """
-        Executes the Optimized Analysis Loop.
+        Executes the Optimized Analysis Loop with semaphore-based concurrency.
         """
         try:
-            print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages}, User: {username}, Local: {local_file_path})")
+            print(f"[RobustAnalysis] Starting loop for {filename} (Pages: {total_pages}, User: {username}, Local: {local_file_path})", flush=True)
 
             # ALWAYS Generate SAS URL for Azure DI (Azure-to-Azure transfer is faster/stable)
             container_client = get_container_client()
@@ -75,21 +96,24 @@ class RobustAnalysisManager:
 
             encoded_blob_name = urllib.parse.quote(blob_name, safe="/~-_.")
             blob_url = f"https://{account_name}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{encoded_blob_name}?{sas_token}"
-            print(f"[RobustAnalysis] SAS URL Ready: {blob_url[:60]}...")
+            print(f"[RobustAnalysis] SAS URL Ready: {blob_url[:60]}...", flush=True)
+
+            # Compute json_folder upfront for direct page uploads
+            json_folder = self._compute_json_folder(blob_name, filename)
+            print(f"[RobustAnalysis] JSON folder: {json_folder}/", flush=True)
 
             # 2. Check Progress
             status = status_manager.get_status(filename, username=username)
             completed_chunks = set(status.get("completed_chunks", [])) if status else set()
 
-            # Dynamic scaling based on document size (workers capped at MAX_PARALLEL_WORKERS)
-            # Use LOCAL variable to avoid mutating singleton state during concurrent analyses
+            # Dynamic scaling based on document size
             if total_pages <= 100:
                 chunk_size = 50
             else:
                 chunk_size = 100
             parallel_workers = min(5, self.MAX_PARALLEL_WORKERS)
 
-            print(f"[RobustAnalysis] Dynamic config: {total_pages} pages → ChunkSize={chunk_size}, Workers={parallel_workers}")
+            print(f"[RobustAnalysis] Dynamic config: {total_pages} pages → ChunkSize={chunk_size}, Workers={parallel_workers}", flush=True)
 
             # 3. Build Pending Chunks
             total_chunks = (total_pages + chunk_size - 1) // chunk_size
@@ -103,78 +127,69 @@ class RobustAnalysisManager:
                 if page_range not in completed_chunks:
                     pending_chunks.append(page_range)
 
-            print(f"[RobustAnalysis] {len(pending_chunks)} chunks to process (out of {total_chunks}) | ChunkSize: {chunk_size}")
-            print(f"[RobustAnalysis] Pending list: {pending_chunks}")
+            print(f"[RobustAnalysis] {len(pending_chunks)} chunks to process (out of {total_chunks}) | ChunkSize: {chunk_size}", flush=True)
 
-            # 4. Process chunks in PARALLEL batches (with per-chunk timeout & retry)
+            # 4. Process chunks with SEMAPHORE-based concurrency (no idle workers)
             failed_chunks = []
-            total_batches = (len(pending_chunks) + parallel_workers - 1) // parallel_workers
+            semaphore = asyncio.Semaphore(parallel_workers)
+            completed_count = 0
 
-            for batch_start in range(0, len(pending_chunks), parallel_workers):
-                batch = pending_chunks[batch_start:batch_start + parallel_workers]
-                batch_num = batch_start // parallel_workers + 1
-                print(f"[RobustAnalysis] ========== Batch {batch_num}/{total_batches}: {batch} ==========")
-
-                # Create tasks with timeout wrapper for this batch
-                tasks = [
-                    self._process_chunk_with_retry(
-                        filename, blob_name, blob_url, local_file_path, page_range, category, username
+            async def process_with_semaphore(page_range):
+                nonlocal completed_count
+                async with semaphore:
+                    result = await self._process_chunk_with_retry(
+                        filename, blob_name, blob_url, local_file_path,
+                        page_range, category, username, json_folder
                     )
-                    for page_range in batch
-                ]
+                    completed_count += 1
+                    print(f"[RobustAnalysis] Progress: {completed_count}/{len(pending_chunks)} chunks done", flush=True)
+                    return result
 
-                # Wait for batch - each task has its own timeout/retry
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Submit ALL chunks at once - semaphore controls concurrency
+            tasks = [process_with_semaphore(pr) for pr in pending_chunks]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                # Check results
-                batch_ok = 0
-                for i, res in enumerate(results):
-                    if isinstance(res, Exception):
-                        print(f"[RobustAnalysis] Chunk {batch[i]} FAILED after retries: {res}")
-                        failed_chunks.append(batch[i])
-                    else:
-                        batch_ok += 1
+            # Check results
+            for i, res in enumerate(results):
+                if isinstance(res, Exception):
+                    print(f"[RobustAnalysis] Chunk {pending_chunks[i]} FAILED after retries: {res}", flush=True)
+                    failed_chunks.append(pending_chunks[i])
 
-                print(f"[RobustAnalysis] Batch {batch_num} done: {batch_ok}/{len(batch)} succeeded")
-
-                # Free memory between batches
-                gc.collect()
+            ok_count = len(pending_chunks) - len(failed_chunks)
+            print(f"[RobustAnalysis] All chunks done: {ok_count}/{len(pending_chunks)} succeeded", flush=True)
+            gc.collect()
 
             # 5. Check if ALL chunks failed - abort without finalize
-            status = status_manager.get_status(filename, username=username)
-            completed_chunks = status.get("completed_chunks", []) if status else []
-
-            if len(completed_chunks) == 0:
-                error_msg = f"All {len(pending_chunks)} chunks failed for {filename}. Aborting finalize (PDF stays in temp)."
-                print(f"[RobustAnalysis] {error_msg}")
+            if ok_count == 0:
+                error_msg = f"All {len(pending_chunks)} chunks failed for {filename}. Aborting finalize."
+                print(f"[RobustAnalysis] {error_msg}", flush=True)
                 self._mark_error(filename, error_msg, username)
                 return
 
             if failed_chunks:
-                print(f"[RobustAnalysis] WARNING: {len(failed_chunks)} chunks failed: {failed_chunks}")
-                print(f"[RobustAnalysis] {len(completed_chunks)}/{total_chunks} chunks succeeded. Proceeding with partial results.")
+                print(f"[RobustAnalysis] WARNING: {len(failed_chunks)} chunks failed: {failed_chunks}", flush=True)
 
-            # 6. Finalize (JSON validation → JSON save → PDF move)
+            # 6. Finalize (lightweight: meta.json + PDF move + cleanup)
             status_manager.mark_finalizing(filename, username=username)
-            await self.finalize_analysis(filename, category, blob_name, total_pages, username)
+            await self.finalize_analysis(filename, category, blob_name, total_pages, username, json_folder)
 
         except Exception as e:
-            print(f"[RobustAnalysis] Critical Failure: {e}")
+            print(f"[RobustAnalysis] Critical Failure: {e}", flush=True)
             import traceback
             traceback.print_exc()
             self._mark_error(filename, f"Critical System Error: {str(e)}", username)
 
-    async def _process_chunk_with_retry(self, filename: str, blob_name: str, master_blob_url: str, local_file_path: str, page_range: str, category: str, username: str = None):
+    async def _process_chunk_with_retry(self, filename: str, blob_name: str, master_blob_url: str, local_file_path: str, page_range: str, category: str, username: str = None, json_folder: str = None):
         """
         Wraps _process_chunk with timeout and retry logic.
         - Timeout: CHUNK_TIMEOUT_SEC per attempt
-        - Retries: CHUNK_MAX_RETRIES times with exponential backoff
+        - Retries: CHUNK_MAX_RETRIES times with backoff
         """
         last_error = None
         for attempt in range(self.CHUNK_MAX_RETRIES + 1):
             try:
                 result = await asyncio.wait_for(
-                    self._process_chunk(filename, blob_name, master_blob_url, local_file_path, page_range, category, username),
+                    self._process_chunk(filename, blob_name, master_blob_url, local_file_path, page_range, category, username, json_folder),
                     timeout=self.CHUNK_TIMEOUT_SEC
                 )
                 return result
@@ -192,19 +207,20 @@ class RobustAnalysisManager:
 
         raise last_error
 
-    async def _process_chunk(self, filename: str, blob_name: str, master_blob_url: str, local_file_path: str, page_range: str, category: str, username: str = None):
+    async def _process_chunk(self, filename: str, blob_name: str, master_blob_url: str, local_file_path: str, page_range: str, category: str, username: str = None, json_folder: str = None):
         """
         Processes a single chunk:
-        1. Analyze the master PDF URL with page range (Direct Streaming).
-        2. Save JSON & Index.
+        1. Azure DI extraction
+        2. Direct per-page JSON upload (parallel)
+        3. Save chunk JSON + status update (non-fatal)
+        4. Index/embed
         """
         try:
-            print(f"[Chunk] Processing {page_range}...")
+            print(f"[Chunk] Processing {page_range}...", flush=True)
 
             target_url = master_blob_url
 
-            print(f"[Chunk] Calling Azure DI for {page_range} (Direct Stream)...")
-            print(f"[Chunk] URL: {target_url[:60]}...")
+            print(f"[Chunk] Calling Azure DI for {page_range} (Direct Stream)...", flush=True)
 
             loop = asyncio.get_running_loop()
             from app.services.azure_di import azure_di_service
@@ -220,26 +236,55 @@ class RobustAnalysisManager:
             # CRITICAL: Validate chunks are not empty
             if not chunks or len(chunks) == 0:
                 error_msg = f"Azure DI returned ZERO pages for {page_range}. API call succeeded but extracted no data!"
-                print(f"[Chunk] FAILED: {error_msg}")
+                print(f"[Chunk] FAILED: {error_msg}", flush=True)
                 raise Exception(error_msg)
 
-            print(f"[Chunk] OK: Azure DI extracted {len(chunks)} pages for {page_range}")
+            print(f"[Chunk] OK: Azure DI extracted {len(chunks)} pages for {page_range}", flush=True)
 
-            # 3. Save JSON
-            self._save_chunk_result(filename, page_range, chunks, username)
+            # 2. Upload per-page JSONs directly (parallel, 10 threads)
+            if json_folder:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                container_client = get_container_client()
+
+                def upload_page(page_data, page_num):
+                    page_blob_name = f"{json_folder}/page_{page_num}.json"
+                    page_json = json.dumps(page_data, ensure_ascii=False)
+                    page_client = container_client.get_blob_client(page_blob_name)
+                    page_client.upload_blob(page_json, overwrite=True)
+                    return page_num
+
+                uploaded = []
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = {}
+                    for idx, page in enumerate(chunks):
+                        pn = page.get("page_number", idx + 1)
+                        futures[executor.submit(upload_page, page, pn)] = pn
+                    for f in as_completed(futures):
+                        try:
+                            uploaded.append(f.result())
+                        except Exception as e:
+                            print(f"[Chunk] Page upload error in {page_range}: {e}", flush=True)
+
+                print(f"[Chunk] Uploaded {len(uploaded)} page JSONs for {page_range}", flush=True)
+
+            # 3. Save chunk JSON + status update (NON-FATAL: don't retry DI on status failure)
+            try:
+                self._save_chunk_result(filename, page_range, chunks, username)
+            except Exception as e:
+                print(f"[Chunk] Warning: Status save failed for {page_range} (pages already uploaded): {e}", flush=True)
 
             # 4. Index
             try:
                 from app.services.azure_search import azure_search_service
-                print(f"[Chunk] Indexing {len(chunks)} pages for {page_range}...")
+                print(f"[Chunk] Indexing {len(chunks)} pages for {page_range}...", flush=True)
                 azure_search_service.index_documents(filename, category, chunks, blob_name=blob_name)
             except Exception as e:
-                print(f"[Chunk] Indexing Warning for {page_range}: {e}")
+                print(f"[Chunk] Indexing Warning for {page_range}: {e}", flush=True)
 
             return True
 
         except Exception as e:
-            print(f"[Chunk] Failed {page_range}: {e}")
+            print(f"[Chunk] Failed {page_range}: {e}", flush=True)
             raise e
 
     def _save_chunk_result(self, filename, page_range, chunks, username=None):
@@ -254,152 +299,62 @@ class RobustAnalysisManager:
 
         # Update Status Manager (with username for scoped status)
         status_manager.update_chunk_progress(filename, page_range, username=username)
-        print(f"[Chunk] Saved JSON for {page_range}")
+        print(f"[Chunk] Saved JSON for {page_range}", flush=True)
 
     def _mark_error(self, filename, message, username=None):
         try:
             status_manager.mark_failed(filename, message, username=username)
         except Exception as e:
-            print(f"Failed to mark error: {e}")
+            print(f"Failed to mark error: {e}", flush=True)
 
-    async def finalize_analysis(self, filename: str, category: str, blob_name: str, total_pages: int, username: str = None):
+    async def finalize_analysis(self, filename: str, category: str, blob_name: str, total_pages: int, username: str = None, json_folder: str = None):
         """
-        Splits results into per-page JSONs + meta.json for on-demand loading.
-        Uploads each page as a separate blob using parallel ThreadPoolExecutor.
-        Storage layout:
-          {user}/json/{filename_stem}/
-            ├── meta.json
-            ├── page_1.json
-            ├── page_2.json
-            └── ...
+        Lightweight finalize: page JSONs already uploaded during chunk processing.
+        Just creates meta.json, moves PDF, and cleans up temp chunks.
         """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        json_folder = None
-        json_saved = False
         pdf_moved = False
         final_blob_name = None
-        uploaded_page_numbers = []
 
         try:
-            print(f"[RobustAnalysis] Finalizing {filename} (split-page mode)...", flush=True)
+            print(f"[Finalize] Starting for {filename}...", flush=True)
             container_client = get_container_client()
 
-            status = status_manager.get_status(filename, username=username)
-            chunks_list = status.get("completed_chunks", [])
+            if not json_folder:
+                json_folder = self._compute_json_folder(blob_name, filename)
 
-            # Sort chunks by page range for correct ordering
-            chunks_list_sorted = sorted(chunks_list, key=lambda x: int(x.split("-")[0]))
+            # ── Step 1: Discover uploaded page JSONs ──
+            page_blobs = list(container_client.list_blobs(name_starts_with=f"{json_folder}/page_"))
+            page_numbers = []
+            for blob in page_blobs:
+                name = blob.name.split('/')[-1]  # "page_123.json"
+                try:
+                    num = int(name.replace("page_", "").replace(".json", ""))
+                    page_numbers.append(num)
+                except (ValueError, AttributeError):
+                    pass
 
-            # ── Step 1: Determine JSON folder path ──
-            json_parts = blob_name.split('/')
-            known_folders = ["temp", "my-documents", "documents", "drawings"]
-            matched_folder = None
-            for folder in known_folders:
-                if folder in json_parts:
-                    matched_folder = folder
-                    break
+            page_numbers.sort()
+            print(f"[Finalize] Found {len(page_numbers)} page JSONs in {json_folder}/", flush=True)
 
-            if matched_folder:
-                f_idx = json_parts.index(matched_folder)
-                json_parts[f_idx] = "json"
-                base_name = os.path.splitext(json_parts[-1])[0]
-                json_parts[-1] = base_name
-                json_folder = "/".join(json_parts)
-            else:
-                if len(json_parts) > 1:
-                    json_folder = f"{json_parts[0]}/json/{os.path.splitext(filename)[0]}"
-                else:
-                    json_folder = f"json/{os.path.splitext(filename)[0]}"
+            if len(page_numbers) == 0:
+                raise Exception(f"No page JSONs found in {json_folder}/ - cannot finalize")
 
-            print(f"[RobustAnalysis] JSON folder: {json_folder}/", flush=True)
+            if len(page_numbers) < total_pages:
+                print(f"[Finalize] WARNING: Partial result - {len(page_numbers)}/{total_pages} pages", flush=True)
 
-            # ── Step 2: Read chunks and upload per-page JSONs in parallel ──
-            valid_chunks = []
-            total_page_count = 0
-            upload_errors = []
-
-            def upload_page(page_data, page_num):
-                """Upload a single page JSON to blob storage."""
-                page_blob_name = f"{json_folder}/page_{page_num}.json"
-                page_json = json.dumps(page_data, ensure_ascii=False)
-                page_client = container_client.get_blob_client(page_blob_name)
-                page_client.upload_blob(page_json, overwrite=True)
-                return page_num
-
-            with ThreadPoolExecutor(max_workers=20) as executor:
-                futures = []
-
-                for chunk_range in chunks_list_sorted:
-                    part_name = f"temp/json/{filename}_part_{chunk_range}.json"
-                    blob_client = container_client.get_blob_client(part_name)
-
-                    if not blob_client.exists():
-                        print(f"[RobustAnalysis] Warning: Chunk blob missing: {part_name}", flush=True)
-                        continue
-
-                    try:
-                        data = blob_client.download_blob().readall()
-                        pages = json.loads(data)
-                        del data
-
-                        for page in pages:
-                            page_num = page.get("page_number", total_page_count + 1)
-                            total_page_count += 1
-                            futures.append(executor.submit(upload_page, page, page_num))
-
-                        del pages
-                        valid_chunks.append(chunk_range)
-                        gc.collect()
-
-                    except Exception as e:
-                        print(f"[RobustAnalysis] Warning: Failed to read chunk {chunk_range}: {e}", flush=True)
-
-                # Wait for all uploads to complete
-                for future in as_completed(futures):
-                    try:
-                        page_num = future.result()
-                        uploaded_page_numbers.append(page_num)
-                    except Exception as e:
-                        upload_errors.append(str(e))
-                        print(f"[RobustAnalysis] Page upload error: {e}", flush=True)
-
-            uploaded_page_numbers.sort()
-            print(f"[RobustAnalysis] Uploaded {len(uploaded_page_numbers)}/{total_page_count} page JSONs", flush=True)
-
-            if upload_errors:
-                print(f"[RobustAnalysis] WARNING: {len(upload_errors)} page upload errors", flush=True)
-
-            # ── Step 3: Validate ──
-            if total_page_count == 0:
-                error_msg = f"DI analysis completed but extracted 0 pages for {filename}"
-                print(f"[RobustAnalysis] VALIDATION FAILED: {error_msg}", flush=True)
-                raise Exception(error_msg)
-
-            if total_page_count < total_pages:
-                print(f"[RobustAnalysis] WARNING: Partial result - {total_page_count}/{total_pages} pages", flush=True)
-
-            if len(uploaded_page_numbers) == 0:
-                error_msg = f"All page uploads failed for {filename}"
-                print(f"[RobustAnalysis] VALIDATION FAILED: {error_msg}", flush=True)
-                raise Exception(error_msg)
-
-            print(f"[RobustAnalysis] Validation passed: {len(uploaded_page_numbers)} pages uploaded", flush=True)
-
-            # ── Step 4: Upload meta.json ──
+            # ── Step 2: Upload meta.json ──
             meta = {
-                "total_pages": total_page_count,
-                "pages": uploaded_page_numbers,
+                "total_pages": len(page_numbers),
+                "pages": page_numbers,
                 "format": "split",
                 "version": 2
             }
             meta_blob_name = f"{json_folder}/meta.json"
             meta_client = container_client.get_blob_client(meta_blob_name)
             meta_client.upload_blob(json.dumps(meta, ensure_ascii=False), overwrite=True)
-            json_saved = True
-            print(f"[RobustAnalysis] meta.json saved: {meta_blob_name}", flush=True)
+            print(f"[Finalize] meta.json saved: {meta_blob_name} ({len(page_numbers)} pages)", flush=True)
 
-            # ── Step 5: Move PDF ONLY after JSON is saved ──
+            # ── Step 3: Move PDF ONLY after meta.json is saved ──
             parts = blob_name.split('/')
             if "temp" in parts:
                 idx = parts.index("temp")
@@ -419,7 +374,7 @@ class RobustAnalysisManager:
                     final_blob_name = blob_name
 
             if blob_name == final_blob_name:
-                print(f"[RobustAnalysis] PDF already at final location: {final_blob_name} (skip move)", flush=True)
+                print(f"[Finalize] PDF already at final location: {final_blob_name} (skip move)", flush=True)
                 pdf_moved = True
             else:
                 source_sas_url = generate_sas_url(blob_name)
@@ -434,56 +389,57 @@ class RobustAnalysisManager:
                         if copy_status == 'success':
                             source_blob.delete_blob()
                             pdf_moved = True
-                            print(f"[RobustAnalysis] PDF moved to {final_blob_name}", flush=True)
+                            print(f"[Finalize] PDF moved to {final_blob_name}", flush=True)
                             break
                         elif copy_status == 'failed':
                             raise Exception(f"PDF copy failed: {props.copy.status_description}")
                         await asyncio.sleep(0.5)
 
                     if not pdf_moved:
-                        print(f"[RobustAnalysis] WARNING: PDF copy timed out, but JSON is saved. PDF stays in temp.", flush=True)
+                        print(f"[Finalize] WARNING: PDF copy timed out, but JSON is saved. PDF stays in temp.", flush=True)
 
-            # ── Step 6: Mark completed (json_location = folder path) ──
+            # ── Step 4: Mark completed (json_location = folder path) ──
             status_manager.mark_completed(filename, json_location=json_folder, username=username)
-            print(f"[RobustAnalysis] Finalization Complete.", flush=True)
+            print(f"[Finalize] Complete.", flush=True)
 
-            # ── Step 7: Cleanup temp chunks ──
-            print(f"[RobustAnalysis] Cleaning up {len(valid_chunks)} chunks...", flush=True)
-            for c in valid_chunks:
-                try:
-                    part_name = f"temp/json/{filename}_part_{c}.json"
-                    container_client.get_blob_client(part_name).delete_blob()
-                except Exception as e:
-                    print(f"[RobustAnalysis] Warning: Failed to cleanup chunk {c}: {e}", flush=True)
-
-            print(f"[RobustAnalysis] Cleanup done.", flush=True)
+            # ── Step 5: Cleanup temp chunks ──
+            status = status_manager.get_status(filename, username=username)
+            chunks_list = status.get("completed_chunks", []) if status else []
+            if chunks_list:
+                print(f"[Finalize] Cleaning up {len(chunks_list)} temp chunks...", flush=True)
+                for c in chunks_list:
+                    try:
+                        part_name = f"temp/json/{filename}_part_{c}.json"
+                        container_client.get_blob_client(part_name).delete_blob()
+                    except Exception:
+                        pass
+                print(f"[Finalize] Cleanup done.", flush=True)
 
         except Exception as e:
-            print(f"[RobustAnalysis] Finalize Failed: {e}", flush=True)
+            print(f"[Finalize] Failed: {e}", flush=True)
             import traceback
             traceback.print_exc()
 
-            # ── Rollback: delete all uploaded page JSONs + meta.json ──
-            if json_saved and not pdf_moved and json_folder:
+            # ── Rollback: delete meta.json only (keep page JSONs for retry) ──
+            if json_folder:
                 try:
-                    container_client = get_container_client()
-                    blobs = list(container_client.list_blobs(name_starts_with=f"{json_folder}/"))
-                    for blob in blobs:
-                        container_client.get_blob_client(blob.name).delete_blob()
-                    print(f"[RobustAnalysis] Rollback: deleted {len(blobs)} blobs in {json_folder}/", flush=True)
+                    meta_client = container_client.get_blob_client(f"{json_folder}/meta.json")
+                    if meta_client.exists():
+                        meta_client.delete_blob()
+                        print(f"[Finalize] Rollback: deleted meta.json", flush=True)
                 except Exception as rb_err:
-                    print(f"[RobustAnalysis] Rollback warning: {rb_err}", flush=True)
+                    print(f"[Finalize] Rollback warning: {rb_err}", flush=True)
 
-            # Retry finalize only (do NOT reset completed_chunks - they are valid data!)
+            # Retry finalize only (page JSONs are intact, just need meta.json + PDF move)
             status = status_manager.get_status(filename, username=username)
             retry_count = status.get("retry_count", 0) if status else 0
 
             if retry_count < 3:
-                print(f"[RobustAnalysis] Retrying finalize ({retry_count + 1}/3)...", flush=True)
+                print(f"[Finalize] Retrying ({retry_count + 1}/3)...", flush=True)
                 status_manager.increment_retry(filename, username=username)
-                await self.finalize_analysis(filename, category, blob_name, total_pages, username)
+                await self.finalize_analysis(filename, category, blob_name, total_pages, username, json_folder)
             else:
-                print(f"[RobustAnalysis] Max finalize retries (3) exceeded for {filename}", flush=True)
+                print(f"[Finalize] Max retries (3) exceeded for {filename}", flush=True)
                 status_manager.mark_failed(filename, f"Finalize failed after 3 attempts: {str(e)}", username=username)
 
 robust_analysis_manager = RobustAnalysisManager()
