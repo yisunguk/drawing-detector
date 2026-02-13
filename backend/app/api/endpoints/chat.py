@@ -290,14 +290,22 @@ async def chat(
                 filtered_results = []
                 for result in results_list:
                     source_filename = result.get('source', '')
+                    src_base = source_filename.replace('.pdf', '').replace('.pdf', '')  # Handle .pdf.pdf
                     for doc_id in request.doc_ids:
                         base_name = doc_id.replace('.pdf', '')
-                        src_base = source_filename.replace('.pdf', '')
-                        if src_base == base_name or source_filename == doc_id:
+                        # Flexible matching: exact, contains, or partial overlap
+                        if (src_base == base_name
+                            or source_filename == doc_id
+                            or base_name in src_base
+                            or src_base in base_name):
                             filtered_results.append(result)
                             break
-                results_list = filtered_results
-                print(f"[Chat] Filtered Results Count: {len(results_list)}")
+                print(f"[Chat] Filtered Results Count: {len(filtered_results)} (from {len(results_list)})")
+                # Fallback: if strict filter yields 0, use all results
+                if len(filtered_results) > 0:
+                    results_list = filtered_results
+                else:
+                    print(f"[Chat] doc_ids filter matched 0 results. Using all {len(results_list)} search results as fallback.")
 
             if not results_list:
                 context_text = "No relevant documents found in the index."
