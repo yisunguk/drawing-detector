@@ -332,39 +332,44 @@ async def chat(
 
 **🔗 MANDATORY Citation & Linking Rules (YOU MUST FOLLOW THESE):**
 
-1. **CRITICAL:** Whenever you reference ANYTHING from the provided context/drawings, you MUST create a clickable citation link using the exact format: `[[UniqueKeyword|SourcePage]]`
+1. **CRITICAL:** Whenever you reference ANYTHING from the provided context/drawings, you MUST create a clickable citation link using the exact format: `[[UniqueKeyword|Page X|DocumentName]]`
+   - **DocumentName** must be the exact filename from the context headers (e.g., from `=== Document: filename.pdf (Page 30) ===`, use `filename.pdf`)
+   - **Page X** must be the exact page number shown in the context header where the information actually appears
+   - **DO NOT guess or invent page numbers.** Only cite pages that exist in the provided context.
+   - If only one document is in the context, still include its name in every citation.
 
 2. **Examples of CORRECT citations:**
-   - "According to the specification `[[절수형 기기 사용|Page 2]]`, water-saving devices are required."
-   - "The valve `[[LIC-101|P.5]]` is located in the control room."
-   - "Based on `[[설계 기준|Page 1]]`, the maximum pressure is 150 psi."
-   - "The drawing shows `[[배관 경로|Page 3]]` running through the basement."
+   - "According to the specification `[[절수형 기기 사용|Page 2|설계조건서.pdf]]`, water-saving devices are required."
+   - "The valve `[[LIC-101|Page 5|P&ID_Area1.pdf]]` is located in the control room."
+   - "Based on `[[설계 기준|Page 30|기술규격서.pdf]]`, the maximum pressure is 150 psi."
+   - "The drawing shows `[[배관 경로|Page 3|배관도.pdf]]` running through the basement."
 
 3. **What to cite:**
-   - Equipment tags/IDs (e.g., `[[P-101A|Page 4]]`)
-   - Section headers (e.g., `[[설계 기준|Page 1]]`)
-   - Table names/titles (e.g., `[[부하 계산표|Page 2]]`)
-   - Specific requirements (e.g., `[[내화 구조|Page 5]]`)
-   - Drawing references (e.g., `[[단면도|Page 3]]`)
+   - Equipment tags/IDs (e.g., `[[P-101A|Page 4|P&ID.pdf]]`)
+   - Section headers (e.g., `[[설계 기준|Page 1|spec.pdf]]`)
+   - Table names/titles (e.g., `[[부하 계산표|Page 2|계산서.pdf]]`)
+   - Specific requirements (e.g., `[[내화 구조|Page 5|건축설계.pdf]]`)
+   - Drawing references (e.g., `[[단면도|Page 3|도면.pdf]]`)
 
 4. **DO NOT cite:**
    - Simple numbers alone: ❌ `[[0.2]]`, `[[18.0]]`, `[[150]]`
    - Generic words: ❌ `[[the]]`, `[[and]]`, `[[is]]`
-   - Instead, cite the LABEL + number: ✅ `[[압력|Page 2]]` (150 psi)
+   - Instead, cite the LABEL + number: ✅ `[[압력|Page 2|설계조건서.pdf]]` (150 psi)
    - **NEVER place citation links inside Markdown table cells.** Tables must contain only plain data values. Place citations in a note below the table or in the preceding paragraph instead.
+   - **NEVER cite a page number that does not appear in the provided context.** If you see `=== Document: X (Page 30) ===`, cite Page 30, NOT Page 1.
 
 5. **IMPORTANT:** Each paragraph of your answer should contain AT LEAST 1-2 citations if you're using information from the context. If you mention specific data, requirements, or drawing details, ALWAYS add a citation link.
 
 6. **End Section - Key Search Terms:**
    At the very end of your response, add:
-   
+
    ---
    🔍 **출처 바로가기 (Quick References)**
-   - `[[가장 중요한 키워드|Page X]]`
-   - `[[두번째 중요한 항목|Page Y]]`
-   - `[[세번째 관련 정보|Page Z]]`
+   - `[[가장 중요한 키워드|Page X|DocumentName]]`
+   - `[[두번째 중요한 항목|Page Y|DocumentName]]`
+   - `[[세번째 관련 정보|Page Z|DocumentName]]`
 
-**Remember:** The more citations you provide, the better! Users rely on these links to verify information and navigate drawings quickly.
+**Remember:** The more citations you provide, the better! Users rely on these links to verify information and navigate drawings quickly. Always use the EXACT page numbers and document names from the context.
 """
 
         # Build messages array with conversation history
@@ -389,29 +394,34 @@ async def chat(
         response_content = response.choices[0].message.content
         
         # Post-Processing: Inject Document Name into Citations
-        # Transform [[Keyword|Page X]] -> [[Keyword|Page X|DocumentName]]
-        # This fixes the cross-tab navigation issue on the frontend
+        # The LLM is instructed to produce [[Keyword|Page X|DocumentName]] (3-part).
+        # As a fallback, if LLM produces 2-part [[Keyword|Page X]], inject doc name from page_doc_map.
+        # 3-part citations are left untouched (regex only matches 2-part).
         def citation_replacer(match):
             keyword = match.group(1)
             try:
                 page_num = int(match.group(2))
                 if page_num in page_doc_map:
                     doc_name = page_doc_map[page_num]
-                    
+
                     # FIX: Handle double extension issue (.pdf.pdf)
-                    # Frontend expects "filename.pdf", so we must normalize
                     if doc_name.lower().endswith('.pdf.pdf'):
                         doc_name = doc_name[:-4]  # Remove last .pdf
-                    
-                    # Format: [[Keyword|Page X|DocumentName]]
+
                     return f"[[{keyword}|Page {page_num}|{doc_name}]]"
             except:
                 pass
-            return match.group(0) # Keep original if lookup fails
+            return match.group(0)
 
         try:
-            # Matches: [[Keyword|Page 5]] (Case insensitive for 'Page')
+            # Only matches 2-part: [[Keyword|Page 5]] (NOT 3-part with |DocName)
             response_content = re.sub(r'\[\[(.*?)\|Page\s*(\d+)\]\]', citation_replacer, response_content, flags=re.IGNORECASE)
+
+            # Normalize any .pdf.pdf in 3-part citations produced by LLM
+            def fix_double_pdf(m):
+                return m.group(0).replace('.pdf.pdf', '.pdf')
+            response_content = re.sub(r'\[\[.*?\|Page\s*\d+\|.*?\.pdf\.pdf\]\]', fix_double_pdf, response_content, flags=re.IGNORECASE)
+
             print("[Chat] Post-processed citations with document names.")
         except Exception as e:
             print(f"[Chat] Error in citation post-processing: {e}")

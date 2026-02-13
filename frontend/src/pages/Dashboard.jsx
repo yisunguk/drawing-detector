@@ -565,7 +565,13 @@ const App = () => {
             if (searchWords.length > 0) {
                 // Check if ALL search words appear as exact words in the content
                 const allWordsMatch = searchWords.every(sw => contentWords.includes(sw));
-                if (allWordsMatch) return 95; // Very high score for exact word matches
+                if (allWordsMatch) {
+                    // Tightness bonus: content closer in length to search → higher score
+                    // "Design Conditions" in "Design Conditions" → ratio≈1.0 → ~95
+                    // "Design Conditions" in "the contract design conditions" → ratio≈0.6 → ~91
+                    const lengthRatio = Math.min(cleanSearch.length / Math.max(cleanContent.length, 1), 1.0);
+                    return 85 + Math.round(lengthRatio * 10);
+                }
 
                 // Partial word match (some words match exactly)
                 const matchCount = searchWords.filter(sw => contentWords.includes(sw)).length;
