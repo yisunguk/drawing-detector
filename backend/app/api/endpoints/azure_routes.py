@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Header, Request, Response, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, Header, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from app.core.config import settings
@@ -8,13 +8,8 @@ from app.services.blob_storage import get_container_client
 from app.services.azure_search import azure_search_service
 import io
 import json
-import time
 
 router = APIRouter()
-
-# In-memory debounce: user -> last cleanup timestamp
-_cleanup_last_run: dict[str, float] = {}
-_CLEANUP_COOLDOWN_SECONDS = 300  # 5 minutes
 
 
 class ReindexRequest(BaseModel):
@@ -173,7 +168,7 @@ def download_file(path: str, range: str = Header(None)):
 
 
 @router.get("/index-status")
-def get_index_status(username: str, background_tasks: BackgroundTasks):
+def get_index_status(username: str):
     """Get indexing status for all files of a given user."""
     try:
         print(f"[index-status] Checking index status for user: {username}", flush=True)
@@ -206,27 +201,10 @@ def get_index_status(username: str, background_tasks: BackgroundTasks):
                 "json_exists": fname in json_set
             }
 
-        # 4. Schedule background cleanup (debounced per user, 5-min cooldown)
-        now = time.time()
-        last_run = _cleanup_last_run.get(username, 0)
-        if now - last_run > _CLEANUP_COOLDOWN_SECONDS:
-            _cleanup_last_run[username] = now
-            background_tasks.add_task(_run_background_cleanup, username)
-
         return {"files": files}
     except Exception as e:
         print(f"Error in get_index_status: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-def _run_background_cleanup(username: str):
-    """Background task to clean up orphaned index entries."""
-    try:
-        result = azure_search_service.cleanup_orphaned_index(username)
-        if result["deleted_count"] > 0:
-            print(f"[index-status] Background cleanup for {username}: removed {result['deleted_count']} orphaned entries", flush=True)
-    except Exception as e:
-        print(f"[index-status] Background cleanup error for {username}: {e}", flush=True)
 
 
 @router.post("/reindex-from-json")
@@ -307,4 +285,23 @@ def cleanup_index(req: CleanupIndexRequest):
         return result
     except Exception as e:
         print(f"Error in cleanup_index: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cleanup-all-users")
+def cleanup_all_users(x_cron_secret: str = Header(None)):
+    """
+    Daily batch cleanup: scan ALL users and remove orphaned index entries.
+    Protected by CRON_SECRET header — intended for Cloud Scheduler.
+    """
+    if not settings.CRON_SECRET or x_cron_secret != settings.CRON_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        print("[cleanup-all-users] Starting daily batch cleanup...", flush=True)
+        result = azure_search_service.cleanup_all_users()
+        print(f"[cleanup-all-users] Done: {result['users_scanned']} users scanned, {result['deleted_count']} documents removed", flush=True)
+        return result
+    except Exception as e:
+        print(f"Error in cleanup_all_users: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))

@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     AZURE_SEARCH_KEY: str = ""
     AZURE_SEARCH_INDEX_NAME: str = "pdf-search-index" # Default index name
 
+    # Cron / Scheduler
+    CRON_SECRET: str = ""
+
     class Config:
         env_file = ".env"
 

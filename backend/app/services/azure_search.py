@@ -480,5 +480,45 @@ class AzureSearchService:
         print(f"[AzureSearch] Cleanup complete: {total_deleted} documents deleted", flush=True)
         return {"deleted_count": total_deleted, "deleted_files": deleted_files}
 
+    def cleanup_all_users(self) -> dict:
+        """
+        Iterate all top-level user folders in blob storage and run
+        cleanup_orphaned_index for each. Returns aggregate results.
+        """
+        from app.services.blob_storage import get_container_client
+
+        print("[AzureSearch] Starting cleanup for ALL users...", flush=True)
+        container_client = get_container_client()
+
+        # List top-level folders (usernames)
+        users = []
+        for item in container_client.walk_blobs(name_starts_with="", delimiter="/"):
+            if item.name.endswith("/"):
+                folder = item.name.rstrip("/")
+                users.append(folder)
+
+        print(f"[AzureSearch] Found {len(users)} top-level folders", flush=True)
+
+        total_deleted = 0
+        all_deleted_files = []
+
+        for user in users:
+            try:
+                result = self.cleanup_orphaned_index(user)
+                if result["deleted_count"] > 0:
+                    total_deleted += result["deleted_count"]
+                    all_deleted_files.extend(
+                        f"{user}: {f}" for f in result["deleted_files"]
+                    )
+            except Exception as e:
+                print(f"[AzureSearch] Cleanup failed for user {user}: {e}", flush=True)
+
+        print(f"[AzureSearch] All-user cleanup complete: {total_deleted} total documents deleted across {len(users)} users", flush=True)
+        return {
+            "users_scanned": len(users),
+            "deleted_count": total_deleted,
+            "deleted_files": all_deleted_files,
+        }
+
 
 azure_search_service = AzureSearchService()
