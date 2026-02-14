@@ -745,7 +745,7 @@ const KnowhowDB = () => {
     return (
         <div className="flex h-screen bg-[#fcfaf7] overflow-hidden font-sans">
             {/* ===== LEFT SIDEBAR ===== */}
-            <div className="w-64 bg-[#f0f4f9] border-r border-gray-200 flex flex-col flex-shrink-0 h-full">
+            <div className="w-80 bg-[#f0f4f9] border-r border-gray-200 flex flex-col flex-shrink-0 h-full">
                 {/* Header */}
                 <div className="p-4 border-b border-gray-200">
                     <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
