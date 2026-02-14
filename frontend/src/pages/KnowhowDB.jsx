@@ -121,6 +121,7 @@ const KnowhowDB = () => {
     const [isReindexing, setIsReindexing] = useState(false);
     const [reindexingFile, setReindexingFile] = useState(null);
     const [isIndexingAll, setIsIndexingAll] = useState(false);
+    const [isAnalyzingAll, setIsAnalyzingAll] = useState(false);
     const [isCleaningIndex, setIsCleaningIndex] = useState(false);
 
     // === Left Sidebar Resize ===
@@ -362,6 +363,54 @@ const KnowhowDB = () => {
             setIsIndexingAll(false);
             setIsReindexing(false);
             setReindexingFile(null);
+        }
+    };
+
+    const handleAnalyzeAll = async () => {
+        if (isAnalyzingAll || !activeFolder) return;
+        const toAnalyze = files.filter(f => {
+            const status = indexStatus[f.name];
+            return !status || !(status.indexed_pages > 0);
+        });
+        if (toAnalyze.length === 0) {
+            alert('분석할 파일이 없습니다.');
+            return;
+        }
+        if (!confirm(`${toAnalyze.length}개 파일을 분석하시겠습니까?`)) return;
+        setIsAnalyzingAll(true);
+        setIsUploading(true);
+        try {
+            for (const file of toAnalyze) {
+                setUploadStatus(`Analyzing ${file.name}...`);
+                try {
+                    let totalPages = 1;
+                    try {
+                        const pdfjs = await loadPdfJs();
+                        const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
+                        totalPages = pdf.numPages;
+                    } catch {}
+                    await startAnalysis(file.name, totalPages, browseUsername, activeFolder, true);
+                    await pollAnalysisStatus(file.name, (statusData) => {
+                        if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
+                            const completed = statusData.completed_chunks || [];
+                            let done = 0;
+                            for (const c of completed) {
+                                const [s, en] = c.split('-').map(Number);
+                                done += (en - s + 1);
+                            }
+                            setUploadStatus(`Analyzing ${file.name}... (${done}/${totalPages}p)`);
+                        }
+                    }, totalPages);
+                } catch (e) {
+                    console.error(`Analysis failed for ${file.name}:`, e);
+                }
+            }
+            setUploadStatus('Done!');
+            await loadIndexStatus(browseUsername);
+        } finally {
+            setIsAnalyzingAll(false);
+            setIsUploading(false);
+            setUploadStatus('');
         }
     };
 
@@ -1068,6 +1117,17 @@ const KnowhowDB = () => {
                             <div className="flex items-center justify-between mb-2 px-1">
                                 <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Files</div>
                                 <div className="flex items-center gap-1">
+                                    {isAdmin && files.some(f => !(indexStatus[f.name]?.indexed_pages > 0)) && (
+                                        <button
+                                            onClick={handleAnalyzeAll}
+                                            disabled={isAnalyzingAll || isUploading}
+                                            className="flex items-center gap-1 px-2 py-1 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded text-xs font-medium transition-colors"
+                                            title="Analyze all un-analyzed files"
+                                        >
+                                            <Sparkles className="w-3 h-3" />
+                                            {isAnalyzingAll ? 'Analyzing...' : 'Analyze All'}
+                                        </button>
+                                    )}
                                     {isAdmin && files.some(f => indexStatus[f.name]?.json_exists && !indexStatus[f.name]?.indexed_pages) && (
                                         <button
                                             onClick={handleIndexAll}
