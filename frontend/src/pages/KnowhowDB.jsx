@@ -129,7 +129,8 @@ const KnowhowDB = () => {
     const leftResizingRef = useRef(false);
 
     // === Highlight State ===
-    const [highlightCoords, setHighlightCoords] = useState(null);
+    const [highlightKeyword, setHighlightKeyword] = useState(null);
+    const [highlightRects, setHighlightRects] = useState([]);
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
     // === Refs ===
@@ -396,8 +397,9 @@ const KnowhowDB = () => {
     // =============================================
     // PDF RENDERING
     // =============================================
-    const openDocument = async (url, page = 1, filename = '', coords = null) => {
-        setHighlightCoords(coords || null);
+    const openDocument = async (url, page = 1, filename = '', keyword = null) => {
+        setHighlightKeyword(keyword || null);
+        setHighlightRects([]);
         const fileType = getFileType(filename);
 
         if (fileType === 'office') {
@@ -463,58 +465,62 @@ const KnowhowDB = () => {
     };
 
     // =============================================
-    // HIGHLIGHT COORDINATE TRANSFORMS
+    // KEYWORD-BASED HIGHLIGHT (pdf.js text content)
     // =============================================
-    const transformPoint = useCallback((nx, ny) => {
-        if (!viewportRef.current) {
-            return [nx * canvasSize.width, ny * canvasSize.height];
-        }
-        const viewport = viewportRef.current;
-        const vb = viewport.viewBox;
-        const vWidth = vb[2] - vb[0];
-        const vHeight = vb[3] - vb[1];
-        const pdfX = vb[0] + (nx * vWidth);
-        const pdfY = vb[3] - (ny * vHeight);
-        return viewport.convertToViewportPoint(pdfX, pdfY);
-    }, [canvasSize]);
-
-    const getHighlightPoints = useCallback(() => {
-        if (!highlightCoords) return "";
-        const points = [];
-        for (let i = 0; i < highlightCoords.length; i += 2) {
-            const [px, py] = transformPoint(highlightCoords[i], highlightCoords[i + 1]);
-            points.push(`${px},${py}`);
-        }
-        return points.join(' ');
-    }, [highlightCoords, transformPoint]);
-
-    const getHighlightCenter = useCallback(() => {
-        if (!highlightCoords) return null;
-        let sumX = 0, sumY = 0;
-        const count = highlightCoords.length / 2;
-        for (let i = 0; i < highlightCoords.length; i += 2) {
-            const [px, py] = transformPoint(highlightCoords[i], highlightCoords[i + 1]);
-            sumX += px;
-            sumY += py;
-        }
-        return { cx: sumX / count, cy: sumY / count };
-    }, [highlightCoords, transformPoint]);
-
-    // Auto-scroll to highlight
     useEffect(() => {
-        if (!highlightCoords || canvasSize.width === 0) return;
-        const center = getHighlightCenter();
-        if (center && pdfContainerRef.current) {
-            const container = pdfContainerRef.current;
-            setTimeout(() => {
-                container.scrollTo({
-                    left: center.cx - container.clientWidth / 2,
-                    top: center.cy - container.clientHeight / 2,
-                    behavior: 'smooth'
-                });
-            }, 100);
+        if (!pdfDocObj || !highlightKeyword || !viewportRef.current || canvasSize.width === 0) {
+            setHighlightRects([]);
+            return;
         }
-    }, [highlightCoords, canvasSize]);
+        (async () => {
+            try {
+                const page = await pdfDocObj.getPage(pdfPage);
+                const viewport = viewportRef.current;
+                const textContent = await page.getTextContent();
+                const keywords = highlightKeyword.toLowerCase().split(/\s+/).filter(k => k.length >= 2);
+                const rects = [];
+
+                for (const item of textContent.items) {
+                    if (!item.str) continue;
+                    const text = item.str.toLowerCase();
+                    if (!keywords.some(kw => text.includes(kw))) continue;
+
+                    const pdfX = item.transform[4];
+                    const pdfY = item.transform[5];
+                    const pdfWidth = item.width;
+                    const pdfHeight = Math.abs(item.transform[3]);
+
+                    const [vx1, vy1] = viewport.convertToViewportPoint(pdfX, pdfY);
+                    const [vx2, vy2] = viewport.convertToViewportPoint(pdfX + pdfWidth, pdfY + pdfHeight);
+
+                    rects.push({
+                        x: Math.min(vx1, vx2),
+                        y: Math.min(vy1, vy2),
+                        width: Math.abs(vx2 - vx1),
+                        height: Math.abs(vy2 - vy1)
+                    });
+                }
+                setHighlightRects(rects);
+            } catch (e) {
+                console.error('Highlight computation error:', e);
+                setHighlightRects([]);
+            }
+        })();
+    }, [pdfDocObj, pdfPage, highlightKeyword, canvasSize]);
+
+    // Auto-scroll to first highlight
+    useEffect(() => {
+        if (highlightRects.length === 0 || !pdfContainerRef.current) return;
+        const first = highlightRects[0];
+        const container = pdfContainerRef.current;
+        setTimeout(() => {
+            container.scrollTo({
+                left: first.x + first.width / 2 - container.clientWidth / 2,
+                top: first.y + first.height / 2 - container.clientHeight / 2,
+                behavior: 'smooth'
+            });
+        }, 100);
+    }, [highlightRects]);
 
     // =============================================
     // SEARCH HANDLER (AI 검색)
@@ -696,21 +702,12 @@ const KnowhowDB = () => {
     const handleResultClick = (result) => {
         const filename = result.filename;
         const page = result.page || 1;
-
-        // Parse coords (may be JSON string or array)
-        let coords = null;
-        if (result.coords) {
-            try {
-                coords = typeof result.coords === 'string' ? JSON.parse(result.coords) : result.coords;
-            } catch (e) {
-                console.warn('Failed to parse coords:', e);
-            }
-        }
+        const keyword = query.trim() || null;
 
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
             const url = buildBlobUrl(result.blob_path);
-            openDocument(url, page, filename, coords);
+            openDocument(url, page, filename, keyword);
             return;
         }
 
@@ -722,7 +719,7 @@ const KnowhowDB = () => {
         const resultUser = result.user_id || browseUsername || username;
         const blobPath = `${resultUser}/${folder}/${filename}`;
         const url = buildBlobUrl(blobPath);
-        openDocument(url, page, filename, coords);
+        openDocument(url, page, filename, keyword);
     };
 
     const handleCitationClick = (keyword) => {
@@ -1530,7 +1527,7 @@ const KnowhowDB = () => {
                 {viewerType === 'pdf' && pdfDocObj && (
                     <div className="h-10 border-b border-[#e5e1d8] flex items-center justify-center gap-3 px-4 bg-[#fcfaf7] flex-shrink-0">
                         <button
-                            onClick={() => { setHighlightCoords(null); setPdfPage(p => Math.max(1, p - 1)); }}
+                            onClick={() => { setHighlightKeyword(null); setHighlightRects([]); setPdfPage(p => Math.max(1, p - 1)); }}
                             disabled={pdfPage <= 1}
                             className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
                         >
@@ -1540,7 +1537,7 @@ const KnowhowDB = () => {
                             {pdfPage} / {pdfTotalPages}
                         </span>
                         <button
-                            onClick={() => { setHighlightCoords(null); setPdfPage(p => Math.min(pdfTotalPages, p + 1)); }}
+                            onClick={() => { setHighlightKeyword(null); setHighlightRects([]); setPdfPage(p => Math.min(pdfTotalPages, p + 1)); }}
                             disabled={pdfPage >= pdfTotalPages}
                             className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
                         >
@@ -1569,28 +1566,25 @@ const KnowhowDB = () => {
                     ) : pdfDocObj ? (
                         <div className="relative inline-block">
                             <canvas ref={canvasRef} className="shadow-lg" />
-                            {highlightCoords && canvasSize.width > 0 && (
+                            {highlightRects.length > 0 && canvasSize.width > 0 && (
                                 <svg
                                     className="absolute top-0 left-0 pointer-events-none"
                                     style={{ width: canvasSize.width, height: canvasSize.height, zIndex: 10 }}
                                     viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}
                                 >
-                                    <polygon
-                                        points={getHighlightPoints()}
-                                        fill="rgba(255, 235, 59, 0.45)"
-                                        stroke="#f59e0b"
-                                        strokeWidth="2"
-                                        style={{ strokeLinejoin: 'round' }}
-                                    />
-                                    {(() => {
-                                        const center = getHighlightCenter();
-                                        return center ? (
-                                            <>
-                                                <line x1={center.cx - 15} y1={center.cy} x2={center.cx + 15} y2={center.cy} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3" />
-                                                <line x1={center.cx} y1={center.cy - 15} x2={center.cx} y2={center.cy + 15} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3" />
-                                            </>
-                                        ) : null;
-                                    })()}
+                                    {highlightRects.map((rect, i) => (
+                                        <rect
+                                            key={i}
+                                            x={rect.x}
+                                            y={rect.y}
+                                            width={rect.width}
+                                            height={rect.height}
+                                            fill="rgba(255, 235, 59, 0.4)"
+                                            stroke="#f59e0b"
+                                            strokeWidth="1"
+                                            rx="2"
+                                        />
+                                    ))}
                                 </svg>
                             )}
                         </div>
