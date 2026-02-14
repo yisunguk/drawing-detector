@@ -100,6 +100,11 @@ const KnowhowDB = () => {
     const [reindexingFile, setReindexingFile] = useState(null);
     const [isIndexingAll, setIsIndexingAll] = useState(false);
 
+    // === Left Sidebar Resize ===
+    const [leftWidth, setLeftWidth] = useState(320);
+    const [isLeftResizing, setIsLeftResizing] = useState(false);
+    const leftResizingRef = useRef(false);
+
     // === Refs ===
     const canvasRef = useRef(null);
     const messagesEndRef = useRef(null);
@@ -620,42 +625,53 @@ const KnowhowDB = () => {
     };
 
     // =============================================
-    // RESIZE HANDLER
+    // RESIZE HANDLERS (Left + Right sidebars)
     // =============================================
     const startResize = useCallback(() => {
         resizingRef.current = true;
         setIsResizing(true);
     }, []);
 
-    const stopResize = useCallback(() => {
-        resizingRef.current = false;
-        setIsResizing(false);
+    const startLeftResize = useCallback(() => {
+        leftResizingRef.current = true;
+        setIsLeftResizing(true);
     }, []);
 
-    const onResize = useCallback((e) => {
+    const stopAllResize = useCallback(() => {
+        resizingRef.current = false;
+        leftResizingRef.current = false;
+        setIsResizing(false);
+        setIsLeftResizing(false);
+    }, []);
+
+    const onResizeMove = useCallback((e) => {
         if (resizingRef.current) {
             const newWidth = window.innerWidth - e.clientX;
             if (newWidth > 300 && newWidth < 1200) setRightWidth(newWidth);
         }
+        if (leftResizingRef.current) {
+            const newWidth = e.clientX;
+            if (newWidth > 240 && newWidth < 600) setLeftWidth(newWidth);
+        }
     }, []);
 
     useEffect(() => {
-        if (isResizing) {
+        if (isResizing || isLeftResizing) {
             document.body.style.cursor = 'col-resize';
             document.body.style.userSelect = 'none';
         } else {
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
         }
-        window.addEventListener('mousemove', onResize);
-        window.addEventListener('mouseup', stopResize);
+        window.addEventListener('mousemove', onResizeMove);
+        window.addEventListener('mouseup', stopAllResize);
         return () => {
-            window.removeEventListener('mousemove', onResize);
-            window.removeEventListener('mouseup', stopResize);
+            window.removeEventListener('mousemove', onResizeMove);
+            window.removeEventListener('mouseup', stopAllResize);
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
         };
-    }, [onResize, stopResize, isResizing]);
+    }, [onResizeMove, stopAllResize, isResizing, isLeftResizing]);
 
     // =============================================
     // CHAT HISTORY PERSISTENCE
@@ -745,7 +761,12 @@ const KnowhowDB = () => {
     return (
         <div className="flex h-screen bg-[#fcfaf7] overflow-hidden font-sans">
             {/* ===== LEFT SIDEBAR ===== */}
-            <div className="w-80 bg-[#f0f4f9] border-r border-gray-200 flex flex-col flex-shrink-0 h-full">
+            <div className="bg-[#f0f4f9] border-r border-gray-200 flex flex-col flex-shrink-0 h-full relative" style={{ width: leftWidth }}>
+                {/* Left Resize Handle */}
+                <div
+                    className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400 z-50 transition-colors"
+                    onMouseDown={startLeftResize}
+                />
                 {/* Header */}
                 <div className="p-4 border-b border-gray-200">
                     <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
