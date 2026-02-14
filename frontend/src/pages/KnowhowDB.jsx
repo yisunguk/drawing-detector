@@ -883,24 +883,13 @@ const KnowhowDB = () => {
                                                 <span className="truncate">{file.name}</span>
                                                 {/* Index status indicator (admin only) */}
                                                 {isAdmin && (
-                                                    <span
-                                                        className="flex-shrink-0"
-                                                        title={
-                                                            fStatus?.indexed_pages > 0
-                                                                ? `Indexed: ${fStatus.indexed_pages} pages`
-                                                                : fStatus?.json_exists
-                                                                    ? 'JSON exists, not indexed'
-                                                                    : 'Not analyzed'
-                                                        }
-                                                    >
-                                                        {fStatus?.indexed_pages > 0 ? (
-                                                            <span className="text-green-500 font-medium text-[10px]">●{fStatus.indexed_pages}p</span>
-                                                        ) : fStatus?.json_exists ? (
-                                                            <span className="text-orange-500 text-[10px]">●</span>
-                                                        ) : (
-                                                            <span className="text-red-400 text-[10px]">●</span>
-                                                        )}
-                                                    </span>
+                                                    fStatus?.indexed_pages > 0 ? (
+                                                        <span className="flex-shrink-0 text-green-600 font-bold text-[10px]" title={`Indexed: ${fStatus.indexed_pages} pages`}>●{fStatus.indexed_pages}p</span>
+                                                    ) : fStatus?.json_exists ? (
+                                                        <span className="flex-shrink-0 bg-amber-100 text-amber-700 font-medium text-[9px] px-1 rounded" title="JSON exists, not indexed">미인덱싱</span>
+                                                    ) : (
+                                                        <span className="flex-shrink-0 text-gray-300 text-[10px]" title="Not analyzed">●</span>
+                                                    )
                                                 )}
                                             </div>
                                             {/* Admin reindex button - only for un-indexed files with JSON */}
