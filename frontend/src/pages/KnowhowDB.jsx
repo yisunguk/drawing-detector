@@ -607,17 +607,51 @@ const KnowhowDB = () => {
                 let pageData = ocrPageCacheRef.current[cacheKey];
 
                 if (!pageData) {
-                    // Try split format: {user}/json/{filenameWithoutExt}/page_{N}.json
-                    // Backend strips extension when creating JSON folder
                     const baseName = meta.filename.replace(/\.[^.]+$/, '');
-                    const jsonPath = `${meta.user_id}/json/${baseName}/page_${pdfPage}.json`;
+
+                    // 1) Try split format: {user}/json/{baseName}/page_{N}.json
+                    const splitPath = `${meta.user_id}/json/${baseName}/page_${pdfPage}.json`;
                     try {
-                        const res = await fetch(buildBlobUrl(jsonPath));
+                        const res = await fetch(buildBlobUrl(splitPath));
                         if (res.ok) {
                             pageData = await res.json();
                             ocrPageCacheRef.current[cacheKey] = pageData;
                         }
                     } catch (e) { /* ignore */ }
+
+                    // 2) Fallback: old single JSON format ({user}/json/{filename}.json or .pdf.json)
+                    if (!pageData) {
+                        const singleCandidates = [
+                            `${meta.user_id}/json/${baseName}.json`,
+                            `${meta.user_id}/json/${meta.filename}.json`,
+                        ];
+                        for (const candidate of singleCandidates) {
+                            if (cancelled) return;
+                            try {
+                                const res = await fetch(buildBlobUrl(candidate));
+                                if (res.ok) {
+                                    const fullJson = await res.json();
+                                    // Extract page data from single JSON (array of pages)
+                                    const pages = Array.isArray(fullJson) ? fullJson
+                                        : fullJson.analyzeResult?.pages || fullJson.pages || [];
+                                    const found = pages.find(p => (p.page_number || (p.pageIndex != null ? p.pageIndex + 1 : 0)) === pdfPage)
+                                        || pages[pdfPage - 1];
+                                    if (found) {
+                                        pageData = found;
+                                        // Cache all pages from this JSON for future use
+                                        pages.forEach((p, idx) => {
+                                            const pn = p.page_number || (p.pageIndex != null ? p.pageIndex + 1 : idx + 1);
+                                            const pk = `${meta.user_id}/${meta.filename}/${pn}`;
+                                            if (!ocrPageCacheRef.current[pk]) {
+                                                ocrPageCacheRef.current[pk] = p;
+                                            }
+                                        });
+                                        break;
+                                    }
+                                }
+                            } catch (e) { /* ignore */ }
+                        }
+                    }
                 }
 
                 if (cancelled) return;

@@ -1144,12 +1144,17 @@ const App = () => {
                         }
 
                         if (!foundOcr) {
-                            // Fallback: single JSON
+                            // Fallback: single JSON (try both .json and .pdf.json for old format compat)
                             const jsonCandidates = [];
                             if (decodedPath.toLowerCase().includes('drawings')) {
                                 jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                                jsonCandidates.push(decodedPath.replace(/drawings/i, 'json') + '.json');
                             } else if (decodedPath.toLowerCase().includes('documents')) {
                                 jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                                jsonCandidates.push(decodedPath.replace(/documents/i, 'json') + '.json');
+                            } else if (decodedPath.toLowerCase().includes('my-documents')) {
+                                jsonCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                                jsonCandidates.push(decodedPath.replace(/my-documents/i, 'json') + '.json');
                             }
                             const uName = userProfile?.name || currentUser?.displayName;
                             if (uName) {
@@ -1280,8 +1285,13 @@ const App = () => {
                                     const jsonCandidates = [];
                                     if (decodedPath.toLowerCase().includes('drawings')) {
                                         jsonCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '.json'));
+                                        jsonCandidates.push(decodedPath.replace(/drawings/i, 'json') + '.json');
                                     } else if (decodedPath.toLowerCase().includes('documents')) {
                                         jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                                        jsonCandidates.push(decodedPath.replace(/documents/i, 'json') + '.json');
+                                    } else if (decodedPath.toLowerCase().includes('my-documents')) {
+                                        jsonCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '.json'));
+                                        jsonCandidates.push(decodedPath.replace(/my-documents/i, 'json') + '.json');
                                     }
                                     const uName = userProfile?.name || currentUser?.displayName;
                                     if (uName) {
@@ -2279,8 +2289,9 @@ const App = () => {
         if (result.docId !== activeDocId) {
             setActiveDocId(result.docId);
         }
-        if (result.pageNum !== activePage) {
-            setActivePage(result.pageNum);
+        const safePage = Math.max(1, result.pageNum || 1);
+        if (safePage !== activePage) {
+            setActivePage(safePage);
         }
     };
 
@@ -2464,6 +2475,9 @@ const App = () => {
         if (!targetDocId && activeDoc) {
             targetDocId = activeDoc.id;
         }
+
+        // Ensure page is at least 1 (Page 0 causes "Invalid page request" in pdf.js)
+        if (targetPage < 1) targetPage = 1;
 
         // Navigate center canvas to target page
         if (targetDocId && targetDocId !== activeDocId) {
