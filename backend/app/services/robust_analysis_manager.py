@@ -274,11 +274,14 @@ class RobustAnalysisManager:
             except Exception as e:
                 print(f"[Chunk] Warning: Status update failed for {page_range} (pages already uploaded): {e}", flush=True)
 
-            # 4. Index
+            # 4. Index (use final path, not temp path, so blob_path survives after finalize moves the PDF)
             try:
                 from app.services.azure_search import azure_search_service
-                print(f"[Chunk] Indexing {len(chunks)} pages for {page_range}...", flush=True)
-                azure_search_service.index_documents(filename, category, chunks, blob_name=blob_name)
+                final_blob_name = blob_name
+                if username and '/temp/' in blob_name:
+                    final_blob_name = f"{username}/{category}/{filename}"
+                print(f"[Chunk] Indexing {len(chunks)} pages for {page_range} (blob_path={final_blob_name})...", flush=True)
+                azure_search_service.index_documents(filename, category, chunks, blob_name=final_blob_name)
             except Exception as e:
                 print(f"[Chunk] Indexing Warning for {page_range}: {e}", flush=True)
 
