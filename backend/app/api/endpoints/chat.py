@@ -10,6 +10,117 @@ from app.core.firebase_admin import verify_id_token
 router = APIRouter()
 
 
+# ─── Common constants ───
+_PARTICLES = ['에서', '으로', '까지', '부터', '해서', '세요',
+              '을', '를', '의', '이', '가', '에', '도', '는', '은', '로', '와', '과', '하']
+
+_FILLER = {'알려', '주세요', '알려주세요', '하세요', '해주세요', '설명', '뭐',
+           '입니다', '합니다', '있는', '대해', '무엇', '어떤', '어떻게',
+           'please', 'tell', 'what', 'about', 'the', 'show'}
+
+_XML_COMMENT_RE = re.compile(r'<!--.*?-->', re.DOTALL)
+_HTML_TAG_RE = re.compile(r'<[^>]+>')
+_MULTI_SPACE_RE = re.compile(r'[ \t]+')
+_MULTI_NEWLINE_RE = re.compile(r'\n{3,}')
+
+
+def _strip_particle(w: str) -> str:
+    """Strip common Korean particles from end of a word."""
+    for p in sorted(_PARTICLES, key=len, reverse=True):
+        if w.endswith(p) and len(w) - len(p) >= 2:
+            return w[:-len(p)]
+    return w
+
+
+def _extract_search_keywords(query: str) -> list:
+    """Extract meaningful keywords from a user query for highlighting."""
+    query_lower = query.lower().strip()
+    raw_words = re.split(r'\s+', query_lower)
+
+    keywords = []
+    for w in raw_words:
+        # Preserve EPC tag patterns with hyphens (e.g. 110-PU-001A)
+        if re.match(r'^[\w]+-[\w]+-?[\w]*$', w):
+            keywords.append(w)
+            continue
+        stripped = _strip_particle(w)
+        if len(stripped) >= 2 and stripped not in _FILLER:
+            keywords.append(stripped)
+    return keywords
+
+
+def _clean_content(text: str) -> str:
+    """Remove HTML/XML artifacts from document content."""
+    if not text:
+        return ""
+    text = _XML_COMMENT_RE.sub('', text)
+    text = _HTML_TAG_RE.sub('', text)
+    text = _MULTI_SPACE_RE.sub(' ', text)
+    text = _MULTI_NEWLINE_RE.sub('\n\n', text)
+    return text.strip()
+
+
+def _extract_and_highlight(content: str, keywords: list) -> str:
+    """
+    Find keyword occurrences in content, extract surrounding context (~150 chars),
+    and wrap matched keywords with <mark> tags. Returns up to 3 snippets joined by ' ... '.
+    """
+    if not content or not keywords:
+        return content[:300] if content else ""
+
+    content_lower = content.lower()
+    # Find all keyword positions
+    positions = []
+    for kw in keywords:
+        start = 0
+        kw_lower = kw.lower()
+        while True:
+            idx = content_lower.find(kw_lower, start)
+            if idx == -1:
+                break
+            positions.append((idx, len(kw_lower)))
+            start = idx + 1
+
+    if not positions:
+        return content[:300]
+
+    # Deduplicate and sort by position
+    positions.sort(key=lambda x: x[0])
+
+    # Extract up to 3 non-overlapping snippets
+    snippets = []
+    used_ranges = []
+
+    for pos, kw_len in positions:
+        if len(snippets) >= 3:
+            break
+        # Check overlap with already used ranges
+        snippet_start = max(0, pos - 150)
+        snippet_end = min(len(content), pos + kw_len + 150)
+        overlaps = any(s <= snippet_start <= e or s <= snippet_end <= e for s, e in used_ranges)
+        if overlaps:
+            # Extend existing range instead of creating new snippet
+            continue
+
+        used_ranges.append((snippet_start, snippet_end))
+        snippet = content[snippet_start:snippet_end]
+
+        # Add ellipsis indicators
+        prefix = "..." if snippet_start > 0 else ""
+        suffix = "..." if snippet_end < len(content) else ""
+        snippets.append(f"{prefix}{snippet}{suffix}")
+
+    # Join snippets
+    result = " ... ".join(snippets)
+
+    # Highlight all keywords in the combined result (case-insensitive)
+    for kw in keywords:
+        pattern = re.compile(re.escape(kw), re.IGNORECASE)
+        result = pattern.sub(lambda m: f"<mark>{m.group(0)}</mark>", result)
+
+    return result
+
+
 def _rerank_by_keywords(results_list: list, original_query: str) -> list:
     """
     Re-rank Azure Search results by exact keyword match density.
@@ -22,24 +133,9 @@ def _rerank_by_keywords(results_list: list, original_query: str) -> list:
     # Split query into words
     raw_words = re.split(r'\s+', query_lower)
 
-    # Strip common Korean particles from end of words
-    _PARTICLES = ['에서', '으로', '까지', '부터', '해서', '세요',
-                   '을', '를', '의', '이', '가', '에', '도', '는', '은', '로', '와', '과', '하']
-
-    def strip_particle(w):
-        for p in sorted(_PARTICLES, key=len, reverse=True):
-            if w.endswith(p) and len(w) - len(p) >= 2:
-                return w[:-len(p)]
-        return w
-
-    # Filter filler words (request verbs, etc.)
-    _FILLER = {'알려', '주세요', '알려주세요', '하세요', '해주세요', '설명', '뭐',
-               '입니다', '합니다', '있는', '대해', '무엇', '어떤', '어떻게',
-               'please', 'tell', 'what', 'about', 'the', 'show'}
-
     keywords = []
     for w in raw_words:
-        stripped = strip_particle(w)
+        stripped = _strip_particle(w)
         if len(stripped) >= 2 and stripped not in _FILLER:
             keywords.append(stripped)
 
@@ -301,14 +397,20 @@ async def chat(
             if request.mode == "search":
                 print(f"[Chat] Executing Keyword Search for user '{safe_user_id}': {search_query} | filter={search_filter}", flush=True)
 
-                # Execute Search
-                # Note: We rely on the constructed 'search_filter' (user_id + doc_ids)
+                # Extract keywords for highlighting fallback
+                search_keywords = _extract_search_keywords(request.query)
+                print(f"[Chat] Search keywords for highlight: {search_keywords}", flush=True)
+
+                # Execute Search with Azure highlight support
                 search_results = azure_search_service.client.search(
                     search_text=search_query,
                     query_type=query_type,
                     filter=search_filter,
                     top=50,
-                    select=["content", "source", "page", "title", "user_id", "category", "blob_path", "metadata_storage_path", "coords", "type"]
+                    select=["content", "source", "page", "title", "user_id", "category", "blob_path", "metadata_storage_path", "coords", "type"],
+                    highlight_fields="content",
+                    highlight_pre_tag="<mark>",
+                    highlight_post_tag="</mark>",
                 )
 
                 results = []
@@ -320,19 +422,42 @@ async def chat(
                     page = res.get("page")
 
                     # Deduplication Key: Filename + Page
-                    # We only keep the first (highest score) occurrence per page
                     dedup_key = (filename, page)
                     if dedup_key in seen_pages:
                         continue
 
                     score = res.get("@search.score", 0)
-
                     seen_pages.add(dedup_key)
+
+                    # Clean content (remove XML comments, HTML tags)
+                    raw_content = res.get("content") or ""
+                    cleaned = _clean_content(raw_content)
+
+                    # Build highlight text:
+                    # 1. Azure highlights (preferred — already has <mark> tags)
+                    azure_highlights = res.get("@search.highlights", {}).get("content", [])
+                    if azure_highlights:
+                        # Clean XML artifacts but preserve <mark> tags from Azure
+                        def _clean_preserve_mark(text):
+                            text = _XML_COMMENT_RE.sub('', text)
+                            # Remove HTML tags except <mark> and </mark>
+                            text = re.sub(r'<(?!/?mark\b)[^>]+>', '', text)
+                            text = _MULTI_SPACE_RE.sub(' ', text)
+                            return text.strip()
+                        cleaned_highlights = [_clean_preserve_mark(h) for h in azure_highlights[:3]]
+                        highlight_text = " ... ".join(cleaned_highlights)
+                    # 2. Python fallback: keyword-based snippet extraction
+                    elif search_keywords:
+                        highlight_text = _extract_and_highlight(cleaned, search_keywords)
+                    # 3. Last resort: cleaned content first 300 chars
+                    else:
+                        highlight_text = cleaned[:300]
 
                     results.append({
                         "filename": filename,
                         "page": page,
-                        "content": (res.get("content") or "")[:300] + "...",
+                        "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
+                        "highlight": highlight_text,
                         "score": score,
                         "path": path,
                         "coords": res.get("coords"),
@@ -340,7 +465,14 @@ async def chat(
                         "category": res.get("category"),
                         "user_id": res.get("user_id")
                     })
-                
+
+                # Re-rank search results by keyword match density
+                if results and request.query:
+                    try:
+                        results = _rerank_by_keywords(results, request.query)
+                    except Exception as e:
+                        print(f"[Chat] Search re-ranking failed (using original order): {e}", flush=True)
+
                 print(f"[Chat] Keyword Search found {len(results)} unique pages.")
                 return ChatResponse(
                     response=f"Found {len(results)} documents.",

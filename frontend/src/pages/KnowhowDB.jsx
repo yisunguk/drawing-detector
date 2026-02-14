@@ -1216,13 +1216,22 @@ const KnowhowDB = () => {
                                                         <span className="text-sm font-medium text-gray-800 truncate">{result.filename || 'Unknown'}</span>
                                                         <span className="text-xs text-gray-400 flex-shrink-0">Page {result.page || '?'}</span>
                                                     </div>
-                                                    <p className="text-sm text-gray-600 leading-relaxed line-clamp-3">
-                                                        {result.content || 'No preview available'}
-                                                    </p>
+                                                    {result.highlight ? (
+                                                        <p className="text-sm text-gray-600 leading-relaxed line-clamp-4 search-highlight"
+                                                           dangerouslySetInnerHTML={{ __html: result.highlight }} />
+                                                    ) : (
+                                                        <p className="text-sm text-gray-600 leading-relaxed line-clamp-3">
+                                                            {result.content || 'No preview available'}
+                                                        </p>
+                                                    )}
                                                 </div>
                                                 {result.score != null && (
-                                                    <div className="flex-shrink-0 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded">
-                                                        {result.score.toFixed(1)}
+                                                    <div className={`flex-shrink-0 px-2 py-1 text-xs font-medium rounded ${
+                                                        result.score >= 20 ? 'bg-green-50 text-green-700' :
+                                                        result.score >= 10 ? 'bg-blue-50 text-blue-700' :
+                                                        'bg-gray-50 text-gray-500'
+                                                    }`}>
+                                                        {result.score >= 20 ? '높음' : result.score >= 10 ? '보통' : '낮음'}
                                                     </div>
                                                 )}
                                             </div>

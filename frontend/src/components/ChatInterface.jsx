@@ -14,6 +14,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef(null);
+    const textareaRef = useRef(null);
     const { currentUser } = useAuth();
 
     const scrollToBottom = () => {
@@ -250,6 +251,7 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
 
         const userMessage = input.trim();
         setInput('');
+        if (textareaRef.current) textareaRef.current.style.height = '50px';
         setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
         setIsLoading(true);
 
@@ -264,7 +266,8 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
             if (chatScope === 'active') {
                 context = formatContext();
             } else if (chatScope === 'all') {
-                // In 'all' mode, send current viewing pages so LLM sees what user is looking at
+                // All mode: send all documents' context + viewing context for current page
+                context = formatContext();
                 viewingContext = buildViewingContext();
             }
 
@@ -288,9 +291,11 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
             }
 
             let docIds = null;
-            if (activeDoc) {
+            if (chatScope === 'all' && documents.length > 0) {
+                docIds = documents.map(d => d.name);
+            } else if (activeDoc) {
                 docIds = [activeDoc.name];
-            } else if (documents && documents.length > 0) {
+            } else if (documents.length > 0) {
                 docIds = documents.map(d => d.name);
             }
 
@@ -520,17 +525,24 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
             <div className="p-4 bg-white border-t border-[#e5e1d8]">
                 <div className="relative">
                     <textarea
+                        ref={textareaRef}
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={(e) => {
+                            setInput(e.target.value);
+                            const ta = e.target;
+                            ta.style.height = 'auto';
+                            ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+                        }}
                         onKeyDown={handleKeyDown}
                         placeholder={activeDoc ? "Ask about this document..." : "Ask about all your documents..."}
-                        className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all resize-none h-[50px] max-h-[120px] overflow-y-auto placeholder-[#a0a0a0]"
+                        className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all resize-none overflow-y-auto placeholder-[#a0a0a0]"
+                        style={{ minHeight: '50px', maxHeight: '200px' }}
                         disabled={isLoading || (!activeDoc && chatScope !== 'all')}
                     />
                     <button
                         onClick={handleSend}
                         disabled={!input.trim() || isLoading || (!activeDoc && chatScope !== 'all')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#d97757] text-white rounded-lg hover:bg-[#c05535] disabled:opacity-50 disabled:hover:bg-[#d97757] transition-colors"
+                        className="absolute right-2 bottom-3 p-1.5 bg-[#d97757] text-white rounded-lg hover:bg-[#c05535] disabled:opacity-50 disabled:hover:bg-[#d97757] transition-colors"
                     >
                         <Send size={14} />
                     </button>
