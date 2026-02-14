@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     AZURE_SEARCH_KEY: str = ""
     AZURE_SEARCH_INDEX_NAME: str = "pdf-search-index" # Default index name
 
-    # Cron / Scheduler
+    # Cron / Cloud Scheduler (daily batch cleanup)
     CRON_SECRET: str = ""
 
     class Config:
