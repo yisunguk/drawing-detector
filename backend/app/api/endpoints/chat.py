@@ -189,6 +189,7 @@ class ChatRequest(BaseModel):
     history: Optional[List[ChatMessage]] = None  # Conversation history for context memory
     viewing_context: Optional[str] = None  # Current page context from frontend (user's viewport)
     target_user: Optional[str] = None  # Admin-only: filter search to a specific user folder
+    categories: Optional[List[str]] = None  # Folder scope filter (e.g. ["documents", "drawings"])
 
 class ChatResponse(BaseModel):
     response: str
@@ -360,6 +361,14 @@ async def chat(
             # IMPORTANT: Use OData 'source eq' for exact matching, NOT search.ismatch
             # search.ismatch tokenizes Korean filenames and matches wrong documents
             search_filter = user_filter  # None for admin, OData string for regular users
+
+            # Apply categories (folder scope) filter
+            if request.categories and len(request.categories) > 0:
+                cat_parts = [f"category eq '{c.replace(chr(39), chr(39)*2)}'" for c in request.categories]
+                cat_filter = "(" + " or ".join(cat_parts) + ")"
+                search_filter = f"({search_filter}) and {cat_filter}" if search_filter else cat_filter
+                print(f"[Chat] Applied category filter: {cat_filter}", flush=True)
+
             if request.doc_ids and len(request.doc_ids) > 0:
                 print(f"[Chat] Applying doc_ids filter at Azure Search level: {request.doc_ids}")
                 doc_filter_parts = []
