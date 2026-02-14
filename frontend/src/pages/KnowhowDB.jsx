@@ -1068,17 +1068,6 @@ const KnowhowDB = () => {
                             <div className="flex items-center justify-between mb-2 px-1">
                                 <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Files</div>
                                 <div className="flex items-center gap-1">
-                                    {isAdmin && (
-                                        <button
-                                            onClick={handleCleanupIndex}
-                                            disabled={isCleaningIndex}
-                                            className="flex items-center gap-1 px-2 py-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white rounded text-xs font-medium transition-colors"
-                                            title="삭제된 파일의 인덱스 정리"
-                                        >
-                                            <Trash2 className="w-3 h-3" />
-                                            {isCleaningIndex ? '정리 중...' : '인덱스 정리'}
-                                        </button>
-                                    )}
                                     {isAdmin && files.some(f => indexStatus[f.name]?.json_exists && !indexStatus[f.name]?.indexed_pages) && (
                                         <button
                                             onClick={handleIndexAll}
@@ -1157,8 +1146,8 @@ const KnowhowDB = () => {
                                                     <RefreshCcw className="w-3 h-3" />
                                                 </button>
                                             )}
-                                            {/* Admin analyze button - for files with no JSON at all */}
-                                            {isAdmin && !fStatus?.json_exists && !fStatus?.indexed_pages && (
+                                            {/* Admin analyze button - for files not fully indexed */}
+                                            {isAdmin && !(fStatus?.indexed_pages > 0) && (
                                                 <button
                                                     onClick={async (e) => {
                                                         e.stopPropagation();
@@ -1194,7 +1183,7 @@ const KnowhowDB = () => {
                                                         }
                                                     }}
                                                     disabled={isUploading}
-                                                    className="hidden group-hover:flex p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors"
+                                                    className="flex p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors"
                                                     title="Analyze & Index"
                                                 >
                                                     <Sparkles className="w-3 h-3" />
