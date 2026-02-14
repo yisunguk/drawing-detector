@@ -372,7 +372,7 @@ const KnowhowDB = () => {
         if (isAnalyzingAll || !activeFolder) return;
         const toAnalyze = files.filter(f => {
             const status = indexStatus[f.name];
-            return !status || !(status.indexed_pages > 0);
+            return !status || (!status.json_exists && !(status.indexed_pages > 0));
         });
         if (toAnalyze.length === 0) {
             alert('분석할 파일이 없습니다.');
@@ -1155,7 +1155,7 @@ const KnowhowDB = () => {
                             <div className="flex items-center justify-between mb-2 px-1">
                                 <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Files</div>
                                 <div className="flex items-center gap-1">
-                                    {isAdmin && files.some(f => !(indexStatus[f.name]?.indexed_pages > 0)) && (
+                                    {isAdmin && files.some(f => { const s = indexStatus[f.name]; return !s || (!s.json_exists && !(s.indexed_pages > 0)); }) && (
                                         <button
                                             onClick={handleAnalyzeAll}
                                             disabled={isAnalyzingAll || isUploading}
@@ -1244,8 +1244,8 @@ const KnowhowDB = () => {
                                                     <RefreshCcw className="w-3 h-3" />
                                                 </button>
                                             )}
-                                            {/* Admin analyze button - for files not fully indexed */}
-                                            {isAdmin && !(fStatus?.indexed_pages > 0) && (
+                                            {/* Admin analyze button - for files without JSON and not indexed */}
+                                            {isAdmin && !fStatus?.json_exists && !(fStatus?.indexed_pages > 0) && (
                                                 <button
                                                     onClick={async (e) => {
                                                         e.stopPropagation();
