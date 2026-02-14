@@ -242,24 +242,37 @@ def reindex_from_json(req: ReindexRequest):
                 page = json.loads(data)
                 pages_data.append(page)
         else:
-            # Try legacy format: {username}/json/{filename}.json
-            legacy_path = f"{req.username}/json/{req.filename}.json"
-            print(f"[reindex] Trying legacy format: {legacy_path}", flush=True)
-            try:
-                blob_client = container_client.get_blob_client(legacy_path)
-                data = blob_client.download_blob().readall()
-                json_content = json.loads(data)
-                # Legacy format may have pages_data as a list or wrapped in an object
-                if isinstance(json_content, list):
-                    pages_data = json_content
-                elif isinstance(json_content, dict) and "pages" in json_content:
-                    pages_data = json_content["pages"]
-                elif isinstance(json_content, dict) and "pages_data" in json_content:
-                    pages_data = json_content["pages_data"]
-                else:
-                    pages_data = [json_content]
-            except ResourceNotFoundError:
+            # Try legacy formats:
+            #   1) {username}/json/{filename}.json  (e.g. file.pdf.json)
+            #   2) {username}/json/{basename}.json  (e.g. file.json, without .pdf)
+            candidates = [f"{req.username}/json/{req.filename}.json"]
+            if req.filename.lower().endswith('.pdf'):
+                candidates.append(f"{req.username}/json/{req.filename[:-4]}.json")
+
+            data = None
+            for legacy_path in candidates:
+                print(f"[reindex] Trying legacy format: {legacy_path}", flush=True)
+                try:
+                    blob_client = container_client.get_blob_client(legacy_path)
+                    data = blob_client.download_blob().readall()
+                    print(f"[reindex] Found JSON at: {legacy_path}", flush=True)
+                    break
+                except ResourceNotFoundError:
+                    continue
+
+            if data is None:
                 raise HTTPException(status_code=404, detail=f"No JSON analysis found for {req.filename}")
+
+            json_content = json.loads(data)
+            # Legacy format may have pages_data as a list or wrapped in an object
+            if isinstance(json_content, list):
+                pages_data = json_content
+            elif isinstance(json_content, dict) and "pages" in json_content:
+                pages_data = json_content["pages"]
+            elif isinstance(json_content, dict) and "pages_data" in json_content:
+                pages_data = json_content["pages_data"]
+            else:
+                pages_data = [json_content]
 
         if not pages_data:
             raise HTTPException(status_code=404, detail=f"No page data found for {req.filename}")
