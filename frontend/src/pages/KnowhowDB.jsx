@@ -55,7 +55,8 @@ const getReindexApiUrl = () => {
 };
 
 const buildBlobUrl = (blobPath) => {
-    return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodeURIComponent(blobPath)}?${AZURE_SAS_TOKEN}`;
+    const encodedPath = blobPath.split('/').map(s => encodeURIComponent(s)).join('/');
+    return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodedPath}?${AZURE_SAS_TOKEN}`;
 };
 
 const KnowhowDB = () => {
@@ -599,9 +600,12 @@ const KnowhowDB = () => {
         const filename = result.filename;
         const page = result.page || 1;
 
+        console.log('[DEBUG] handleResultClick result:', { filename, page, blob_path: result.blob_path, user_id: result.user_id, category: result.category });
+
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
             const url = buildBlobUrl(result.blob_path);
+            console.log('[DEBUG] Opening via blob_path:', result.blob_path, '→ URL:', url);
             openDocument(url, page, filename);
             return;
         }
@@ -612,7 +616,9 @@ const KnowhowDB = () => {
         if (!folder) folder = 'documents';
 
         const resultUser = result.user_id || browseUsername || username;
-        const url = buildBlobUrl(`${resultUser}/${folder}/${filename}`);
+        const blobPath = `${resultUser}/${folder}/${filename}`;
+        const url = buildBlobUrl(blobPath);
+        console.log('[DEBUG] Opening via fallback:', blobPath, '→ URL:', url);
         openDocument(url, page, filename);
     };
 
