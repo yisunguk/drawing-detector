@@ -201,7 +201,7 @@ def _call_gpt_for_linelist(page_texts: list[dict]) -> list[dict]:
             {"role": "user", "content": user_message},
         ],
         temperature=0.1,
-        max_tokens=4096,
+        max_completion_tokens=4096,
     )
 
     raw_response = response.choices[0].message.content.strip()
