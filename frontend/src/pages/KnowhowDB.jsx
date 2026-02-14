@@ -882,20 +882,20 @@ const KnowhowDB = () => {
                                                 <FileText className="w-3.5 h-3.5 flex-shrink-0" />
                                                 <span className="truncate">{file.name}</span>
                                                 {/* Index status indicator (admin only) */}
-                                                {fStatus && (
+                                                {isAdmin && (
                                                     <span
                                                         className="flex-shrink-0"
                                                         title={
-                                                            fStatus.indexed_pages > 0
+                                                            fStatus?.indexed_pages > 0
                                                                 ? `Indexed: ${fStatus.indexed_pages} pages`
-                                                                : fStatus.json_exists
+                                                                : fStatus?.json_exists
                                                                     ? 'JSON exists, not indexed'
                                                                     : 'Not analyzed'
                                                         }
                                                     >
-                                                        {fStatus.indexed_pages > 0 ? (
+                                                        {fStatus?.indexed_pages > 0 ? (
                                                             <span className="text-green-500 font-medium text-[10px]">●{fStatus.indexed_pages}p</span>
-                                                        ) : fStatus.json_exists ? (
+                                                        ) : fStatus?.json_exists ? (
                                                             <span className="text-orange-500 text-[10px]">●</span>
                                                         ) : (
                                                             <span className="text-red-400 text-[10px]">●</span>
