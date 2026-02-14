@@ -535,7 +535,26 @@ const KnowhowDB = () => {
                 const page = await pdfDocObj.getPage(pdfPage);
                 const viewport = viewportRef.current;
                 const textContent = await page.getTextContent();
-                const keywords = highlightKeyword.toLowerCase().split(/\s+/).filter(k => k.length >= 2);
+                const stopWords = new Set([
+                    // Korean filler
+                    '알려', '주세요', '해줘', '해주세요', '뭐야', '뭔가', '있나요', '인가요', '인지', '무엇',
+                    '어떤', '어떻게', '얼마나', '대해', '관련', '관해', '입니다', '있는', '하는', '그리고',
+                    '또는', '에서', '으로', '에게', '부터', '까지', '이것', '저것', '그것',
+                    // English filler
+                    'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her',
+                    'was', 'one', 'our', 'out', 'had', 'has', 'its', 'let', 'say', 'she',
+                    'too', 'use', 'how', 'what', 'where', 'when', 'which', 'who', 'why',
+                    'about', 'from', 'into', 'that', 'than', 'them', 'then', 'they',
+                    'this', 'will', 'with', 'have', 'been', 'each', 'make', 'like',
+                    'please', 'tell', 'show', 'find', 'give', 'help',
+                ]);
+                const keywords = highlightKeyword.toLowerCase().split(/\s+/).filter(k => {
+                    if (k.length < 2) return false;
+                    if (stopWords.has(k)) return false;
+                    // English words: require length >= 4 to avoid matching common short words
+                    if (/^[a-z0-9]+$/.test(k) && k.length < 4) return false;
+                    return true;
+                });
                 const rects = [];
 
                 for (const item of textContent.items) {
