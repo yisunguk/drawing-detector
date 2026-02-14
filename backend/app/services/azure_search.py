@@ -8,6 +8,7 @@ from openai import AzureOpenAI
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 from app.core.config import settings
+from app.services.blob_storage import get_container_client
 
 logger = logging.getLogger(__name__)
 
@@ -382,6 +383,102 @@ class AzureSearchService:
         except Exception as e:
             logger.error(f"Failed to get indexed facets for {username}: {e}")
             return {}
+
+    def cleanup_orphaned_index(self, username: str) -> dict:
+        """
+        Finds index documents whose blob no longer exists and deletes them.
+        Returns {"deleted_count": int, "deleted_files": list[str]}.
+        """
+        if not self.client:
+            logger.warning("Search client not initialized.")
+            return {"deleted_count": 0, "deleted_files": []}
+
+        print(f"[AzureSearch] Starting orphaned index cleanup for user: {username}", flush=True)
+
+        # 1. Collect all index documents for this user
+        all_docs = []  # list of {"id": ..., "blob_path": ..., "source": ...}
+        try:
+            results = self.client.search(
+                search_text="*",
+                filter=f"blob_path ge '{username}/' and blob_path lt '{username}0'",
+                select=["id", "blob_path", "source"],
+                top=1000,
+            )
+            for doc in results:
+                all_docs.append({
+                    "id": doc["id"],
+                    "blob_path": doc.get("blob_path", ""),
+                    "source": doc.get("source", ""),
+                })
+            # Handle paging if > 1000 docs (continuation)
+            while True:
+                try:
+                    page = results.get_next()
+                    if not page:
+                        break
+                    for doc in page:
+                        all_docs.append({
+                            "id": doc["id"],
+                            "blob_path": doc.get("blob_path", ""),
+                            "source": doc.get("source", ""),
+                        })
+                except StopIteration:
+                    break
+        except Exception as e:
+            logger.error(f"Failed to query index for cleanup: {e}")
+            return {"deleted_count": 0, "deleted_files": []}
+
+        print(f"[AzureSearch] Found {len(all_docs)} index documents for {username}", flush=True)
+
+        if not all_docs:
+            return {"deleted_count": 0, "deleted_files": []}
+
+        # 2. Get unique blob_paths and check existence
+        unique_paths = set(d["blob_path"] for d in all_docs if d["blob_path"])
+        print(f"[AzureSearch] Checking {len(unique_paths)} unique blob paths...", flush=True)
+
+        missing_paths = set()
+        try:
+            container_client = get_container_client()
+            for blob_path in unique_paths:
+                try:
+                    blob_client = container_client.get_blob_client(blob_path)
+                    if not blob_client.exists():
+                        missing_paths.add(blob_path)
+                except Exception:
+                    missing_paths.add(blob_path)
+        except Exception as e:
+            logger.error(f"Failed to check blob existence: {e}")
+            return {"deleted_count": 0, "deleted_files": []}
+
+        if not missing_paths:
+            print(f"[AzureSearch] No orphaned index entries found.", flush=True)
+            return {"deleted_count": 0, "deleted_files": []}
+
+        # 3. Collect doc IDs to delete and filenames
+        docs_to_delete = [d["id"] for d in all_docs if d["blob_path"] in missing_paths]
+        deleted_files = sorted(set(
+            d["source"] for d in all_docs if d["blob_path"] in missing_paths and d["source"]
+        ))
+
+        print(f"[AzureSearch] Found {len(docs_to_delete)} orphaned documents from {len(deleted_files)} files", flush=True)
+
+        # 4. Batch delete (1000 docs per batch)
+        BATCH_SIZE = 1000
+        total_deleted = 0
+        for i in range(0, len(docs_to_delete), BATCH_SIZE):
+            batch_ids = docs_to_delete[i:i + BATCH_SIZE]
+            batch_docs = [{"id": doc_id} for doc_id in batch_ids]
+            try:
+                result = self.client.delete_documents(documents=batch_docs)
+                succeeded = sum(1 for r in result if r.succeeded)
+                total_deleted += succeeded
+                print(f"[AzureSearch] Deleted batch {i // BATCH_SIZE + 1}: {succeeded}/{len(batch_ids)}", flush=True)
+            except Exception as e:
+                logger.error(f"Batch delete failed at offset {i}: {e}")
+
+        print(f"[AzureSearch] Cleanup complete: {total_deleted} documents deleted", flush=True)
+        return {"deleted_count": total_deleted, "deleted_files": deleted_files}
 
 
 azure_search_service = AzureSearchService()

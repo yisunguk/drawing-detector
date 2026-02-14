@@ -54,6 +54,10 @@ const getReindexApiUrl = () => {
     return `${API_BASE}/api/v1/azure/reindex-from-json`;
 };
 
+const getCleanupIndexApiUrl = () => {
+    return `${API_BASE}/api/v1/azure/cleanup-index`;
+};
+
 const buildBlobUrl = (blobPath) => {
     const encodedPath = blobPath.split('/').map(s => encodeURIComponent(s)).join('/');
     return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodedPath}?${AZURE_SAS_TOKEN}`;
@@ -117,6 +121,7 @@ const KnowhowDB = () => {
     const [isReindexing, setIsReindexing] = useState(false);
     const [reindexingFile, setReindexingFile] = useState(null);
     const [isIndexingAll, setIsIndexingAll] = useState(false);
+    const [isCleaningIndex, setIsCleaningIndex] = useState(false);
 
     // === Left Sidebar Resize ===
     const [leftWidth, setLeftWidth] = useState(320);
@@ -350,6 +355,35 @@ const KnowhowDB = () => {
             setIsIndexingAll(false);
             setIsReindexing(false);
             setReindexingFile(null);
+        }
+    };
+
+    const handleCleanupIndex = async () => {
+        if (isCleaningIndex || !browseUsername) return;
+        if (!confirm(`"${browseUsername}" 사용자의 삭제된 파일 인덱스를 정리하시겠습니까?`)) return;
+        setIsCleaningIndex(true);
+        try {
+            const res = await fetch(getCleanupIndexApiUrl(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: browseUsername })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || 'Cleanup failed');
+            }
+            const data = await res.json();
+            if (data.deleted_count > 0) {
+                alert(`인덱스 정리 완료: ${data.deleted_count}개 항목 삭제\n\n삭제된 파일:\n${data.deleted_files.join('\n')}`);
+                await loadIndexStatus(browseUsername);
+            } else {
+                alert('정리할 orphaned 인덱스가 없습니다.');
+            }
+        } catch (e) {
+            console.error('Cleanup failed:', e);
+            alert(`인덱스 정리 실패: ${e.message}`);
+        } finally {
+            setIsCleaningIndex(false);
         }
     };
 
@@ -600,12 +634,9 @@ const KnowhowDB = () => {
         const filename = result.filename;
         const page = result.page || 1;
 
-        console.log('[DEBUG] handleResultClick result:', { filename, page, blob_path: result.blob_path, user_id: result.user_id, category: result.category });
-
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
             const url = buildBlobUrl(result.blob_path);
-            console.log('[DEBUG] Opening via blob_path:', result.blob_path, '→ URL:', url);
             openDocument(url, page, filename);
             return;
         }
@@ -618,7 +649,6 @@ const KnowhowDB = () => {
         const resultUser = result.user_id || browseUsername || username;
         const blobPath = `${resultUser}/${folder}/${filename}`;
         const url = buildBlobUrl(blobPath);
-        console.log('[DEBUG] Opening via fallback:', blobPath, '→ URL:', url);
         openDocument(url, page, filename);
     };
 
@@ -968,6 +998,17 @@ const KnowhowDB = () => {
                             <div className="flex items-center justify-between mb-2 px-1">
                                 <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Files</div>
                                 <div className="flex items-center gap-1">
+                                    {isAdmin && (
+                                        <button
+                                            onClick={handleCleanupIndex}
+                                            disabled={isCleaningIndex}
+                                            className="flex items-center gap-1 px-2 py-1 bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white rounded text-xs font-medium transition-colors"
+                                            title="삭제된 파일의 인덱스 정리"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                            {isCleaningIndex ? '정리 중...' : '인덱스 정리'}
+                                        </button>
+                                    )}
                                     {isAdmin && files.some(f => indexStatus[f.name]?.json_exists && !indexStatus[f.name]?.indexed_pages) && (
                                         <button
                                             onClick={handleIndexAll}

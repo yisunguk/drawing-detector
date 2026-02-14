@@ -17,6 +17,10 @@ class ReindexRequest(BaseModel):
     filename: str
     category: str
 
+
+class CleanupIndexRequest(BaseModel):
+    username: str
+
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
@@ -268,4 +272,17 @@ def reindex_from_json(req: ReindexRequest):
         raise
     except Exception as e:
         print(f"Error in reindex_from_json: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cleanup-index")
+def cleanup_index(req: CleanupIndexRequest):
+    """Delete index entries whose blobs no longer exist in storage."""
+    try:
+        print(f"[cleanup-index] Starting cleanup for user: {req.username}", flush=True)
+        result = azure_search_service.cleanup_orphaned_index(req.username)
+        print(f"[cleanup-index] Done: {result['deleted_count']} documents removed", flush=True)
+        return result
+    except Exception as e:
+        print(f"Error in cleanup_index: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
