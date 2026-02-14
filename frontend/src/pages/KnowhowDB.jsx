@@ -892,8 +892,8 @@ const KnowhowDB = () => {
                                                     )
                                                 )}
                                             </div>
-                                            {/* Admin reindex button - only for un-indexed files with JSON */}
-                                            {isAdmin && fStatus && fStatus.json_exists && !fStatus.indexed_pages && (
+                                            {/* Admin reindex button - for un-indexed files with JSON */}
+                                            {isAdmin && fStatus?.json_exists && !fStatus?.indexed_pages && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -906,6 +906,49 @@ const KnowhowDB = () => {
                                                     title="Reindex from JSON"
                                                 >
                                                     <RefreshCcw className="w-3 h-3" />
+                                                </button>
+                                            )}
+                                            {/* Admin analyze button - for files with no JSON at all */}
+                                            {isAdmin && !fStatus?.json_exists && !fStatus?.indexed_pages && (
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        if (!confirm(`Analyze "${file.name}"?`)) return;
+                                                        setIsUploading(true);
+                                                        setUploadStatus(`Analyzing ${file.name}...`);
+                                                        try {
+                                                            let totalPages = 1;
+                                                            try {
+                                                                const pdfjs = await loadPdfJs();
+                                                                const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
+                                                                totalPages = pdf.numPages;
+                                                            } catch {}
+                                                            await startAnalysis(file.name, totalPages, browseUsername, activeFolder, true);
+                                                            await pollAnalysisStatus(file.name, (statusData) => {
+                                                                if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
+                                                                    const completed = statusData.completed_chunks || [];
+                                                                    let done = 0;
+                                                                    for (const c of completed) {
+                                                                        const [s, en] = c.split('-').map(Number);
+                                                                        done += (en - s + 1);
+                                                                    }
+                                                                    setUploadStatus(`Analyzing ${file.name}... (${done}/${totalPages}p)`);
+                                                                }
+                                                            }, totalPages);
+                                                            setUploadStatus('Done!');
+                                                            await loadIndexStatus(browseUsername);
+                                                        } catch (err) {
+                                                            alert('Analysis failed: ' + err.message);
+                                                        } finally {
+                                                            setIsUploading(false);
+                                                            setUploadStatus('');
+                                                        }
+                                                    }}
+                                                    disabled={isUploading}
+                                                    className="hidden group-hover:flex p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors"
+                                                    title="Analyze & Index"
+                                                >
+                                                    <Sparkles className="w-3 h-3" />
                                                 </button>
                                             )}
                                             {activeFolder === 'my-documents' && (
