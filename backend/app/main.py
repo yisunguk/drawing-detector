@@ -89,6 +89,13 @@ try:
 except Exception as e:
     print(f"Error loading notice module: {e}")
 
+# Enable Line List Router
+try:
+    from app.api.endpoints import linelist
+    app.include_router(linelist.router, prefix=f"{settings.API_V1_STR}/linelist", tags=["linelist"])
+except Exception as e:
+    print(f"Error loading linelist module: {e}")
+
 # Mount uploads directory to serve static files if it exists
 uploads_dir = Path("uploads")
 if not uploads_dir.exists():

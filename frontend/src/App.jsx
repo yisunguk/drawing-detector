@@ -51,6 +51,7 @@ const PublicRoute = ({ children }) => {
 // Import new pages
 import LandingPage from './pages/LandingPage';
 import KnowhowDB from './pages/KnowhowDB';
+import LineList from './pages/LineList';
 
 const App = () => {
     return (
@@ -98,6 +99,15 @@ const App = () => {
                             element={
                                 <PrivateRoute>
                                     <KnowhowDB />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* P&ID Line List */}
+                        <Route
+                            path="/line-list"
+                            element={
+                                <PrivateRoute>
+                                    <LineList />
                                 </PrivateRoute>
                             }
                         />
