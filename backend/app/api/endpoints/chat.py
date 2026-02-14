@@ -189,7 +189,7 @@ class ChatRequest(BaseModel):
     history: Optional[List[ChatMessage]] = None  # Conversation history for context memory
     viewing_context: Optional[str] = None  # Current page context from frontend (user's viewport)
     target_user: Optional[str] = None  # Admin-only: filter search to a specific user folder
-    categories: Optional[List[str]] = None  # Folder scope filter (e.g. ["documents", "drawings"])
+    target_users: Optional[List[str]] = None  # Admin-only: multi-user scope filter
 
 class ChatResponse(BaseModel):
     response: str
@@ -280,10 +280,18 @@ async def chat(
                 is_admin = (user_name and '관리자' in user_name) or (email_prefix and email_prefix.lower() == 'admin')
 
                 if is_admin:
-                    if request.target_user:
-                        # Filter by blob_path (relative path) rather than user_id,
-                        # because user_id reflects who ran the analysis, not where the file lives.
-                        # blob_path stores relative paths like "이승준/documents/file.pdf"
+                    if request.target_users and len(request.target_users) > 0:
+                        # Multi-user scope: OR'd blob_path filters
+                        user_parts = []
+                        for tu in request.target_users:
+                            safe_tu = validate_and_sanitize_user_id(tu)
+                            user_parts.append(f"(blob_path ge '{safe_tu}/' and blob_path lt '{safe_tu}0')")
+                        user_filter = " or ".join(user_parts)
+                        if len(user_parts) > 1:
+                            user_filter = f"({user_filter})"
+                        print(f"[Chat] Admin multi-user scope: {request.target_users}", flush=True)
+                    elif request.target_user:
+                        # Single user filter by blob_path
                         safe_target = validate_and_sanitize_user_id(request.target_user)
                         user_filter = f"blob_path ge '{safe_target}/' and blob_path lt '{safe_target}0'"
                         print(f"[Chat] Admin targeting user folder: {request.target_user} → blob_path filter", flush=True)
@@ -361,13 +369,6 @@ async def chat(
             # IMPORTANT: Use OData 'source eq' for exact matching, NOT search.ismatch
             # search.ismatch tokenizes Korean filenames and matches wrong documents
             search_filter = user_filter  # None for admin, OData string for regular users
-
-            # Apply categories (folder scope) filter
-            if request.categories and len(request.categories) > 0:
-                cat_parts = [f"category eq '{c.replace(chr(39), chr(39)*2)}'" for c in request.categories]
-                cat_filter = "(" + " or ".join(cat_parts) + ")"
-                search_filter = f"({search_filter}) and {cat_filter}" if search_filter else cat_filter
-                print(f"[Chat] Applied category filter: {cat_filter}", flush=True)
 
             if request.doc_ids and len(request.doc_ids) > 0:
                 print(f"[Chat] Applying doc_ids filter at Azure Search level: {request.doc_ids}")

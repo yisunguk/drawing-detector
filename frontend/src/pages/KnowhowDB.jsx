@@ -86,8 +86,7 @@ const KnowhowDB = () => {
     const [files, setFiles] = useState([]);
     const [loadingFiles, setLoadingFiles] = useState(false);
     const [activeDoc, setActiveDoc] = useState(null);
-    const [scopeFolders, setScopeFolders] = useState(new Set());  // search scope folders
-    const [scopeDocs, setScopeDocs] = useState(new Set());        // search scope files (doc names)
+    const [scopeUsers, setScopeUsers] = useState(new Set());  // admin: multi-user search scope
 
     // === Center State ===
     const [mode, setMode] = useState('search');
@@ -591,18 +590,15 @@ const KnowhowDB = () => {
                 return;
             }
             const idToken = await user.getIdToken();
-            // Priority: scopeDocs > scopeFolders > all
-            const docIds = scopeDocs.size > 0 ? [...scopeDocs] : null;
-            const categories = (scopeDocs.size === 0 && scopeFolders.size > 0) ? [...scopeFolders] : null;
 
             const apiUrl = getChatApiUrl();
             const body = {
                 query: query.trim(),
                 context: null,
-                doc_ids: docIds,
-                categories,
+                doc_ids: activeDoc ? [activeDoc.name] : null,
                 mode: 'search',
-                ...(isAdmin && (selectedUserFolder || treeActiveUser) && { target_user: selectedUserFolder || treeActiveUser })
+                ...(isAdmin && scopeUsers.size > 0 && { target_users: [...scopeUsers] }),
+                ...(isAdmin && scopeUsers.size === 0 && (selectedUserFolder || treeActiveUser) && { target_user: selectedUserFolder || treeActiveUser })
             };
             console.log('[KnowhowDB] Search API:', apiUrl, 'body:', JSON.stringify(body));
 
@@ -664,9 +660,6 @@ const KnowhowDB = () => {
                 return;
             }
             const idToken = await user.getIdToken();
-            // Priority: scopeDocs > scopeFolders > all
-            const docIds = scopeDocs.size > 0 ? [...scopeDocs] : null;
-            const categories = (scopeDocs.size === 0 && scopeFolders.size > 0) ? [...scopeFolders] : null;
 
             const history = chatMessages
                 .filter(m => m.role === 'user' || (m.role === 'assistant' && !m.isError))
@@ -683,11 +676,11 @@ const KnowhowDB = () => {
                     query: userMessage,
                     context: null,
                     filename: activeDoc?.name,
-                    doc_ids: docIds,
-                    categories,
+                    doc_ids: activeDoc ? [activeDoc.name] : null,
                     mode: 'chat',
                     history: history.length > 0 ? history : null,
-                    ...(isAdmin && (selectedUserFolder || treeActiveUser) && { target_user: selectedUserFolder || treeActiveUser })
+                    ...(isAdmin && scopeUsers.size > 0 && { target_users: [...scopeUsers] }),
+                    ...(isAdmin && scopeUsers.size === 0 && (selectedUserFolder || treeActiveUser) && { target_user: selectedUserFolder || treeActiveUser })
                 })
             });
 
@@ -913,7 +906,7 @@ const KnowhowDB = () => {
     // =============================================
     // CHAT HISTORY PERSISTENCE
     // =============================================
-    const chatStorageKey = `knowhow_chat_${scopeDocs.size > 0 ? [...scopeDocs].sort().join(',') : scopeFolders.size > 0 ? [...scopeFolders].sort().join(',') : 'all'}`;
+    const chatStorageKey = `knowhow_chat_${scopeUsers.size > 0 ? [...scopeUsers].sort().join(',') : activeDoc?.name || 'all'}`;
 
     useEffect(() => {
         if (mode !== 'chat') return;
@@ -925,10 +918,10 @@ const KnowhowDB = () => {
                 setChatMessages([{ role: 'assistant', content: '안녕하세요! 문서에 대해 궁금한 점을 물어보세요.' }]);
             }
         } else {
-            const scopeDesc = scopeDocs.size > 0
-                ? `${scopeDocs.size}개 파일`
-                : scopeFolders.size > 0
-                    ? `${[...scopeFolders].join(', ')} 폴더`
+            const scopeDesc = scopeUsers.size > 0
+                ? `${[...scopeUsers].join(', ')} 사용자`
+                : activeDoc
+                    ? `"${activeDoc.name}"`
                     : null;
             setChatMessages([{
                 role: 'assistant',
@@ -948,10 +941,10 @@ const KnowhowDB = () => {
     const handleResetChat = () => {
         if (!confirm('대화 내용을 초기화 하시겠습니까?')) return;
         localStorage.removeItem(chatStorageKey);
-        const scopeDesc = scopeDocs.size > 0
-            ? `${scopeDocs.size}개 파일`
-            : scopeFolders.size > 0
-                ? `${[...scopeFolders].join(', ')} 폴더`
+        const scopeDesc = scopeUsers.size > 0
+            ? `${[...scopeUsers].join(', ')} 사용자`
+            : activeDoc
+                ? `"${activeDoc.name}"`
                 : null;
         setChatMessages([{
             role: 'assistant',
@@ -1035,8 +1028,7 @@ const KnowhowDB = () => {
                                 setFiles([]);
                                 setTreeActiveUser(null);
                                 setExpandedUsers(new Set());
-                                setScopeFolders(new Set());
-                                setScopeDocs(new Set());
+                                setScopeUsers(new Set());
                             }}
                             className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-colors"
                         >
@@ -1056,44 +1048,61 @@ const KnowhowDB = () => {
                         <div className="space-y-0.5">
                             {userFolders.map(user => (
                                 <div key={user}>
-                                    <button
-                                        onClick={() => toggleTreeUser(user)}
-                                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                                            treeActiveUser === user
-                                                ? 'text-blue-700 font-medium'
-                                                : 'text-gray-600 hover:bg-gray-200'
-                                        }`}
-                                    >
-                                        <ChevronRight className={`w-3 h-3 flex-shrink-0 transition-transform ${expandedUsers.has(user) ? 'rotate-90' : ''}`} />
-                                        <Folder className="w-4 h-4 flex-shrink-0" />
-                                        <span className="truncate">{user}</span>
-                                    </button>
+                                    <div className="flex items-center gap-0.5">
+                                        <button
+                                            onClick={() => toggleTreeUser(user)}
+                                            className="p-1.5 rounded hover:bg-gray-200 transition-colors"
+                                        >
+                                            <ChevronRight className={`w-3 h-3 text-gray-500 transition-transform ${expandedUsers.has(user) ? 'rotate-90' : ''}`} />
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setScopeUsers(prev => {
+                                                    const next = new Set(prev);
+                                                    if (next.has(user)) next.delete(user);
+                                                    else next.add(user);
+                                                    return next;
+                                                });
+                                                if (!expandedUsers.has(user)) toggleTreeUser(user);
+                                            }}
+                                            className={`flex-1 flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${
+                                                scopeUsers.has(user)
+                                                    ? 'bg-blue-100 text-blue-700 font-medium'
+                                                    : treeActiveUser === user
+                                                        ? 'text-blue-700 font-medium'
+                                                        : 'text-gray-600 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            {scopeUsers.has(user)
+                                                ? <><FolderOpen className="w-4 h-4 flex-shrink-0" /><Check className="w-3.5 h-3.5 flex-shrink-0 text-blue-600" /></>
+                                                : <Folder className="w-4 h-4 flex-shrink-0" />
+                                            }
+                                            <span className="truncate">{user}</span>
+                                        </button>
+                                    </div>
                                     {expandedUsers.has(user) && userSubFolders[user]?.map(folder => (
                                         <button
                                             key={folder.name}
                                             onClick={() => {
-                                                setTreeActiveUser(user);
-                                                setActiveFolder(folder.name);
-                                                setScopeFolders(prev => {
-                                                    const next = new Set(prev);
-                                                    if (next.has(folder.name)) next.delete(folder.name);
-                                                    else next.add(folder.name);
-                                                    return next;
-                                                });
+                                                if (treeActiveUser === user && activeFolder === folder.name) {
+                                                    setActiveFolder(null);
+                                                    setActiveDoc(null);
+                                                    setFiles([]);
+                                                } else {
+                                                    setTreeActiveUser(user);
+                                                    setActiveFolder(folder.name);
+                                                    setActiveDoc(null);
+                                                }
                                             }}
-                                            className={`w-full flex items-center gap-2 pl-8 pr-3 py-1.5 rounded-lg text-sm transition-colors ${
-                                                scopeFolders.has(folder.name)
-                                                    ? 'bg-blue-100 text-blue-700 font-medium'
-                                                    : activeFolder === folder.name && treeActiveUser === user
-                                                        ? 'bg-gray-200 text-gray-600'
-                                                        : 'text-gray-500 hover:bg-gray-200'
+                                            className={`w-full flex items-center gap-2 pl-10 pr-3 py-1.5 rounded-lg text-sm transition-colors ${
+                                                activeFolder === folder.name && treeActiveUser === user
+                                                    ? 'bg-gray-200 text-blue-700 font-medium'
+                                                    : 'text-gray-500 hover:bg-gray-200'
                                             }`}
                                         >
-                                            {scopeFolders.has(folder.name)
-                                                ? <><FolderOpen className="w-3.5 h-3.5 flex-shrink-0" /><Check className="w-3 h-3 flex-shrink-0 text-blue-600" /></>
-                                                : activeFolder === folder.name && treeActiveUser === user
-                                                    ? <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />
-                                                    : <Folder className="w-3.5 h-3.5 flex-shrink-0" />
+                                            {activeFolder === folder.name && treeActiveUser === user
+                                                ? <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />
+                                                : <Folder className="w-3.5 h-3.5 flex-shrink-0" />
                                             }
                                             <span className="truncate">{folder.name}</span>
                                         </button>
@@ -1110,28 +1119,16 @@ const KnowhowDB = () => {
                             {folders.map((folder) => (
                                 <button
                                     key={folder.name}
-                                    onClick={() => {
-                                        setActiveFolder(folder.name);
-                                        setScopeFolders(prev => {
-                                            const next = new Set(prev);
-                                            if (next.has(folder.name)) next.delete(folder.name);
-                                            else next.add(folder.name);
-                                            return next;
-                                        });
-                                    }}
+                                    onClick={() => setActiveFolder(activeFolder === folder.name ? null : folder.name)}
                                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                                        scopeFolders.has(folder.name)
+                                        activeFolder === folder.name
                                             ? 'bg-blue-100 text-blue-700 font-medium'
-                                            : activeFolder === folder.name
-                                                ? 'bg-gray-200 text-gray-700'
-                                                : 'text-gray-600 hover:bg-gray-200'
+                                            : 'text-gray-600 hover:bg-gray-200'
                                     }`}
                                 >
-                                    {scopeFolders.has(folder.name)
-                                        ? <><FolderOpen className="w-4 h-4 flex-shrink-0" /><Check className="w-3 h-3 flex-shrink-0 text-blue-600" /></>
-                                        : activeFolder === folder.name
-                                            ? <FolderOpen className="w-4 h-4 flex-shrink-0" />
-                                            : <Folder className="w-4 h-4 flex-shrink-0" />
+                                    {activeFolder === folder.name
+                                        ? <FolderOpen className="w-4 h-4 flex-shrink-0" />
+                                        : <Folder className="w-4 h-4 flex-shrink-0" />
                                     }
                                     <span className="truncate">{folder.name}</span>
                                 </button>
@@ -1200,28 +1197,19 @@ const KnowhowDB = () => {
                                         <div
                                             key={file.name}
                                             className={`group flex items-center gap-2 px-3 py-2 rounded-lg text-xs cursor-pointer transition-colors ${
-                                                scopeDocs.has(file.name)
-                                                    ? 'bg-blue-100 ring-1 ring-blue-300 text-blue-700 font-medium'
-                                                    : activeDoc?.name === file.name
-                                                        ? 'bg-orange-50 text-gray-700'
-                                                        : 'text-gray-600 hover:bg-gray-200'
+                                                activeDoc?.name === file.name
+                                                    ? 'bg-blue-100 text-blue-700 font-medium'
+                                                    : 'text-gray-600 hover:bg-gray-200'
                                             }`}
                                         >
                                             <div
                                                 className="flex-1 flex items-center gap-2 min-w-0"
                                                 onClick={() => {
                                                     setActiveDoc(file);
-                                                    setScopeDocs(prev => {
-                                                        const next = new Set(prev);
-                                                        if (next.has(file.name)) next.delete(file.name);
-                                                        else next.add(file.name);
-                                                        return next;
-                                                    });
                                                     openDocument(file.pdfUrl, 1, file.name);
                                                 }}
                                             >
                                                 <FileText className="w-3.5 h-3.5 flex-shrink-0" />
-                                                {scopeDocs.has(file.name) && <Check className="w-3 h-3 flex-shrink-0 text-blue-600" />}
                                                 <span className="truncate">{file.name}</span>
                                                 {/* Index status indicator (admin only) */}
                                                 {isAdmin && (
@@ -1337,7 +1325,6 @@ const KnowhowDB = () => {
                                                                 loadFiles(activeFolder);
                                                                 loadIndexStatus(browseUsername);
                                                                 if (activeDoc?.name === file.name) setActiveDoc(null);
-                                                                setScopeDocs(prev => { const next = new Set(prev); next.delete(file.name); return next; });
                                                             } else {
                                                                 throw new Error('Delete failed');
                                                             }
@@ -1418,16 +1405,18 @@ const KnowhowDB = () => {
                     </button>
 
                     <div className="ml-auto flex items-center gap-2">
-                        {(scopeFolders.size > 0 || scopeDocs.size > 0) && (
+                        {scopeUsers.size > 0 && (
                             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
                                 <SearchIcon className="w-3 h-3" />
-                                <span>
-                                    {scopeDocs.size > 0
-                                        ? `${scopeDocs.size}개 파일 선택`
-                                        : `${scopeFolders.size}개 폴더 선택`
-                                    }
-                                </span>
-                                <button onClick={() => { setScopeFolders(new Set()); setScopeDocs(new Set()); }} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                                <span>{scopeUsers.size}명 사용자 선택</span>
+                                <button onClick={() => setScopeUsers(new Set())} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                            </div>
+                        )}
+                        {activeDoc && !scopeUsers.size && (
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+                                <FileText className="w-3 h-3" />
+                                <span className="truncate max-w-[200px]">{activeDoc.name}</span>
+                                <button onClick={() => setActiveDoc(null)} className="hover:text-red-500"><X className="w-3 h-3" /></button>
                             </div>
                         )}
                         {mode === 'chat' && (
@@ -1439,25 +1428,18 @@ const KnowhowDB = () => {
                 </div>
 
                 {/* Scope Bar */}
-                {(scopeFolders.size > 0 || scopeDocs.size > 0) && (
+                {scopeUsers.size > 0 && (
                     <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center gap-2 flex-wrap flex-shrink-0">
                         <span className="text-xs font-medium text-blue-600">검색 범위:</span>
-                        {[...scopeFolders].map(f => (
-                            <span key={`sf-${f}`} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs">
-                                <Folder className="w-3 h-3" />
-                                {f}
-                                <button onClick={() => setScopeFolders(prev => { const n = new Set(prev); n.delete(f); return n; })} className="hover:text-red-500"><X className="w-3 h-3" /></button>
-                            </span>
-                        ))}
-                        {[...scopeDocs].map(d => (
-                            <span key={`sd-${d}`} className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs">
-                                <FileText className="w-3 h-3" />
-                                <span className="max-w-[150px] truncate">{d}</span>
-                                <button onClick={() => setScopeDocs(prev => { const n = new Set(prev); n.delete(d); return n; })} className="hover:text-red-500"><X className="w-3 h-3" /></button>
+                        {[...scopeUsers].map(u => (
+                            <span key={`su-${u}`} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs">
+                                <User className="w-3 h-3" />
+                                {u}
+                                <button onClick={() => setScopeUsers(prev => { const n = new Set(prev); n.delete(u); return n; })} className="hover:text-red-500"><X className="w-3 h-3" /></button>
                             </span>
                         ))}
                         <button
-                            onClick={() => { setScopeFolders(new Set()); setScopeDocs(new Set()); }}
+                            onClick={() => setScopeUsers(new Set())}
                             className="text-xs text-blue-500 hover:text-blue-700 ml-1 underline"
                         >
                             초기화
@@ -1610,15 +1592,15 @@ const KnowhowDB = () => {
                             onKeyDown={handleKeyDown}
                             placeholder={
                                 mode === 'search'
-                                    ? (scopeDocs.size > 0
-                                        ? `${scopeDocs.size}개 파일에서 검색...`
-                                        : scopeFolders.size > 0
-                                            ? `${[...scopeFolders].join(', ')} 폴더에서 검색...`
+                                    ? (scopeUsers.size > 0
+                                        ? `${[...scopeUsers].join(', ')} 사용자 문서에서 검색...`
+                                        : activeDoc
+                                            ? `"${activeDoc.name}" 내 검색...`
                                             : '전체 문서 검색...')
-                                    : (scopeDocs.size > 0
-                                        ? `${scopeDocs.size}개 파일에 대해 질문...`
-                                        : scopeFolders.size > 0
-                                            ? `${[...scopeFolders].join(', ')} 폴더에 대해 질문...`
+                                    : (scopeUsers.size > 0
+                                        ? `${[...scopeUsers].join(', ')} 사용자 문서에 대해 질문...`
+                                        : activeDoc
+                                            ? `"${activeDoc.name}"에 대해 질문...`
                                             : '문서에 대해 질문...')
                             }
                             className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all resize-none h-[50px] max-h-[120px] overflow-y-auto placeholder-[#a0a0a0]"
