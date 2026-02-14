@@ -570,6 +570,15 @@ const KnowhowDB = () => {
     const handleResultClick = (result) => {
         const filename = result.filename;
         const page = result.page || 1;
+
+        // Use blob_path directly if available (most reliable — exact path in storage)
+        if (result.blob_path) {
+            const url = buildBlobUrl(result.blob_path);
+            openPdf(url, page);
+            return;
+        }
+
+        // Fallback: construct URL from user/folder/filename
         let folder = fileMapRef.current[filename] || result.category;
         if (!folder && activeDoc && activeDoc.name === filename) folder = activeDoc.folder;
         if (!folder) folder = 'documents';

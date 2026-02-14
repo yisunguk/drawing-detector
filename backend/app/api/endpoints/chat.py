@@ -19,6 +19,7 @@ _FILLER = {'알려', '주세요', '알려주세요', '하세요', '해주세요'
            'please', 'tell', 'what', 'about', 'the', 'show'}
 
 _XML_COMMENT_RE = re.compile(r'<!--.*?-->', re.DOTALL)
+_PARTIAL_XML_COMMENT_RE = re.compile(r'--\s*Page(?:Number|Header|Footer|Break)\s*(?:=\s*"[^"]*")?\s*-->')
 _HTML_TAG_RE = re.compile(r'<[^>]+>')
 _MULTI_SPACE_RE = re.compile(r'[ \t]+')
 _MULTI_NEWLINE_RE = re.compile(r'\n{3,}')
@@ -54,6 +55,7 @@ def _clean_content(text: str) -> str:
     if not text:
         return ""
     text = _XML_COMMENT_RE.sub('', text)
+    text = _PARTIAL_XML_COMMENT_RE.sub('', text)
     text = _HTML_TAG_RE.sub('', text)
     text = _MULTI_SPACE_RE.sub(' ', text)
     text = _MULTI_NEWLINE_RE.sub('\n\n', text)
@@ -460,6 +462,7 @@ async def chat(
                         "highlight": highlight_text,
                         "score": score,
                         "path": path,
+                        "blob_path": res.get("blob_path") or "",
                         "coords": res.get("coords"),
                         "type": res.get("type"),
                         "category": res.get("category"),
