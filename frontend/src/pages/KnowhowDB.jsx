@@ -37,6 +37,14 @@ const getListApiUrl = (path) => {
     return `${API_BASE}/api/v1/azure/list?path=${encodeURIComponent(path)}`;
 };
 
+const getIndexStatusApiUrl = (username) => {
+    return `${API_BASE}/api/v1/azure/index-status?username=${encodeURIComponent(username)}`;
+};
+
+const getReindexApiUrl = () => {
+    return `${API_BASE}/api/v1/azure/reindex-from-json`;
+};
+
 const buildBlobUrl = (blobPath) => {
     return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodeURIComponent(blobPath)}?${AZURE_SAS_TOKEN}`;
 };
@@ -85,6 +93,12 @@ const KnowhowDB = () => {
     const [isUploading, setIsUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState('');
     const fileInputRef = useRef(null);
+
+    // === Index Status State (Admin) ===
+    const [indexStatus, setIndexStatus] = useState({});
+    const [isReindexing, setIsReindexing] = useState(false);
+    const [reindexingFile, setReindexingFile] = useState(null);
+    const [isIndexingAll, setIsIndexingAll] = useState(false);
 
     // === Refs ===
     const canvasRef = useRef(null);
@@ -174,6 +188,114 @@ const KnowhowDB = () => {
             setFiles([]);
         } finally {
             setLoadingFiles(false);
+        }
+    };
+
+    // =============================================
+    // INDEX STATUS (Admin only)
+    // =============================================
+    const loadIndexStatus = async (user) => {
+        if (!isAdmin || !user) return;
+        try {
+            const res = await fetch(getIndexStatusApiUrl(user));
+            if (!res.ok) throw new Error('Failed to load index status');
+            const data = await res.json();
+            setIndexStatus(data.files || {});
+        } catch (e) {
+            console.error('Failed to load index status:', e);
+            setIndexStatus({});
+        }
+    };
+
+    useEffect(() => {
+        if (isAdmin && browseUsername && activeFolder) {
+            loadIndexStatus(browseUsername);
+        } else {
+            setIndexStatus({});
+        }
+    }, [isAdmin, browseUsername, activeFolder]);
+
+    const handleReindex = async (file) => {
+        if (isReindexing) return;
+        setIsReindexing(true);
+        setReindexingFile(file.name);
+        try {
+            const res = await fetch(getReindexApiUrl(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: browseUsername,
+                    filename: file.name,
+                    category: activeFolder
+                })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || 'Reindex failed');
+            }
+            const data = await res.json();
+            // Update local index status
+            setIndexStatus(prev => ({
+                ...prev,
+                [file.name]: {
+                    ...prev[file.name],
+                    indexed_pages: data.pages_indexed || 0
+                }
+            }));
+        } catch (e) {
+            console.error('Reindex failed:', e);
+            alert(`Reindex failed: ${e.message}`);
+        } finally {
+            setIsReindexing(false);
+            setReindexingFile(null);
+        }
+    };
+
+    const handleIndexAll = async () => {
+        if (isIndexingAll || !activeFolder) return;
+        // Find all files that have JSON but no index
+        const toIndex = files.filter(f => {
+            const status = indexStatus[f.name];
+            return status && status.json_exists && status.indexed_pages === 0;
+        });
+        if (toIndex.length === 0) {
+            alert('No files need reindexing.');
+            return;
+        }
+        if (!confirm(`Reindex ${toIndex.length} files?`)) return;
+        setIsIndexingAll(true);
+        setIsReindexing(true);
+        try {
+            for (const file of toIndex) {
+                setReindexingFile(file.name);
+                try {
+                    const res = await fetch(getReindexApiUrl(), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            username: browseUsername,
+                            filename: file.name,
+                            category: activeFolder
+                        })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        setIndexStatus(prev => ({
+                            ...prev,
+                            [file.name]: {
+                                ...prev[file.name],
+                                indexed_pages: data.pages_indexed || 0
+                            }
+                        }));
+                    }
+                } catch (e) {
+                    console.error(`Reindex failed for ${file.name}:`, e);
+                }
+            }
+        } finally {
+            setIsIndexingAll(false);
+            setIsReindexing(false);
+            setReindexingFile(null);
         }
     };
 
@@ -689,16 +811,29 @@ const KnowhowDB = () => {
                         <>
                             <div className="flex items-center justify-between mb-2 px-1">
                                 <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Files</div>
-                                {activeFolder === 'my-documents' && (
-                                    <button
-                                        onClick={() => fileInputRef.current?.click()}
-                                        disabled={isUploading}
-                                        className="flex items-center gap-1 px-2 py-1 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded text-xs font-medium transition-colors"
-                                    >
-                                        <Upload className="w-3 h-3" />
-                                        Upload
-                                    </button>
-                                )}
+                                <div className="flex items-center gap-1">
+                                    {isAdmin && Object.keys(indexStatus).length > 0 && (
+                                        <button
+                                            onClick={handleIndexAll}
+                                            disabled={isIndexingAll || isReindexing}
+                                            className="flex items-center gap-1 px-2 py-1 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-400 text-white rounded text-xs font-medium transition-colors"
+                                            title="Index all un-indexed files"
+                                        >
+                                            <Database className="w-3 h-3" />
+                                            {isIndexingAll ? 'Indexing...' : 'Index All'}
+                                        </button>
+                                    )}
+                                    {activeFolder === 'my-documents' && (
+                                        <button
+                                            onClick={() => fileInputRef.current?.click()}
+                                            disabled={isUploading}
+                                            className="flex items-center gap-1 px-2 py-1 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded text-xs font-medium transition-colors"
+                                        >
+                                            <Upload className="w-3 h-3" />
+                                            Upload
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                             {loadingFiles ? (
                                 <div className="flex items-center gap-2 text-xs text-gray-400 px-3 py-4">
@@ -708,7 +843,9 @@ const KnowhowDB = () => {
                                 <div className="text-xs text-gray-400 italic px-3 py-2">No files found.</div>
                             ) : (
                                 <div className="space-y-0.5">
-                                    {files.map((file) => (
+                                    {files.map((file) => {
+                                        const fStatus = isAdmin ? indexStatus[file.name] : null;
+                                        return (
                                         <div
                                             key={file.name}
                                             className={`group flex items-center gap-2 px-3 py-2 rounded-lg text-xs cursor-pointer transition-colors ${
@@ -723,7 +860,44 @@ const KnowhowDB = () => {
                                             >
                                                 <FileText className="w-3.5 h-3.5 flex-shrink-0" />
                                                 <span className="truncate">{file.name}</span>
+                                                {/* Index status indicator (admin only) */}
+                                                {fStatus && (
+                                                    <span
+                                                        className="flex-shrink-0"
+                                                        title={
+                                                            fStatus.indexed_pages > 0
+                                                                ? `Indexed: ${fStatus.indexed_pages} pages`
+                                                                : fStatus.json_exists
+                                                                    ? 'JSON exists, not indexed'
+                                                                    : 'Not analyzed'
+                                                        }
+                                                    >
+                                                        {fStatus.indexed_pages > 0 ? (
+                                                            <span className="text-green-500 font-medium text-[10px]">●{fStatus.indexed_pages}p</span>
+                                                        ) : fStatus.json_exists ? (
+                                                            <span className="text-orange-500 text-[10px]">●</span>
+                                                        ) : (
+                                                            <span className="text-red-400 text-[10px]">●</span>
+                                                        )}
+                                                    </span>
+                                                )}
                                             </div>
+                                            {/* Admin reindex button */}
+                                            {isAdmin && fStatus && fStatus.json_exists && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleReindex(file);
+                                                    }}
+                                                    disabled={isReindexing}
+                                                    className={`hidden group-hover:flex p-1 hover:bg-orange-100 rounded text-orange-600 transition-colors ${
+                                                        reindexingFile === file.name ? '!flex animate-spin' : ''
+                                                    }`}
+                                                    title="Reindex from JSON"
+                                                >
+                                                    <RefreshCcw className="w-3 h-3" />
+                                                </button>
+                                            )}
                                             {activeFolder === 'my-documents' && (
                                                 <>
                                                     <button
@@ -781,7 +955,8 @@ const KnowhowDB = () => {
                                                 </>
                                             )}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </>
@@ -793,6 +968,14 @@ const KnowhowDB = () => {
                     <div className="px-4 py-2 bg-blue-50 border-t border-blue-100 text-xs text-blue-700 flex items-center gap-2">
                         <Loader2 className="w-3 h-3 animate-spin" />
                         <span className="truncate">{uploadStatus}</span>
+                    </div>
+                )}
+
+                {/* Reindex Status */}
+                {isReindexing && reindexingFile && (
+                    <div className="px-4 py-2 bg-orange-50 border-t border-orange-100 text-xs text-orange-700 flex items-center gap-2">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span className="truncate">Reindexing: {reindexingFile}</span>
                     </div>
                 )}
 

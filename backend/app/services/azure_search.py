@@ -359,4 +359,29 @@ class AzureSearchService:
                     logger.error(f"Final failure uploading batch: {e}")
 
 
+    def get_indexed_facets(self, username: str) -> dict:
+        """
+        Returns {filename: indexed_page_count} for a given user
+        by querying Azure Search facets on the 'source' field.
+        """
+        if not self.client:
+            logger.warning("Search client not initialized. Cannot get facets.")
+            return {}
+
+        try:
+            results = self.client.search(
+                search_text="*",
+                filter=f"blob_path ge '{username}/' and blob_path lt '{username}0'",
+                facets=["source,count:1000"],
+                top=0
+            )
+            facets = results.get_facets()
+            if not facets or "source" not in facets:
+                return {}
+            return {f["value"]: f["count"] for f in facets["source"]}
+        except Exception as e:
+            logger.error(f"Failed to get indexed facets for {username}: {e}")
+            return {}
+
+
 azure_search_service = AzureSearchService()
