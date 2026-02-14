@@ -79,17 +79,13 @@ export const uploadToAzure = async (uploadUrl, file, onProgress) => {
 };
 
 // 3. Start Analysis
-export const startAnalysis = async (filename, totalPages, username, category = 'documents', force = false) => {
+export const startAnalysis = async (filename, totalPages, username, category = 'documents', force = false, blobName = null) => {
+    const body = { filename, total_pages: totalPages, category, username, force };
+    if (blobName) body.blob_name = blobName;
     const response = await fetch(`${API_URL}/api/v1/analyze/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            filename,
-            total_pages: totalPages,
-            category,
-            username,
-            force
-        })
+        body: JSON.stringify(body)
     });
     if (!response.ok) throw new Error('Failed to start analysis');
     return await response.json();

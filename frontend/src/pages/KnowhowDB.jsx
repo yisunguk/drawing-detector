@@ -397,7 +397,8 @@ const KnowhowDB = () => {
                         const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
                         totalPages = pdf.numPages;
                     } catch {}
-                    await startAnalysis(file.name, totalPages, browseUsername, activeFolder, true);
+                    const blobName = `${browseUsername}/${activeFolder}/${file.name}`;
+                    await startAnalysis(file.name, totalPages, browseUsername, activeFolder, true, blobName);
                     await pollAnalysisStatus(file.name, (statusData) => {
                         if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
                             const completed = statusData.completed_chunks || [];
@@ -1290,7 +1291,8 @@ const KnowhowDB = () => {
                                                                 const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
                                                                 totalPages = pdf.numPages;
                                                             } catch {}
-                                                            await startAnalysis(file.name, totalPages, browseUsername, activeFolder, true);
+                                                            const blobName = `${browseUsername}/${activeFolder}/${file.name}`;
+                                                            await startAnalysis(file.name, totalPages, browseUsername, activeFolder, true, blobName);
                                                             await pollAnalysisStatus(file.name, (statusData) => {
                                                                 if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
                                                                     const completed = statusData.completed_chunks || [];
