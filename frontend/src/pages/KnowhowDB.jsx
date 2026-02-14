@@ -143,6 +143,7 @@ const KnowhowDB = () => {
     const fileMapRef = useRef({});
     const viewportRef = useRef(null);
     const pdfContainerRef = useRef(null);
+    const lastQueryRef = useRef('');
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -577,6 +578,7 @@ const KnowhowDB = () => {
     // =============================================
     const handleSearch = async () => {
         if (!query.trim() || isSearching) return;
+        lastQueryRef.current = query.trim();
         console.log('[KnowhowDB] Starting search:', query.trim());
         setIsSearching(true);
         setSearchResults([]);
@@ -648,6 +650,7 @@ const KnowhowDB = () => {
     const handleChat = async () => {
         if (!query.trim() || isChatLoading) return;
         const userMessage = query.trim();
+        lastQueryRef.current = userMessage;
         setQuery('');
         setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
         setIsChatLoading(true);
@@ -752,7 +755,7 @@ const KnowhowDB = () => {
     const handleResultClick = (result) => {
         const filename = result.filename;
         const page = result.page || 1;
-        const keyword = query.trim() || null;
+        const keyword = query.trim() || lastQueryRef.current || null;
 
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
@@ -781,9 +784,11 @@ const KnowhowDB = () => {
 
         let targetPage = 1;
         let targetDocName = null;
+        let highlightText = null;
 
         if (keyword.includes('|')) {
             const parts = keyword.split('|');
+            highlightText = parts[0].trim();
             if (parts.length > 1) {
                 const pageMatch = parts[1].trim().match(/(\d+)/);
                 if (pageMatch) targetPage = parseInt(pageMatch[1]);
@@ -795,6 +800,9 @@ const KnowhowDB = () => {
             targetPage = parseInt(match[2]);
         }
 
+        // Use citation keyword or last query for highlighting
+        const hlKeyword = highlightText || lastQueryRef.current || null;
+
         let targetFile = null;
         if (targetDocName) {
             targetFile = files.find(f =>
@@ -805,11 +813,11 @@ const KnowhowDB = () => {
         if (!targetFile && activeDoc) targetFile = activeDoc;
 
         if (targetFile) {
-            openDocument(targetFile.pdfUrl, targetPage, targetFile.name);
+            openDocument(targetFile.pdfUrl, targetPage, targetFile.name, hlKeyword);
         } else if (targetDocName) {
             const folder = fileMapRef.current[targetDocName] || 'documents';
             const url = buildBlobUrl(`${browseUsername}/${folder}/${targetDocName}`);
-            openDocument(url, targetPage, targetDocName);
+            openDocument(url, targetPage, targetDocName, hlKeyword);
         }
     };
 
