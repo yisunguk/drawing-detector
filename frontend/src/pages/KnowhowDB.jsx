@@ -1131,60 +1131,61 @@ const KnowhowDB = () => {
                                                 </button>
                                             )}
                                             {activeFolder === 'my-documents' && (
-                                                <>
-                                                    <button
-                                                        onClick={async (e) => {
-                                                            e.stopPropagation();
-                                                            if (!confirm(`Re-analyze "${file.name}"?`)) return;
-                                                            setIsUploading(true);
-                                                            setUploadStatus(`Re-analyzing ${file.name}...`);
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        if (!confirm(`Re-analyze "${file.name}"?`)) return;
+                                                        setIsUploading(true);
+                                                        setUploadStatus(`Re-analyzing ${file.name}...`);
+                                                        try {
+                                                            let totalPages = 1;
                                                             try {
-                                                                let totalPages = 1;
-                                                                try {
-                                                                    const pdfjs = await loadPdfJs();
-                                                                    const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
-                                                                    totalPages = pdf.numPages;
-                                                                } catch {}
-                                                                await startAnalysis(file.name, totalPages, username, 'my-documents', true);
-                                                                await pollAnalysisStatus(file.name, () => {}, totalPages);
-                                                                loadFiles('my-documents');
-                                                            } catch (err) {
-                                                                alert('Re-analysis failed: ' + err.message);
-                                                            } finally {
-                                                                setIsUploading(false);
-                                                                setUploadStatus('');
+                                                                const pdfjs = await loadPdfJs();
+                                                                const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
+                                                                totalPages = pdf.numPages;
+                                                            } catch {}
+                                                            await startAnalysis(file.name, totalPages, username, 'my-documents', true);
+                                                            await pollAnalysisStatus(file.name, () => {}, totalPages);
+                                                            loadFiles('my-documents');
+                                                        } catch (err) {
+                                                            alert('Re-analysis failed: ' + err.message);
+                                                        } finally {
+                                                            setIsUploading(false);
+                                                            setUploadStatus('');
+                                                        }
+                                                    }}
+                                                    className="hidden group-hover:flex p-1 hover:bg-blue-200 rounded text-blue-600 transition-colors"
+                                                    title="Re-analyze"
+                                                >
+                                                    <RefreshCcw className="w-3 h-3" />
+                                                </button>
+                                            )}
+                                            {(activeFolder === 'my-documents' || isAdmin) && (
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        if (!confirm(`Delete "${file.name}"?`)) return;
+                                                        try {
+                                                            const res = await fetch(
+                                                                `${API_BASE}/api/v1/analyze/doc/${encodeURIComponent(file.name)}?username=${encodeURIComponent(browseUsername)}&category=${encodeURIComponent(activeFolder)}`,
+                                                                { method: 'DELETE' }
+                                                            );
+                                                            if (res.ok) {
+                                                                loadFiles(activeFolder);
+                                                                loadIndexStatus(browseUsername);
+                                                                if (activeDoc?.name === file.name) setActiveDoc(null);
+                                                            } else {
+                                                                throw new Error('Delete failed');
                                                             }
-                                                        }}
-                                                        className="hidden group-hover:flex p-1 hover:bg-blue-200 rounded text-blue-600 transition-colors"
-                                                        title="Re-analyze"
-                                                    >
-                                                        <RefreshCcw className="w-3 h-3" />
-                                                    </button>
-                                                    <button
-                                                        onClick={async (e) => {
-                                                            e.stopPropagation();
-                                                            if (!confirm(`Delete "${file.name}"?`)) return;
-                                                            try {
-                                                                const res = await fetch(
-                                                                    `${API_BASE}/api/v1/analyze/doc/${encodeURIComponent(file.name)}?username=${encodeURIComponent(username)}&category=my-documents`,
-                                                                    { method: 'DELETE' }
-                                                                );
-                                                                if (res.ok) {
-                                                                    loadFiles('my-documents');
-                                                                    if (activeDoc?.name === file.name) setActiveDoc(null);
-                                                                } else {
-                                                                    throw new Error('Delete failed');
-                                                                }
-                                                            } catch (err) {
-                                                                alert('Delete failed: ' + err.message);
-                                                            }
-                                                        }}
-                                                        className="hidden group-hover:flex p-1 hover:bg-red-100 rounded text-red-500 transition-colors"
-                                                        title="Delete"
-                                                    >
-                                                        <Trash2 className="w-3 h-3" />
-                                                    </button>
-                                                </>
+                                                        } catch (err) {
+                                                            alert('Delete failed: ' + err.message);
+                                                        }
+                                                    }}
+                                                    className="hidden group-hover:flex p-1 hover:bg-red-100 rounded text-red-500 transition-colors"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                </button>
                                             )}
                                         </div>
                                         );

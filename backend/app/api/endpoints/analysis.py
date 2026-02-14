@@ -1210,19 +1210,19 @@ async def delete_document(
         # 3. Cleanup temp chunks and status
         status_manager.reset_status(filename, username=username)
         
-        # 4. Delete from Azure Search
+        # 4. Delete from Azure Search (scoped by blob_path to avoid cross-user deletion)
         try:
-            # Reconstruct doc tags/IDs if needed, or just search by source and delete
-            # We search for all documents where 'source' == filename
             search_client = azure_search_service.client
             if search_client:
-                results = search_client.search(search_text="*", filter=f"source eq '{filename}'", select=["id"])
+                blob_path = f"{username}/{category}/{filename}" if username else f"{category}/{filename}"
+                filter_expr = f"source eq '{filename}' and blob_path eq '{blob_path}'"
+                results = search_client.search(search_text="*", filter=filter_expr, select=["id"])
                 doc_ids = [r["id"] for r in results]
                 if doc_ids:
                     search_client.delete_documents(documents=[{"id": doc_id} for doc_id in doc_ids])
-                    print(f"[Delete] Deleted {len(doc_ids)} documents from search index")
+                    print(f"[Delete] Deleted {len(doc_ids)} documents from search index (blob_path={blob_path})", flush=True)
         except Exception as e:
-            print(f"[Delete] Warning: Failed to clean Search Index: {e}")
+            print(f"[Delete] Warning: Failed to clean Search Index: {e}", flush=True)
 
         return {"status": "success", "message": f"Document {filename} deleted successfully"}
 

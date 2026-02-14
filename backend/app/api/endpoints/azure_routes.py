@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Header, Request, Response
+from fastapi import APIRouter, HTTPException, Depends, Header, Request, Response, BackgroundTasks
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from app.core.config import settings
@@ -8,8 +8,13 @@ from app.services.blob_storage import get_container_client
 from app.services.azure_search import azure_search_service
 import io
 import json
+import time
 
 router = APIRouter()
+
+# In-memory debounce: user -> last cleanup timestamp
+_cleanup_last_run: dict[str, float] = {}
+_CLEANUP_COOLDOWN_SECONDS = 300  # 5 minutes
 
 
 class ReindexRequest(BaseModel):
@@ -168,7 +173,7 @@ def download_file(path: str, range: str = Header(None)):
 
 
 @router.get("/index-status")
-def get_index_status(username: str):
+def get_index_status(username: str, background_tasks: BackgroundTasks):
     """Get indexing status for all files of a given user."""
     try:
         print(f"[index-status] Checking index status for user: {username}", flush=True)
@@ -201,10 +206,27 @@ def get_index_status(username: str):
                 "json_exists": fname in json_set
             }
 
+        # 4. Schedule background cleanup (debounced per user, 5-min cooldown)
+        now = time.time()
+        last_run = _cleanup_last_run.get(username, 0)
+        if now - last_run > _CLEANUP_COOLDOWN_SECONDS:
+            _cleanup_last_run[username] = now
+            background_tasks.add_task(_run_background_cleanup, username)
+
         return {"files": files}
     except Exception as e:
         print(f"Error in get_index_status: {e}", flush=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _run_background_cleanup(username: str):
+    """Background task to clean up orphaned index entries."""
+    try:
+        result = azure_search_service.cleanup_orphaned_index(username)
+        if result["deleted_count"] > 0:
+            print(f"[index-status] Background cleanup for {username}: removed {result['deleted_count']} orphaned entries", flush=True)
+    except Exception as e:
+        print(f"[index-status] Background cleanup error for {username}: {e}", flush=True)
 
 
 @router.post("/reindex-from-json")
