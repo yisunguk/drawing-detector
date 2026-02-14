@@ -201,11 +201,18 @@ def _call_gpt_for_linelist(page_texts: list[dict]) -> list[dict]:
             {"role": "user", "content": user_message},
         ],
         temperature=0.1,
-        max_completion_tokens=4096,
     )
 
-    raw_response = response.choices[0].message.content.strip()
+    # Debug: log full response metadata
+    choice = response.choices[0]
+    print(f"[LineList] GPT finish_reason: {choice.finish_reason}", flush=True)
+    if choice.message.refusal:
+        print(f"[LineList] GPT refusal: {choice.message.refusal}", flush=True)
+
+    raw_response = (choice.message.content or "").strip()
     print(f"[LineList] GPT response length: {len(raw_response)} chars", flush=True)
+    if len(raw_response) < 50:
+        print(f"[LineList] GPT raw: {raw_response}", flush=True)
 
     # Parse JSON response (strip markdown fences if present)
     if raw_response.startswith("```"):
