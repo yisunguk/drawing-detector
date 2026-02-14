@@ -1049,7 +1049,7 @@ const KnowhowDB = () => {
                 )}
 
                 {/* Folders */}
-                <div className="px-3 py-2">
+                <div className="overflow-y-auto px-3 py-2 min-h-[80px]" style={{ maxHeight: activeFolder ? '40%' : undefined }}>
                     <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">Folders</div>
                     {isAdmin && !selectedUserFolder ? (
                         /* Tree mode: show all users with expandable subfolders */
@@ -1146,7 +1146,7 @@ const KnowhowDB = () => {
                     )}
                 </div>
 
-                {activeFolder && <div className="border-t border-gray-200 mx-3" />}
+                {activeFolder && <div className="border-t border-gray-200 mx-3 flex-shrink-0" />}
 
                 {/* Files */}
                 <div className="flex-1 overflow-y-auto px-3 py-2">
