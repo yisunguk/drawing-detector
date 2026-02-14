@@ -435,7 +435,7 @@ async def chat(
 
                     # Build highlight text:
                     # 1. Azure highlights (preferred — already has <mark> tags)
-                    azure_highlights = res.get("@search.highlights", {}).get("content", [])
+                    azure_highlights = (res.get("@search.highlights") or {}).get("content", [])
                     if azure_highlights:
                         # Clean XML artifacts but preserve <mark> tags from Azure
                         def _clean_preserve_mark(text):
