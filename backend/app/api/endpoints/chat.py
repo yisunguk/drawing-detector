@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Body, Header
 from pydantic import BaseModel
 from typing import List, Optional
 import re
+import urllib.parse
 from openai import AzureOpenAI
 from azure.search.documents.models import VectorizedQuery
 from app.core.config import settings
@@ -182,9 +183,13 @@ async def chat(
 
                 if is_admin:
                     if request.target_user:
-                        safe_target = validate_and_sanitize_user_id(request.target_user)
-                        user_filter = f"user_id eq '{safe_target}'"
-                        print(f"[Chat] Admin targeting user folder: {request.target_user}")
+                        # Filter by metadata_storage_path (blob URL) rather than user_id,
+                        # because user_id reflects who ran the analysis, not where the file lives.
+                        encoded_target = urllib.parse.quote(request.target_user)
+                        prefix_url = f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/{settings.AZURE_BLOB_CONTAINER_NAME}/{encoded_target}/"
+                        upper_bound = prefix_url[:-1] + '0'
+                        user_filter = f"metadata_storage_path ge '{prefix_url}' and metadata_storage_path lt '{upper_bound}'"
+                        print(f"[Chat] Admin targeting user folder: {request.target_user} → path filter: {prefix_url}", flush=True)
                     else:
                         user_filter = None
                         print(f"[Chat] Admin user detected ({user_name}/{email_prefix}). Bypassing user_id filter.")
