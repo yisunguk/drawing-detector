@@ -1068,9 +1068,7 @@ const KnowhowDB = () => {
                                             className={`flex-1 flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${
                                                 scopeUsers.has(user)
                                                     ? 'bg-blue-100 text-blue-700 font-medium'
-                                                    : treeActiveUser === user
-                                                        ? 'text-blue-700 font-medium'
-                                                        : 'text-gray-600 hover:bg-gray-200'
+                                                    : 'text-gray-600 hover:bg-gray-200'
                                             }`}
                                         >
                                             {scopeUsers.has(user)
