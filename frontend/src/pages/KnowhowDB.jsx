@@ -139,7 +139,9 @@ const KnowhowDB = () => {
     // === Highlight State ===
     const [highlightKeyword, setHighlightKeyword] = useState(null);
     const [highlightRects, setHighlightRects] = useState([]);
+    const [highlightPolygons, setHighlightPolygons] = useState([]); // DI polygon-based highlights
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+    const highlightMetaRef = useRef(null); // { user_id, filename, page } for OCR fallback
 
     // === Refs ===
     const canvasRef = useRef(null);
@@ -150,6 +152,7 @@ const KnowhowDB = () => {
     const viewportRef = useRef(null);
     const pdfContainerRef = useRef(null);
     const lastQueryRef = useRef('');
+    const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -459,9 +462,11 @@ const KnowhowDB = () => {
     // =============================================
     // PDF RENDERING
     // =============================================
-    const openDocument = async (url, page = 1, filename = '', keyword = null) => {
+    const openDocument = async (url, page = 1, filename = '', keyword = null, meta = null) => {
         setHighlightKeyword(keyword || null);
+        highlightMetaRef.current = meta; // { user_id, filename, page }
         setHighlightRects([]);
+        setHighlightPolygons([]);
         const fileType = getFileType(filename);
 
         if (fileType === 'office') {
@@ -527,24 +532,24 @@ const KnowhowDB = () => {
     };
 
     // =============================================
-    // KEYWORD-BASED HIGHLIGHT (pdf.js text content)
+    // KEYWORD-BASED HIGHLIGHT (pdf.js text → OCR fallback)
     // =============================================
     useEffect(() => {
         if (!pdfDocObj || !highlightKeyword || !viewportRef.current || canvasSize.width === 0) {
             setHighlightRects([]);
+            setHighlightPolygons([]);
             return;
         }
+        let cancelled = false;
         (async () => {
             try {
                 const page = await pdfDocObj.getPage(pdfPage);
                 const viewport = viewportRef.current;
                 const textContent = await page.getTextContent();
                 const stopWords = new Set([
-                    // Korean filler
                     '알려', '주세요', '해줘', '해주세요', '뭐야', '뭔가', '있나요', '인가요', '인지', '무엇',
                     '어떤', '어떻게', '얼마나', '대해', '관련', '관해', '입니다', '있는', '하는', '그리고',
                     '또는', '에서', '으로', '에게', '부터', '까지', '이것', '저것', '그것',
-                    // English filler
                     'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her',
                     'was', 'one', 'our', 'out', 'had', 'has', 'its', 'let', 'say', 'she',
                     'too', 'use', 'how', 'what', 'where', 'when', 'which', 'who', 'why',
@@ -555,7 +560,6 @@ const KnowhowDB = () => {
                 const keywords = highlightKeyword.toLowerCase().split(/\s+/).filter(k => {
                     if (k.length < 2) return false;
                     if (stopWords.has(k)) return false;
-                    // English words: require length >= 4 to avoid matching common short words
                     if (/^[a-z0-9]+$/.test(k) && k.length < 4) return false;
                     return true;
                 });
@@ -581,27 +585,130 @@ const KnowhowDB = () => {
                         height: Math.abs(vy2 - vy1)
                     });
                 }
-                setHighlightRects(rects);
+
+                if (cancelled) return;
+
+                // If pdf.js found matches, use them
+                if (rects.length > 0) {
+                    setHighlightRects(rects);
+                    setHighlightPolygons([]);
+                    return;
+                }
+
+                // Fallback: load OCR page data and match lines (for drawing PDFs)
+                setHighlightRects([]);
+                const meta = highlightMetaRef.current;
+                if (!meta?.user_id || !meta?.filename) {
+                    setHighlightPolygons([]);
+                    return;
+                }
+
+                const cacheKey = `${meta.user_id}/${meta.filename}/${pdfPage}`;
+                let pageData = ocrPageCacheRef.current[cacheKey];
+
+                if (!pageData) {
+                    // Try split format: {user}/json/{filenameWithoutExt}/page_{N}.json
+                    // Backend strips extension when creating JSON folder
+                    const baseName = meta.filename.replace(/\.[^.]+$/, '');
+                    const jsonPath = `${meta.user_id}/json/${baseName}/page_${pdfPage}.json`;
+                    try {
+                        const res = await fetch(buildBlobUrl(jsonPath));
+                        if (res.ok) {
+                            pageData = await res.json();
+                            ocrPageCacheRef.current[cacheKey] = pageData;
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+
+                if (cancelled) return;
+
+                if (!pageData) {
+                    setHighlightPolygons([]);
+                    return;
+                }
+
+                // Match keywords against OCR lines (same logic as Dashboard)
+                const lines = pageData.layout?.lines || pageData.lines || [];
+                const layoutWidth = pageData.layout?.width || pageData.width || 0;
+                const layoutHeight = pageData.layout?.height || pageData.height || 0;
+                if (!layoutWidth || !layoutHeight || lines.length === 0) {
+                    setHighlightPolygons([]);
+                    return;
+                }
+
+                const searchLower = highlightKeyword.toLowerCase();
+                const matchedPolygons = [];
+
+                for (const line of lines) {
+                    const content = (line.content || line.text || '').toLowerCase();
+                    if (!content) continue;
+                    let score = 0;
+                    if (content.includes(searchLower)) score = 80;
+                    else if (searchLower.includes(content) && content.length > 3) score = 60;
+                    else {
+                        const hits = keywords.filter(t => content.includes(t)).length;
+                        if (hits > 0) score = 30 + (hits / keywords.length * 30);
+                    }
+                    if (score > 0) {
+                        let polygon = line.polygon || line.boundingBox || [];
+                        if (Array.isArray(polygon[0])) polygon = polygon.flat();
+                        if (polygon.length >= 8) {
+                            matchedPolygons.push({ polygon, score });
+                        }
+                    }
+                }
+
+                // Sort by score, take top matches
+                matchedPolygons.sort((a, b) => b.score - a.score);
+                const topPolygons = matchedPolygons.slice(0, 5);
+
+                // Scale polygons: DI coordinates → canvas pixels
+                const sx = canvasSize.width / layoutWidth;
+                const sy = canvasSize.height / layoutHeight;
+
+                const scaledPolygons = topPolygons.map(m => ({
+                    points: m.polygon.map((v, i) => (i % 2 === 0 ? v * sx : v * sy)),
+                    score: m.score
+                }));
+
+                if (!cancelled) {
+                    setHighlightPolygons(scaledPolygons);
+                }
             } catch (e) {
                 console.error('Highlight computation error:', e);
-                setHighlightRects([]);
+                if (!cancelled) {
+                    setHighlightRects([]);
+                    setHighlightPolygons([]);
+                }
             }
         })();
+        return () => { cancelled = true; };
     }, [pdfDocObj, pdfPage, highlightKeyword, canvasSize]);
 
-    // Auto-scroll to first highlight
+    // Auto-scroll to first highlight (rect or polygon)
     useEffect(() => {
-        if (highlightRects.length === 0 || !pdfContainerRef.current) return;
-        const first = highlightRects[0];
+        if (!pdfContainerRef.current) return;
+        let cx, cy;
+        if (highlightRects.length > 0) {
+            const first = highlightRects[0];
+            cx = first.x + first.width / 2;
+            cy = first.y + first.height / 2;
+        } else if (highlightPolygons.length > 0) {
+            const pts = highlightPolygons[0].points;
+            const xs = pts.filter((_, i) => i % 2 === 0);
+            const ys = pts.filter((_, i) => i % 2 === 1);
+            cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+            cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+        } else return;
         const container = pdfContainerRef.current;
         setTimeout(() => {
             container.scrollTo({
-                left: first.x + first.width / 2 - container.clientWidth / 2,
-                top: first.y + first.height / 2 - container.clientHeight / 2,
+                left: cx - container.clientWidth / 2,
+                top: cy - container.clientHeight / 2,
                 behavior: 'smooth'
             });
         }, 100);
-    }, [highlightRects]);
+    }, [highlightRects, highlightPolygons]);
 
     // =============================================
     // SEARCH HANDLER (AI 검색)
@@ -661,7 +768,7 @@ const KnowhowDB = () => {
                         fileMapRef.current[r.filename] = {
                             category: r.category,
                             blob_path: r.blob_path,
-                            user_id: r.user_id
+                            user_id: r.user_id,
                         };
                     }
                 });
@@ -740,7 +847,7 @@ const KnowhowDB = () => {
                         fileMapRef.current[r.filename] = {
                             category: r.category,
                             blob_path: r.blob_path,
-                            user_id: r.user_id
+                            user_id: r.user_id,
                         };
                     }
                 });
@@ -794,11 +901,13 @@ const KnowhowDB = () => {
         const filename = result.filename;
         const page = result.page || 1;
         const keyword = query.trim() || lastQueryRef.current || null;
+        const resultUser = result.user_id || fileMapRef.current[filename]?.user_id || browseUsername || username;
+        const meta = { user_id: resultUser, filename, page };
 
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
             const url = buildBlobUrl(result.blob_path);
-            openDocument(url, page, filename, keyword);
+            openDocument(url, page, filename, keyword, meta);
             return;
         }
 
@@ -806,17 +915,16 @@ const KnowhowDB = () => {
         const mapped = fileMapRef.current[filename];
         if (mapped?.blob_path) {
             const url = buildBlobUrl(mapped.blob_path);
-            openDocument(url, page, filename, keyword);
+            openDocument(url, page, filename, keyword, meta);
             return;
         }
         let folder = (typeof mapped === 'string' ? mapped : mapped?.category) || result.category;
         if (!folder && activeDoc && activeDoc.name === filename) folder = activeDoc.folder;
         if (!folder) folder = 'documents';
 
-        const resultUser = result.user_id || mapped?.user_id || browseUsername || username;
         const blobPath = `${resultUser}/${folder}/${filename}`;
         const url = buildBlobUrl(blobPath);
-        openDocument(url, page, filename, keyword);
+        openDocument(url, page, filename, keyword, meta);
     };
 
     const handleCitationClick = (keyword) => {
@@ -857,7 +965,9 @@ const KnowhowDB = () => {
         if (!targetFile && activeDoc) targetFile = activeDoc;
 
         if (targetFile) {
-            openDocument(targetFile.pdfUrl, targetPage, targetFile.name, hlKeyword);
+            const mappedUser = fileMapRef.current[targetFile.name]?.user_id || browseUsername || username;
+            const meta = { user_id: mappedUser, filename: targetFile.name, page: targetPage };
+            openDocument(targetFile.pdfUrl, targetPage, targetFile.name, hlKeyword, meta);
         } else if (targetDocName) {
             // Try fileMapRef for blob_path (works in 전체 mode)
             const mapped = fileMapRef.current[targetDocName]
@@ -866,14 +976,16 @@ const KnowhowDB = () => {
                     targetDocName.toLowerCase().includes(k.toLowerCase())
                 )?.[1];
 
+            const resultUser = mapped?.user_id || browseUsername || username;
+            const meta = { user_id: resultUser, filename: targetDocName, page: targetPage };
+
             if (mapped?.blob_path) {
                 const url = buildBlobUrl(mapped.blob_path);
-                openDocument(url, targetPage, targetDocName, hlKeyword);
+                openDocument(url, targetPage, targetDocName, hlKeyword, meta);
             } else {
                 const folder = (typeof mapped === 'string' ? mapped : mapped?.category) || 'documents';
-                const resultUser = mapped?.user_id || browseUsername || username;
                 const url = buildBlobUrl(`${resultUser}/${folder}/${targetDocName}`);
-                openDocument(url, targetPage, targetDocName, hlKeyword);
+                openDocument(url, targetPage, targetDocName, hlKeyword, meta);
             }
         }
     };
@@ -1732,7 +1844,7 @@ const KnowhowDB = () => {
                 {viewerType === 'pdf' && pdfDocObj && (
                     <div className="h-10 border-b border-[#e5e1d8] flex items-center justify-center gap-3 px-4 bg-[#fcfaf7] flex-shrink-0">
                         <button
-                            onClick={() => { setHighlightKeyword(null); setHighlightRects([]); setPdfPage(p => Math.max(1, p - 1)); }}
+                            onClick={() => { setHighlightKeyword(null); setHighlightRects([]); setHighlightPolygons([]); setPdfPage(p => Math.max(1, p - 1)); }}
                             disabled={pdfPage <= 1}
                             className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
                         >
@@ -1742,7 +1854,7 @@ const KnowhowDB = () => {
                             {pdfPage} / {pdfTotalPages}
                         </span>
                         <button
-                            onClick={() => { setHighlightKeyword(null); setHighlightRects([]); setPdfPage(p => Math.min(pdfTotalPages, p + 1)); }}
+                            onClick={() => { setHighlightKeyword(null); setHighlightRects([]); setHighlightPolygons([]); setPdfPage(p => Math.min(pdfTotalPages, p + 1)); }}
                             disabled={pdfPage >= pdfTotalPages}
                             className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
                         >
@@ -1771,15 +1883,16 @@ const KnowhowDB = () => {
                     ) : pdfDocObj ? (
                         <div className="relative inline-block">
                             <canvas ref={canvasRef} className="shadow-lg" />
-                            {highlightRects.length > 0 && canvasSize.width > 0 && (
+                            {(highlightRects.length > 0 || highlightPolygons.length > 0) && canvasSize.width > 0 && (
                                 <svg
                                     className="absolute top-0 left-0 pointer-events-none"
                                     style={{ width: canvasSize.width, height: canvasSize.height, zIndex: 10 }}
                                     viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}
                                 >
+                                    {/* pdf.js text-based highlights (rect) */}
                                     {highlightRects.map((rect, i) => (
                                         <rect
-                                            key={i}
+                                            key={`r${i}`}
                                             x={rect.x}
                                             y={rect.y}
                                             width={rect.width}
@@ -1790,6 +1903,22 @@ const KnowhowDB = () => {
                                             rx="2"
                                         />
                                     ))}
+                                    {/* OCR polygon-based highlights (for drawings) */}
+                                    {highlightPolygons.map((hp, i) => {
+                                        const pts = [];
+                                        for (let j = 0; j < hp.points.length; j += 2) {
+                                            pts.push(`${hp.points[j]},${hp.points[j + 1]}`);
+                                        }
+                                        return (
+                                            <polygon
+                                                key={`p${i}`}
+                                                points={pts.join(' ')}
+                                                fill={i === 0 ? "rgba(255, 235, 59, 0.5)" : "rgba(255, 235, 59, 0.3)"}
+                                                stroke="#f59e0b"
+                                                strokeWidth={i === 0 ? "3" : "1"}
+                                            />
+                                        );
+                                    })}
                                 </svg>
                             )}
                         </div>
