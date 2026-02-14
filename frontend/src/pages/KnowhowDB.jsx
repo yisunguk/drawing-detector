@@ -248,7 +248,11 @@ const KnowhowDB = () => {
             const fileItems = items.filter(item => item.type === 'file');
 
             fileItems.forEach(f => {
-                fileMapRef.current[f.name] = folderName;
+                fileMapRef.current[f.name] = {
+                    category: folderName,
+                    blob_path: `${browseUsername}/${folderName}/${f.name}`,
+                    user_id: browseUsername
+                };
             });
 
             const filesWithUrl = fileItems.map(f => ({
@@ -653,8 +657,12 @@ const KnowhowDB = () => {
             if (data.results && data.results.length > 0) {
                 setSearchResults(data.results);
                 data.results.forEach(r => {
-                    if (r.filename && r.category) {
-                        fileMapRef.current[r.filename] = r.category;
+                    if (r.filename) {
+                        fileMapRef.current[r.filename] = {
+                            category: r.category,
+                            blob_path: r.blob_path,
+                            user_id: r.user_id
+                        };
                     }
                 });
             }
@@ -728,8 +736,12 @@ const KnowhowDB = () => {
 
             if (data.results) {
                 data.results.forEach(r => {
-                    if (r.filename && r.category) {
-                        fileMapRef.current[r.filename] = r.category;
+                    if (r.filename) {
+                        fileMapRef.current[r.filename] = {
+                            category: r.category,
+                            blob_path: r.blob_path,
+                            user_id: r.user_id
+                        };
                     }
                 });
             }
@@ -790,12 +802,18 @@ const KnowhowDB = () => {
             return;
         }
 
-        // Fallback: construct URL from user/folder/filename
-        let folder = fileMapRef.current[filename] || result.category;
+        // Fallback: construct URL from fileMapRef or result metadata
+        const mapped = fileMapRef.current[filename];
+        if (mapped?.blob_path) {
+            const url = buildBlobUrl(mapped.blob_path);
+            openDocument(url, page, filename, keyword);
+            return;
+        }
+        let folder = (typeof mapped === 'string' ? mapped : mapped?.category) || result.category;
         if (!folder && activeDoc && activeDoc.name === filename) folder = activeDoc.folder;
         if (!folder) folder = 'documents';
 
-        const resultUser = result.user_id || browseUsername || username;
+        const resultUser = result.user_id || mapped?.user_id || browseUsername || username;
         const blobPath = `${resultUser}/${folder}/${filename}`;
         const url = buildBlobUrl(blobPath);
         openDocument(url, page, filename, keyword);
@@ -841,9 +859,22 @@ const KnowhowDB = () => {
         if (targetFile) {
             openDocument(targetFile.pdfUrl, targetPage, targetFile.name, hlKeyword);
         } else if (targetDocName) {
-            const folder = fileMapRef.current[targetDocName] || 'documents';
-            const url = buildBlobUrl(`${browseUsername}/${folder}/${targetDocName}`);
-            openDocument(url, targetPage, targetDocName, hlKeyword);
+            // Try fileMapRef for blob_path (works in 전체 mode)
+            const mapped = fileMapRef.current[targetDocName]
+                || Object.entries(fileMapRef.current).find(([k]) =>
+                    k.toLowerCase().includes(targetDocName.toLowerCase()) ||
+                    targetDocName.toLowerCase().includes(k.toLowerCase())
+                )?.[1];
+
+            if (mapped?.blob_path) {
+                const url = buildBlobUrl(mapped.blob_path);
+                openDocument(url, targetPage, targetDocName, hlKeyword);
+            } else {
+                const folder = (typeof mapped === 'string' ? mapped : mapped?.category) || 'documents';
+                const resultUser = mapped?.user_id || browseUsername || username;
+                const url = buildBlobUrl(`${resultUser}/${folder}/${targetDocName}`);
+                openDocument(url, targetPage, targetDocName, hlKeyword);
+            }
         }
     };
 
