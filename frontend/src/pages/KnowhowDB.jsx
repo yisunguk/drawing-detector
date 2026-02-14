@@ -55,8 +55,7 @@ const getReindexApiUrl = () => {
 };
 
 const buildBlobUrl = (blobPath) => {
-    const encodedPath = blobPath.split('/').map(s => encodeURIComponent(s)).join('/');
-    return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodedPath}?${AZURE_SAS_TOKEN}`;
+    return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodeURIComponent(blobPath)}?${AZURE_SAS_TOKEN}`;
 };
 
 const KnowhowDB = () => {
@@ -360,9 +359,11 @@ const KnowhowDB = () => {
         const fileType = getFileType(filename);
 
         if (fileType === 'office') {
+            // Office Online Viewer needs a clean URL with literal '/' (not %2F)
+            const officeCleanUrl = url.replace(/%2F/gi, '/');
             setRightOpen(true);
             setViewerType('office');
-            setOfficeUrl(`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`);
+            setOfficeUrl(`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(officeCleanUrl)}`);
             setPdfDocObj(null);
             currentPdfUrlRef.current = null;
             setPdfLoading(false);
