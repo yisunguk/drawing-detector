@@ -130,6 +130,12 @@ const KnowhowDB = () => {
     const [isLeftResizing, setIsLeftResizing] = useState(false);
     const leftResizingRef = useRef(false);
 
+    // === Folder/File Divider Resize ===
+    const [folderHeight, setFolderHeight] = useState(null); // null = auto, px value when dragged
+    const [isDividerResizing, setIsDividerResizing] = useState(false);
+    const dividerResizingRef = useRef(false);
+    const sidebarRef = useRef(null);
+
     // === Highlight State ===
     const [highlightKeyword, setHighlightKeyword] = useState(null);
     const [highlightRects, setHighlightRects] = useState([]);
@@ -875,11 +881,18 @@ const KnowhowDB = () => {
         setIsLeftResizing(true);
     }, []);
 
+    const startDividerResize = useCallback(() => {
+        dividerResizingRef.current = true;
+        setIsDividerResizing(true);
+    }, []);
+
     const stopAllResize = useCallback(() => {
         resizingRef.current = false;
         leftResizingRef.current = false;
+        dividerResizingRef.current = false;
         setIsResizing(false);
         setIsLeftResizing(false);
+        setIsDividerResizing(false);
     }, []);
 
     const onResizeMove = useCallback((e) => {
@@ -891,11 +904,21 @@ const KnowhowDB = () => {
             const newWidth = e.clientX;
             if (newWidth > 240 && newWidth < 600) setLeftWidth(newWidth);
         }
+        if (dividerResizingRef.current && sidebarRef.current) {
+            const sidebarRect = sidebarRef.current.getBoundingClientRect();
+            // Calculate folder height relative to sidebar top
+            // Account for header + user selector above the folders
+            const foldersTop = sidebarRef.current.querySelector('[data-folders]')?.getBoundingClientRect().top || sidebarRect.top;
+            const newHeight = e.clientY - foldersTop;
+            const maxHeight = sidebarRect.height * 0.8;
+            if (newHeight > 80 && newHeight < maxHeight) setFolderHeight(newHeight);
+        }
     }, []);
 
     useEffect(() => {
-        if (isResizing || isLeftResizing) {
-            document.body.style.cursor = 'col-resize';
+        const anyResizing = isResizing || isLeftResizing || isDividerResizing;
+        if (anyResizing) {
+            document.body.style.cursor = isDividerResizing ? 'row-resize' : 'col-resize';
             document.body.style.userSelect = 'none';
         } else {
             document.body.style.cursor = '';
@@ -909,7 +932,7 @@ const KnowhowDB = () => {
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
         };
-    }, [onResizeMove, stopAllResize, isResizing, isLeftResizing]);
+    }, [onResizeMove, stopAllResize, isResizing, isLeftResizing, isDividerResizing]);
 
     // =============================================
     // CHAT HISTORY PERSISTENCE
@@ -1009,7 +1032,7 @@ const KnowhowDB = () => {
     return (
         <div className="flex h-screen bg-[#fcfaf7] overflow-hidden font-sans">
             {/* ===== LEFT SIDEBAR ===== */}
-            <div className="bg-[#f0f4f9] border-r border-gray-200 flex flex-col flex-shrink-0 h-full relative" style={{ width: leftWidth }}>
+            <div ref={sidebarRef} className="bg-[#f0f4f9] border-r border-gray-200 flex flex-col flex-shrink-0 h-full relative" style={{ width: leftWidth }}>
                 {/* Left Resize Handle */}
                 <div
                     className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400 z-50 transition-colors"
@@ -1049,7 +1072,7 @@ const KnowhowDB = () => {
                 )}
 
                 {/* Folders */}
-                <div className="overflow-y-auto px-3 py-2 min-h-[80px]" style={{ maxHeight: activeFolder ? '40%' : undefined }}>
+                <div data-folders className="overflow-y-auto px-3 py-2 min-h-[80px]" style={activeFolder ? { height: folderHeight || undefined, maxHeight: folderHeight ? undefined : '40%', flexShrink: 0 } : undefined}>
                     <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">Folders</div>
                     {isAdmin && !selectedUserFolder ? (
                         /* Tree mode: show all users with expandable subfolders */
@@ -1146,7 +1169,15 @@ const KnowhowDB = () => {
                     )}
                 </div>
 
-                {activeFolder && <div className="border-t border-gray-200 mx-3 flex-shrink-0" />}
+                {activeFolder && (
+                    <div
+                        className="flex-shrink-0 mx-3 cursor-row-resize group relative"
+                        onMouseDown={startDividerResize}
+                    >
+                        <div className="border-t border-gray-300 group-hover:border-blue-400 transition-colors" />
+                        <div className="absolute inset-x-0 -top-1 -bottom-1" />
+                    </div>
+                )}
 
                 {/* Files */}
                 <div className="flex-1 overflow-y-auto px-3 py-2">
