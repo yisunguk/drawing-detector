@@ -139,32 +139,110 @@ For each line found in the P&ID:
 - Return ONLY a valid JSON array, no markdown fences, no explanation.
 
 ## Output Format
-Return a JSON array:
-[
-  {
-    "line_number": "3\"-PYL-21-003001-B2A1-NI",
-    "nb": "3\"",
-    "fluid_code": "PYL",
-    "area": "21",
-    "seq_no": "003001",
-    "pipe_spec": "B2A1",
-    "insulation": "NI",
-    "from_equip": "V-2101",
-    "to_equip": "P-2101A/B",
-    "pid_no": "14780-8120-25-21-0003",
-    "operating_temp": "",
-    "operating_press": "",
-    "design_temp": "",
-    "design_press": "",
-    "remarks": ""
-  }
-]
+Return a JSON object with a "lines" key containing the array:
+{
+  "lines": [
+    {
+      "line_number": "3\"-PYL-21-003001-B2A1-NI",
+      "nb": "3\"",
+      "fluid_code": "PYL",
+      "area": "21",
+      "seq_no": "003001",
+      "pipe_spec": "B2A1",
+      "insulation": "NI",
+      "from_equip": "V-2101",
+      "to_equip": "P-2101A/B",
+      "pid_no": "14780-8120-25-21-0003",
+      "operating_temp": "",
+      "operating_press": "",
+      "design_temp": "",
+      "design_press": "",
+      "remarks": ""
+    }
+  ]
+}
 """
+
+
+def _try_load_existing_di_json(container_client, username: str, base_name: str) -> list[dict] | None:
+    """
+    Try to load existing DI JSON from Azure Blob.
+    Checks two formats:
+    1. Single file: {username}/json/{base_name}.json (list of pages)
+    2. Split format: {username}/json/{base_name}/meta.json + page_N.json
+    Returns list of page dicts or None if not found.
+    """
+    # Format 1: Single JSON file
+    single_path = f"{username}/json/{base_name}.json"
+    try:
+        blob = container_client.get_blob_client(single_path)
+        if blob.exists():
+            data = json.loads(blob.download_blob().readall())
+            if isinstance(data, list) and len(data) > 0:
+                print(f"[LineList] Reusing existing DI JSON: {single_path} ({len(data)} pages)", flush=True)
+                return data
+    except Exception as e:
+        print(f"[LineList] Single JSON load failed: {e}", flush=True)
+
+    # Format 2: Split per-page JSON (used by the drawing analysis app)
+    meta_path = f"{username}/json/{base_name}/meta.json"
+    try:
+        meta_blob = container_client.get_blob_client(meta_path)
+        if meta_blob.exists():
+            meta = json.loads(meta_blob.download_blob().readall())
+            total_pages = meta.get("total_pages", 0)
+            if total_pages > 0:
+                pages = []
+                for i in range(1, total_pages + 1):
+                    page_path = f"{username}/json/{base_name}/page_{i}.json"
+                    page_blob = container_client.get_blob_client(page_path)
+                    if page_blob.exists():
+                        page_data = json.loads(page_blob.download_blob().readall())
+                        pages.append(page_data)
+                if pages:
+                    print(f"[LineList] Reusing split DI JSON: {meta_path} ({len(pages)} pages)", flush=True)
+                    return pages
+    except Exception as e:
+        print(f"[LineList] Split JSON load failed: {e}", flush=True)
+
+    return None
+
+
+def _format_tables_markdown(tables: list) -> str:
+    """Convert DI table objects into a Markdown string for LLM consumption."""
+    md_output = ""
+    for i, table in enumerate(tables):
+        md_output += f"\nTable {i+1}:\n"
+
+        row_count = table.get("row_count", 0)
+        col_count = table.get("column_count", 0)
+        cells = table.get("cells", [])
+
+        if not cells:
+            continue
+
+        # Reconstruct grid: row_count × col_count
+        grid = [["" for _ in range(col_count)] for _ in range(row_count)]
+
+        for cell in cells:
+            r, c = cell.get("row_index", 0), cell.get("column_index", 0)
+            if r < row_count and c < col_count:
+                grid[r][c] = (cell.get("content") or "").replace("\n", " ").strip()
+
+        # Format as Markdown table
+        for r_idx, row in enumerate(grid):
+            md_output += "| " + " | ".join(row) + " |\n"
+            if r_idx == 0:
+                md_output += "| " + " | ".join(["---"] * col_count) + " |\n"
+        md_output += "\n"
+
+    return md_output
 
 
 def _call_gpt_for_linelist(page_texts: list[dict]) -> list[dict]:
     """
     Send extracted page texts to Azure OpenAI GPT and get structured line list.
+    Includes tables formatted as Markdown for better LLM understanding.
     """
     from openai import AzureOpenAI
 
@@ -174,11 +252,12 @@ def _call_gpt_for_linelist(page_texts: list[dict]) -> list[dict]:
         api_version=settings.AZURE_OPENAI_API_VERSION,
     )
 
-    # Build user message with all page contents
+    # Build user message with all page contents + tables as Markdown
     user_content_parts = []
     for page in page_texts:
         page_num = page.get("page_number", "?")
         content = page.get("content", "")
+        tables = page.get("tables", [])
         pid_no = page.get("도면번호(DWG. NO.)", "")
         title = page.get("도면명(TITLE)", "")
 
@@ -188,11 +267,20 @@ def _call_gpt_for_linelist(page_texts: list[dict]) -> list[dict]:
         if title:
             header += f" | Title: {title}"
 
-        user_content_parts.append(f"{header}\n{content}")
+        # Combine content + structured tables (like chat.py / azure_search.py pattern)
+        page_text = content
+        if tables:
+            table_md = _format_tables_markdown(tables)
+            page_text += f"\n\n[Structured Tables]\n{table_md}"
+
+        user_content_parts.append(f"{header}\n{page_text}")
 
     user_message = "\n\n".join(user_content_parts)
 
     print(f"[LineList] Sending {len(page_texts)} pages to GPT ({len(user_message)} chars)", flush=True)
+
+    # Log first 500 chars of user message for debugging
+    print(f"[LineList] User message preview: {user_message[:500]}", flush=True)
 
     response = client.chat.completions.create(
         model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
@@ -201,6 +289,7 @@ def _call_gpt_for_linelist(page_texts: list[dict]) -> list[dict]:
             {"role": "user", "content": user_message},
         ],
         temperature=0.1,
+        response_format={"type": "json_object"},
     )
 
     # Debug: log full response metadata
@@ -258,30 +347,37 @@ async def extract_linelist(
         container_client = get_container_client()
 
         pdf_filename = blob_path.split('/')[-1]
+        base_name = os.path.splitext(pdf_filename)[0] if pdf_filename else ""
         print(f"[LineList] Analyzing blob: {blob_path}", flush=True)
         blob_client = container_client.get_blob_client(blob_path)
         if not blob_client.exists():
             raise HTTPException(status_code=404, detail=f"Blob not found: {blob_path}")
 
-        sas_url = generate_sas_url(blob_path)
-        di_pages = azure_di_service.analyze_document_from_url(sas_url)
+        # Try to reuse existing DI JSON from {username}/json/
+        di_pages = None
+        if username and base_name:
+            di_pages = _try_load_existing_di_json(container_client, username, base_name)
 
+        # If no cached JSON, run Document Intelligence
         if not di_pages:
-            raise HTTPException(status_code=500, detail="Document Intelligence returned no data")
+            sas_url = generate_sas_url(blob_path)
+            di_pages = azure_di_service.analyze_document_from_url(sas_url)
 
-        print(f"[LineList] DI extracted {len(di_pages)} pages", flush=True)
+            if not di_pages:
+                raise HTTPException(status_code=500, detail="Document Intelligence returned no data")
 
-        # Save DI result JSON to {username}/json/{filename}.json (for LLM reuse)
-        if pdf_filename:
-            base_name = os.path.splitext(pdf_filename)[0]
-            di_json_blob_name = f"{username}/json/{base_name}.json" if username else f"json/{base_name}.json"
-            try:
-                di_json_content = json.dumps(di_pages, ensure_ascii=False, indent=2)
-                di_json_blob = container_client.get_blob_client(di_json_blob_name)
-                di_json_blob.upload_blob(di_json_content, overwrite=True)
-                print(f"[LineList] DI JSON saved to: {di_json_blob_name}", flush=True)
-            except Exception as je:
-                print(f"[LineList] Warning: DI JSON save failed: {je}", flush=True)
+            print(f"[LineList] DI extracted {len(di_pages)} pages", flush=True)
+
+            # Save DI result JSON to {username}/json/{filename}.json (for LLM reuse)
+            if pdf_filename:
+                di_json_blob_name = f"{username}/json/{base_name}.json" if username else f"json/{base_name}.json"
+                try:
+                    di_json_content = json.dumps(di_pages, ensure_ascii=False, indent=2)
+                    di_json_blob = container_client.get_blob_client(di_json_blob_name)
+                    di_json_blob.upload_blob(di_json_content, overwrite=True)
+                    print(f"[LineList] DI JSON saved to: {di_json_blob_name}", flush=True)
+                except Exception as je:
+                    print(f"[LineList] Warning: DI JSON save failed: {je}", flush=True)
 
         # Collect unique P&ID numbers
         pid_numbers = set()
