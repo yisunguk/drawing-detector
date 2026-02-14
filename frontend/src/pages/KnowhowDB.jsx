@@ -882,8 +882,8 @@ const KnowhowDB = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            {/* Admin reindex button */}
-                                            {isAdmin && fStatus && fStatus.json_exists && (
+                                            {/* Admin reindex button - only for un-indexed files with JSON */}
+                                            {isAdmin && fStatus && fStatus.json_exists && !fStatus.indexed_pages && (
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
