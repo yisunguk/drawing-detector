@@ -29,6 +29,15 @@ const rawSasToken = import.meta.env.VITE_AZURE_SAS_TOKEN || '';
 const AZURE_SAS_TOKEN = rawSasToken.replace(/^"|"$/g, '');
 const EXCLUDED_FOLDERS = ['temp', 'json'];
 
+const OFFICE_EXTENSIONS = ['.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt'];
+const getFileType = (filename) => {
+    if (!filename) return 'unknown';
+    const lower = filename.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'pdf';
+    if (OFFICE_EXTENSIONS.some(ext => lower.endsWith(ext))) return 'office';
+    return 'unknown';
+};
+
 const getChatApiUrl = () => {
     return API_BASE.endsWith('/api') ? `${API_BASE}/v1/chat/` : `${API_BASE}/api/v1/chat/`;
 };
@@ -46,7 +55,8 @@ const getReindexApiUrl = () => {
 };
 
 const buildBlobUrl = (blobPath) => {
-    return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodeURIComponent(blobPath)}?${AZURE_SAS_TOKEN}`;
+    const encodedPath = blobPath.split('/').map(s => encodeURIComponent(s)).join('/');
+    return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodedPath}?${AZURE_SAS_TOKEN}`;
 };
 
 const KnowhowDB = () => {
@@ -94,6 +104,8 @@ const KnowhowDB = () => {
     const [pdfTotalPages, setPdfTotalPages] = useState(0);
     const [pdfZoom, setPdfZoom] = useState(1.2);
     const [pdfLoading, setPdfLoading] = useState(false);
+    const [viewerType, setViewerType] = useState(null); // 'pdf' | 'office'
+    const [officeUrl, setOfficeUrl] = useState(null);
 
     // === Upload State ===
     const [isUploading, setIsUploading] = useState(false);
@@ -344,7 +356,22 @@ const KnowhowDB = () => {
     // =============================================
     // PDF RENDERING
     // =============================================
-    const openPdf = async (url, page = 1) => {
+    const openDocument = async (url, page = 1, filename = '') => {
+        const fileType = getFileType(filename);
+
+        if (fileType === 'office') {
+            setRightOpen(true);
+            setViewerType('office');
+            setOfficeUrl(`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`);
+            setPdfDocObj(null);
+            currentPdfUrlRef.current = null;
+            setPdfLoading(false);
+            return;
+        }
+
+        // PDF logic
+        setViewerType('pdf');
+        setOfficeUrl(null);
         setRightOpen(true);
 
         if (url === currentPdfUrlRef.current && pdfDocObj) {
@@ -574,7 +601,7 @@ const KnowhowDB = () => {
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
             const url = buildBlobUrl(result.blob_path);
-            openPdf(url, page);
+            openDocument(url, page, filename);
             return;
         }
 
@@ -585,7 +612,7 @@ const KnowhowDB = () => {
 
         const resultUser = result.user_id || browseUsername || username;
         const url = buildBlobUrl(`${resultUser}/${folder}/${filename}`);
-        openPdf(url, page);
+        openDocument(url, page, filename);
     };
 
     const handleCitationClick = (keyword) => {
@@ -621,11 +648,11 @@ const KnowhowDB = () => {
         if (!targetFile && activeDoc) targetFile = activeDoc;
 
         if (targetFile) {
-            openPdf(targetFile.pdfUrl, targetPage);
+            openDocument(targetFile.pdfUrl, targetPage, targetFile.name);
         } else if (targetDocName) {
             const folder = fileMapRef.current[targetDocName] || 'documents';
             const url = buildBlobUrl(`${browseUsername}/${folder}/${targetDocName}`);
-            openPdf(url, targetPage);
+            openDocument(url, targetPage, targetDocName);
         }
     };
 
@@ -978,7 +1005,10 @@ const KnowhowDB = () => {
                                         >
                                             <div
                                                 className="flex-1 flex items-center gap-2 min-w-0"
-                                                onClick={() => setActiveDoc(file)}
+                                                onClick={() => {
+                                                    setActiveDoc(file);
+                                                    openDocument(file.pdfUrl, 1, file.name);
+                                                }}
                                             >
                                                 <FileText className="w-3.5 h-3.5 flex-shrink-0" />
                                                 <span className="truncate">{file.name}</span>
@@ -1368,14 +1398,14 @@ const KnowhowDB = () => {
 
                 {/* PDF Header */}
                 <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#fcfaf7] flex-shrink-0">
-                    <span className="text-sm font-semibold text-gray-700">PDF Viewer</span>
-                    <button onClick={() => setRightOpen(false)} className="p-1 hover:bg-gray-200 rounded text-gray-500">
+                    <span className="text-sm font-semibold text-gray-700">{viewerType === 'office' ? 'Document Viewer' : 'PDF Viewer'}</span>
+                    <button onClick={() => { setRightOpen(false); setViewerType(null); setOfficeUrl(null); }} className="p-1 hover:bg-gray-200 rounded text-gray-500">
                         <X size={16} />
                     </button>
                 </div>
 
                 {/* PDF Controls */}
-                {pdfDocObj && (
+                {viewerType === 'pdf' && pdfDocObj && (
                     <div className="h-10 border-b border-[#e5e1d8] flex items-center justify-center gap-3 px-4 bg-[#fcfaf7] flex-shrink-0">
                         <button
                             onClick={() => setPdfPage(p => Math.max(1, p - 1))}
@@ -1412,12 +1442,14 @@ const KnowhowDB = () => {
                             <Loader2 className="w-8 h-8 animate-spin text-[#d97757] mb-3" />
                             <span className="text-sm">Loading PDF...</span>
                         </div>
+                    ) : viewerType === 'office' && officeUrl ? (
+                        <iframe src={officeUrl} className="w-full h-full border-0" allowFullScreen />
                     ) : pdfDocObj ? (
                         <canvas ref={canvasRef} className="shadow-lg" />
                     ) : (
                         <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                             <FileText className="w-12 h-12 mb-3 opacity-30" />
-                            <p className="text-sm">Click a search result to view PDF</p>
+                            <p className="text-sm">Click a search result to view document</p>
                         </div>
                     )}
                 </div>
