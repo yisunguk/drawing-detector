@@ -128,12 +128,18 @@ const KnowhowDB = () => {
     const [isLeftResizing, setIsLeftResizing] = useState(false);
     const leftResizingRef = useRef(false);
 
+    // === Highlight State ===
+    const [highlightCoords, setHighlightCoords] = useState(null);
+    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+
     // === Refs ===
     const canvasRef = useRef(null);
     const messagesEndRef = useRef(null);
     const resizingRef = useRef(false);
     const currentPdfUrlRef = useRef(null);
     const fileMapRef = useRef({});
+    const viewportRef = useRef(null);
+    const pdfContainerRef = useRef(null);
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -390,7 +396,8 @@ const KnowhowDB = () => {
     // =============================================
     // PDF RENDERING
     // =============================================
-    const openDocument = async (url, page = 1, filename = '') => {
+    const openDocument = async (url, page = 1, filename = '', coords = null) => {
+        setHighlightCoords(coords || null);
         const fileType = getFileType(filename);
 
         if (fileType === 'office') {
@@ -443,15 +450,71 @@ const KnowhowDB = () => {
         try {
             const page = await pdfDocObj.getPage(pdfPage);
             const viewport = page.getViewport({ scale: pdfZoom });
+            viewportRef.current = viewport;
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
             canvas.width = viewport.width;
             canvas.height = viewport.height;
             await page.render({ canvasContext: ctx, viewport }).promise;
+            setCanvasSize({ width: viewport.width, height: viewport.height });
         } catch (e) {
             console.error('PDF render error:', e);
         }
     };
+
+    // =============================================
+    // HIGHLIGHT COORDINATE TRANSFORMS
+    // =============================================
+    const transformPoint = useCallback((nx, ny) => {
+        if (!viewportRef.current) {
+            return [nx * canvasSize.width, ny * canvasSize.height];
+        }
+        const viewport = viewportRef.current;
+        const vb = viewport.viewBox;
+        const vWidth = vb[2] - vb[0];
+        const vHeight = vb[3] - vb[1];
+        const pdfX = vb[0] + (nx * vWidth);
+        const pdfY = vb[3] - (ny * vHeight);
+        return viewport.convertToViewportPoint(pdfX, pdfY);
+    }, [canvasSize]);
+
+    const getHighlightPoints = useCallback(() => {
+        if (!highlightCoords) return "";
+        const points = [];
+        for (let i = 0; i < highlightCoords.length; i += 2) {
+            const [px, py] = transformPoint(highlightCoords[i], highlightCoords[i + 1]);
+            points.push(`${px},${py}`);
+        }
+        return points.join(' ');
+    }, [highlightCoords, transformPoint]);
+
+    const getHighlightCenter = useCallback(() => {
+        if (!highlightCoords) return null;
+        let sumX = 0, sumY = 0;
+        const count = highlightCoords.length / 2;
+        for (let i = 0; i < highlightCoords.length; i += 2) {
+            const [px, py] = transformPoint(highlightCoords[i], highlightCoords[i + 1]);
+            sumX += px;
+            sumY += py;
+        }
+        return { cx: sumX / count, cy: sumY / count };
+    }, [highlightCoords, transformPoint]);
+
+    // Auto-scroll to highlight
+    useEffect(() => {
+        if (!highlightCoords || canvasSize.width === 0) return;
+        const center = getHighlightCenter();
+        if (center && pdfContainerRef.current) {
+            const container = pdfContainerRef.current;
+            setTimeout(() => {
+                container.scrollTo({
+                    left: center.cx - container.clientWidth / 2,
+                    top: center.cy - container.clientHeight / 2,
+                    behavior: 'smooth'
+                });
+            }, 100);
+        }
+    }, [highlightCoords, canvasSize]);
 
     // =============================================
     // SEARCH HANDLER (AI 검색)
@@ -634,10 +697,20 @@ const KnowhowDB = () => {
         const filename = result.filename;
         const page = result.page || 1;
 
+        // Parse coords (may be JSON string or array)
+        let coords = null;
+        if (result.coords) {
+            try {
+                coords = typeof result.coords === 'string' ? JSON.parse(result.coords) : result.coords;
+            } catch (e) {
+                console.warn('Failed to parse coords:', e);
+            }
+        }
+
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
             const url = buildBlobUrl(result.blob_path);
-            openDocument(url, page, filename);
+            openDocument(url, page, filename, coords);
             return;
         }
 
@@ -649,7 +722,7 @@ const KnowhowDB = () => {
         const resultUser = result.user_id || browseUsername || username;
         const blobPath = `${resultUser}/${folder}/${filename}`;
         const url = buildBlobUrl(blobPath);
-        openDocument(url, page, filename);
+        openDocument(url, page, filename, coords);
     };
 
     const handleCitationClick = (keyword) => {
@@ -1457,7 +1530,7 @@ const KnowhowDB = () => {
                 {viewerType === 'pdf' && pdfDocObj && (
                     <div className="h-10 border-b border-[#e5e1d8] flex items-center justify-center gap-3 px-4 bg-[#fcfaf7] flex-shrink-0">
                         <button
-                            onClick={() => setPdfPage(p => Math.max(1, p - 1))}
+                            onClick={() => { setHighlightCoords(null); setPdfPage(p => Math.max(1, p - 1)); }}
                             disabled={pdfPage <= 1}
                             className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
                         >
@@ -1467,7 +1540,7 @@ const KnowhowDB = () => {
                             {pdfPage} / {pdfTotalPages}
                         </span>
                         <button
-                            onClick={() => setPdfPage(p => Math.min(pdfTotalPages, p + 1))}
+                            onClick={() => { setHighlightCoords(null); setPdfPage(p => Math.min(pdfTotalPages, p + 1)); }}
                             disabled={pdfPage >= pdfTotalPages}
                             className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
                         >
@@ -1485,7 +1558,7 @@ const KnowhowDB = () => {
                 )}
 
                 {/* PDF Canvas */}
-                <div className="flex-1 overflow-auto bg-gray-100 flex items-start justify-center p-4">
+                <div ref={pdfContainerRef} className="flex-1 overflow-auto bg-gray-100 flex items-start justify-center p-4">
                     {pdfLoading ? (
                         <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                             <Loader2 className="w-8 h-8 animate-spin text-[#d97757] mb-3" />
@@ -1494,7 +1567,33 @@ const KnowhowDB = () => {
                     ) : viewerType === 'office' && officeUrl ? (
                         <iframe src={officeUrl} className="w-full h-full border-0" allowFullScreen />
                     ) : pdfDocObj ? (
-                        <canvas ref={canvasRef} className="shadow-lg" />
+                        <div className="relative inline-block">
+                            <canvas ref={canvasRef} className="shadow-lg" />
+                            {highlightCoords && canvasSize.width > 0 && (
+                                <svg
+                                    className="absolute top-0 left-0 pointer-events-none"
+                                    style={{ width: canvasSize.width, height: canvasSize.height, zIndex: 10 }}
+                                    viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}
+                                >
+                                    <polygon
+                                        points={getHighlightPoints()}
+                                        fill="rgba(255, 235, 59, 0.45)"
+                                        stroke="#f59e0b"
+                                        strokeWidth="2"
+                                        style={{ strokeLinejoin: 'round' }}
+                                    />
+                                    {(() => {
+                                        const center = getHighlightCenter();
+                                        return center ? (
+                                            <>
+                                                <line x1={center.cx - 15} y1={center.cy} x2={center.cx + 15} y2={center.cy} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3" />
+                                                <line x1={center.cx} y1={center.cy - 15} x2={center.cx} y2={center.cy + 15} stroke="#f59e0b" strokeWidth="1" strokeDasharray="3" />
+                                            </>
+                                        ) : null;
+                                    })()}
+                                </svg>
+                            )}
+                        </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                             <FileText className="w-12 h-12 mb-3 opacity-30" />
