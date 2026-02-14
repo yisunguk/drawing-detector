@@ -185,19 +185,30 @@ def get_index_status(username: str):
             name = blob.name.rstrip("/").split("/")[-1]
             if name.endswith(".json"):
                 # Legacy format: filename.pdf.json → filename.pdf
-                json_set.add(name.rsplit(".json", 1)[0])
+                base = name.rsplit(".json", 1)[0]
+                json_set.add(base)
+                # Also add .pdf variant (some JSONs are named file.json not file.pdf.json)
+                if not base.lower().endswith('.pdf'):
+                    json_set.add(base + '.pdf')
             else:
                 # Split format: folder name is the filename (e.g., filename.pdf/)
                 json_set.add(name)
 
         print(f"[index-status] Found {len(json_set)} JSON entries in blob storage", flush=True)
 
-        # 3. Combine into response
-        all_files = set(indexed.keys()) | json_set
+        # 3. Normalize indexed keys: add .pdf variant if missing
+        normalized_indexed = {}
+        for fname, count in indexed.items():
+            normalized_indexed[fname] = count
+            if not fname.lower().endswith('.pdf'):
+                normalized_indexed[fname + '.pdf'] = count
+
+        # 4. Combine into response
+        all_files = set(normalized_indexed.keys()) | json_set
         files = {}
         for fname in all_files:
             files[fname] = {
-                "indexed_pages": indexed.get(fname, 0),
+                "indexed_pages": normalized_indexed.get(fname, 0),
                 "json_exists": fname in json_set
             }
 
