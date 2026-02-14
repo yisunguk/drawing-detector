@@ -395,35 +395,30 @@ class AzureSearchService:
 
         print(f"[AzureSearch] Starting orphaned index cleanup for user: {username}", flush=True)
 
-        # 1. Collect all index documents for this user
+        # 1. Collect all index documents for this user (paginate with skip)
         all_docs = []  # list of {"id": ..., "blob_path": ..., "source": ...}
+        BATCH = 1000
+        skip = 0
         try:
-            results = self.client.search(
-                search_text="*",
-                filter=f"blob_path ge '{username}/' and blob_path lt '{username}0'",
-                select=["id", "blob_path", "source"],
-                top=1000,
-            )
-            for doc in results:
-                all_docs.append({
-                    "id": doc["id"],
-                    "blob_path": doc.get("blob_path", ""),
-                    "source": doc.get("source", ""),
-                })
-            # Handle paging if > 1000 docs (continuation)
             while True:
-                try:
-                    page = results.get_next()
-                    if not page:
-                        break
-                    for doc in page:
-                        all_docs.append({
-                            "id": doc["id"],
-                            "blob_path": doc.get("blob_path", ""),
-                            "source": doc.get("source", ""),
-                        })
-                except StopIteration:
+                results = self.client.search(
+                    search_text="*",
+                    filter=f"blob_path ge '{username}/' and blob_path lt '{username}0'",
+                    select=["id", "blob_path", "source"],
+                    top=BATCH,
+                    skip=skip,
+                )
+                page_docs = []
+                for doc in results:
+                    page_docs.append({
+                        "id": doc["id"],
+                        "blob_path": doc.get("blob_path", ""),
+                        "source": doc.get("source", ""),
+                    })
+                all_docs.extend(page_docs)
+                if len(page_docs) < BATCH:
                     break
+                skip += BATCH
         except Exception as e:
             logger.error(f"Failed to query index for cleanup: {e}")
             return {"deleted_count": 0, "deleted_files": []}
