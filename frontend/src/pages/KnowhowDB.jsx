@@ -812,7 +812,7 @@ const KnowhowDB = () => {
                             <div className="flex items-center justify-between mb-2 px-1">
                                 <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Files</div>
                                 <div className="flex items-center gap-1">
-                                    {isAdmin && Object.keys(indexStatus).length > 0 && (
+                                    {isAdmin && files.some(f => indexStatus[f.name]?.json_exists && !indexStatus[f.name]?.indexed_pages) && (
                                         <button
                                             onClick={handleIndexAll}
                                             disabled={isIndexingAll || isReindexing}
