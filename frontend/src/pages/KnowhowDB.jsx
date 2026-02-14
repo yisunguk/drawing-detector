@@ -58,7 +58,13 @@ const KnowhowDB = () => {
     // === Admin User Folder State ===
     const [userFolders, setUserFolders] = useState([]);
     const [selectedUserFolder, setSelectedUserFolder] = useState(null);
-    const browseUsername = isAdmin && selectedUserFolder ? selectedUserFolder : username;
+    // Tree mode state (admin "전체" mode)
+    const [treeActiveUser, setTreeActiveUser] = useState(null);
+    const [expandedUsers, setExpandedUsers] = useState(new Set());
+    const [userSubFolders, setUserSubFolders] = useState({});
+    const browseUsername = isAdmin
+        ? (selectedUserFolder || treeActiveUser || null)
+        : username;
 
     // === Left Sidebar State ===
     const [folders, setFolders] = useState([]);
@@ -138,6 +144,7 @@ const KnowhowDB = () => {
     // =============================================
     useEffect(() => {
         if (!browseUsername) return;
+        if (isAdmin && !selectedUserFolder) return; // "전체" tree mode — folders loaded via tree
         loadFolders();
     }, [browseUsername]);
 
@@ -154,6 +161,36 @@ const KnowhowDB = () => {
         } catch (e) {
             console.error('Failed to load folders:', e);
         }
+    };
+
+    // Load subfolders for a user in tree mode (lazy, cached)
+    const loadUserSubFolders = async (user) => {
+        if (userSubFolders[user]) return;
+        try {
+            const res = await fetch(getListApiUrl(`${user}/`));
+            if (!res.ok) throw new Error('Failed');
+            const data = await res.json();
+            const items = Array.isArray(data) ? data : (data.items || []);
+            const folderItems = items.filter(
+                item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase())
+            );
+            setUserSubFolders(prev => ({ ...prev, [user]: folderItems }));
+        } catch (e) {
+            console.error(`Failed to load subfolders for ${user}:`, e);
+        }
+    };
+
+    const toggleTreeUser = (user) => {
+        setExpandedUsers(prev => {
+            const next = new Set(prev);
+            if (next.has(user)) {
+                next.delete(user);
+            } else {
+                next.add(user);
+                loadUserSubFolders(user);
+            }
+            return next;
+        });
     };
 
     // =============================================
@@ -379,7 +416,7 @@ const KnowhowDB = () => {
                 context: null,
                 doc_ids: docIds,
                 mode: 'search',
-                ...(isAdmin && selectedUserFolder && { target_user: selectedUserFolder })
+                ...(isAdmin && (selectedUserFolder || treeActiveUser) && { target_user: selectedUserFolder || treeActiveUser })
             };
             console.log('[KnowhowDB] Search API:', apiUrl, 'body:', JSON.stringify(body));
 
@@ -461,7 +498,7 @@ const KnowhowDB = () => {
                     doc_ids: docIds,
                     mode: 'chat',
                     history: history.length > 0 ? history : null,
-                    ...(isAdmin && selectedUserFolder && { target_user: selectedUserFolder })
+                    ...(isAdmin && (selectedUserFolder || treeActiveUser) && { target_user: selectedUserFolder || treeActiveUser })
                 })
             });
 
@@ -537,7 +574,7 @@ const KnowhowDB = () => {
         if (!folder && activeDoc && activeDoc.name === filename) folder = activeDoc.folder;
         if (!folder) folder = 'documents';
 
-        const resultUser = result.user_id || browseUsername;
+        const resultUser = result.user_id || browseUsername || username;
         const url = buildBlobUrl(`${resultUser}/${folder}/${filename}`);
         openPdf(url, page);
     };
@@ -786,6 +823,8 @@ const KnowhowDB = () => {
                                 setActiveFolder(null);
                                 setActiveDoc(null);
                                 setFiles([]);
+                                setTreeActiveUser(null);
+                                setExpandedUsers(new Set());
                             }}
                             className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-colors"
                         >
@@ -800,28 +839,81 @@ const KnowhowDB = () => {
                 {/* Folders */}
                 <div className="px-3 py-2">
                     <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">Folders</div>
-                    <div className="space-y-0.5">
-                        {folders.map((folder) => (
-                            <button
-                                key={folder.name}
-                                onClick={() => setActiveFolder(activeFolder === folder.name ? null : folder.name)}
-                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                                    activeFolder === folder.name
-                                        ? 'bg-blue-100 text-blue-700 font-medium'
-                                        : 'text-gray-600 hover:bg-gray-200'
-                                }`}
-                            >
-                                {activeFolder === folder.name
-                                    ? <FolderOpen className="w-4 h-4 flex-shrink-0" />
-                                    : <Folder className="w-4 h-4 flex-shrink-0" />
-                                }
-                                <span className="truncate">{folder.name}</span>
-                            </button>
-                        ))}
-                        {folders.length === 0 && (
-                            <div className="text-xs text-gray-400 italic px-3 py-2">Loading folders...</div>
-                        )}
-                    </div>
+                    {isAdmin && !selectedUserFolder ? (
+                        /* Tree mode: show all users with expandable subfolders */
+                        <div className="space-y-0.5">
+                            {userFolders.map(user => (
+                                <div key={user}>
+                                    <button
+                                        onClick={() => toggleTreeUser(user)}
+                                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                                            treeActiveUser === user
+                                                ? 'text-blue-700 font-medium'
+                                                : 'text-gray-600 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        <ChevronRight className={`w-3 h-3 flex-shrink-0 transition-transform ${expandedUsers.has(user) ? 'rotate-90' : ''}`} />
+                                        <Folder className="w-4 h-4 flex-shrink-0" />
+                                        <span className="truncate">{user}</span>
+                                    </button>
+                                    {expandedUsers.has(user) && userSubFolders[user]?.map(folder => (
+                                        <button
+                                            key={folder.name}
+                                            onClick={() => {
+                                                if (treeActiveUser === user && activeFolder === folder.name) {
+                                                    setActiveFolder(null);
+                                                    setActiveDoc(null);
+                                                    setFiles([]);
+                                                } else {
+                                                    setTreeActiveUser(user);
+                                                    setActiveFolder(folder.name);
+                                                    setActiveDoc(null);
+                                                }
+                                            }}
+                                            className={`w-full flex items-center gap-2 pl-8 pr-3 py-1.5 rounded-lg text-sm transition-colors ${
+                                                activeFolder === folder.name && treeActiveUser === user
+                                                    ? 'bg-blue-100 text-blue-700 font-medium'
+                                                    : 'text-gray-500 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            {activeFolder === folder.name && treeActiveUser === user
+                                                ? <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />
+                                                : <Folder className="w-3.5 h-3.5 flex-shrink-0" />
+                                            }
+                                            <span className="truncate">{folder.name}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            ))}
+                            {userFolders.length === 0 && (
+                                <div className="text-xs text-gray-400 italic px-3 py-2">Loading...</div>
+                            )}
+                        </div>
+                    ) : (
+                        /* Flat mode: show selected user's folders */
+                        <div className="space-y-0.5">
+                            {folders.map((folder) => (
+                                <button
+                                    key={folder.name}
+                                    onClick={() => setActiveFolder(activeFolder === folder.name ? null : folder.name)}
+                                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                                        activeFolder === folder.name
+                                            ? 'bg-blue-100 text-blue-700 font-medium'
+                                            : 'text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    {activeFolder === folder.name
+                                        ? <FolderOpen className="w-4 h-4 flex-shrink-0" />
+                                        : <Folder className="w-4 h-4 flex-shrink-0" />
+                                    }
+                                    <span className="truncate">{folder.name}</span>
+                                </button>
+                            ))}
+                            {folders.length === 0 && (
+                                <div className="text-xs text-gray-400 italic px-3 py-2">Loading folders...</div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {activeFolder && <div className="border-t border-gray-200 mx-3" />}
