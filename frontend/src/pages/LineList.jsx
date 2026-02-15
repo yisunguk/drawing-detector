@@ -2,8 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Upload, FileText, Loader2, Download,
-    Plus, Trash2, Search, ListChecks, Play, FolderOpen, RefreshCcw,
-    ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Maximize, Columns
+    Plus, Trash2, Search, ListChecks, Play, FolderOpen, RefreshCcw
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { loadPdfJs, uploadToAzure } from '../services/analysisService';
@@ -46,10 +45,7 @@ const LineList = () => {
     const [uploadProgress, setUploadProgress] = useState(0);
     const [blobPath, setBlobPath] = useState(null);
 
-    // PDF viewer 확대/축소
-    const [pdfZoom, setPdfZoom] = useState(1.2);
-    const [renderZoom, setRenderZoom] = useState(1.2); // Debounced zoom for smooth rendering
-    const [isDragging, setIsDragging] = useState(false);
+    // Panel resize
     const [panelWidth, setPanelWidth] = useState(450); // px (기존 450px 기본값)
     const [isResizing, setIsResizing] = useState(false);
     const [selectedRowIdx, setSelectedRowIdx] = useState(null);
@@ -70,15 +66,10 @@ const LineList = () => {
     const [searchTerm, setSearchTerm] = useState('');
 
     // Refs
-    const canvasRef = useRef(null);
     const pdfDocRef = useRef(null);
-    const pdfContainerRef = useRef(null);
     const fileInputRef = useRef(null);
     const editInputRef = useRef(null);
     const resizingRef = useRef(false);
-    const pageViewportRef = useRef(null);
-    const dragStartRef = useRef({ x: 0, y: 0, left: 0, top: 0 });
-    const renderTaskRef = useRef(null);
 
     // Azure Blob config for preview
     const AZURE_STORAGE_ACCOUNT_NAME = import.meta.env.VITE_AZURE_STORAGE_ACCOUNT_NAME;
@@ -120,7 +111,6 @@ const LineList = () => {
         setLines([]);
         setBlobPath(file.path);
         setExtractionStatus('');
-        setPdfZoom(1.2);
 
         const url = buildBlobUrl(file.path);
         setPdfUrl(url);
@@ -137,61 +127,6 @@ const LineList = () => {
         }
     }, [username]);
 
-    // Debounce zoom for rendering to prevent flicker
-    useEffect(() => {
-        const timer = setTimeout(() => setRenderZoom(pdfZoom), 300);
-        return () => clearTimeout(timer);
-    }, [pdfZoom]);
-
-    // Canvas size state for scroll area
-    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
-
-    // Render PDF page (줌 적용)
-    const renderPage = useCallback(async (pageNum) => {
-        if (!pdfDocRef.current || !canvasRef.current) return;
-        try {
-            const page = await pdfDocRef.current.getPage(pageNum);
-
-            // 원본 viewport 저장 (Fit 계산용)
-            const baseViewport = page.getViewport({ scale: 1 });
-            pageViewportRef.current = baseViewport;
-
-            const viewport = page.getViewport({ scale: renderZoom });
-
-            const offscreen = document.createElement('canvas');
-            offscreen.width = viewport.width;
-            offscreen.height = viewport.height;
-            const offCtx = offscreen.getContext('2d');
-
-            if (renderTaskRef.current) {
-                try { renderTaskRef.current.cancel(); } catch (e) { }
-            }
-
-            const renderTask = page.render({ canvasContext: offCtx, viewport });
-            renderTaskRef.current = renderTask;
-
-            try {
-                await renderTask.promise;
-                if (renderTaskRef.current === renderTask) {
-                    const canvas = canvasRef.current;
-                    if (canvas) {
-                        canvas.width = viewport.width;
-                        canvas.height = viewport.height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(offscreen, 0, 0);
-                    }
-                    setCanvasSize({ width: viewport.width, height: viewport.height });
-                    renderTaskRef.current = null;
-                }
-            } catch (err) {
-                if (err.name === 'RenderingCancelledException') return;
-                throw err;
-            }
-        } catch (err) {
-            console.error('PDF render error:', err);
-        }
-    }, [renderZoom]);
-
     // Load PDF file
     const handleFileSelect = useCallback(async (file) => {
         if (!file || !file.name.toLowerCase().endsWith('.pdf')) return;
@@ -201,7 +136,6 @@ const LineList = () => {
         setLines([]);
         setBlobPath(null);
         setExtractionStatus('');
-        setPdfZoom(1.2);
 
         try {
             const pdfjsLib = await loadPdfJs();
@@ -214,98 +148,6 @@ const LineList = () => {
             console.error('PDF load error:', err);
         }
     }, []);
-
-    // Render page when currentPage or zoom changes
-    useEffect(() => {
-        if (pdfDocRef.current && currentPage > 0) {
-            renderPage(currentPage);
-        }
-    }, [currentPage, renderZoom, renderPage]);
-
-    // Also render after initial load
-    useEffect(() => {
-        if (pdfPages > 0) {
-            renderPage(1);
-        }
-    }, [pdfPages, renderPage]);
-
-    // 줌 컨트롤
-    const handleZoomIn = () => setPdfZoom(z => Math.min(5, +(z + 0.2).toFixed(1)));
-    const handleZoomOut = () => setPdfZoom(z => Math.max(0.3, +(z - 0.2).toFixed(1)));
-
-    const handleFitWidth = useCallback(() => {
-        if (!pdfContainerRef.current || !pageViewportRef.current) return;
-        const containerWidth = pdfContainerRef.current.clientWidth - 20;
-        const baseWidth = pageViewportRef.current.width;
-        const newZoom = +(containerWidth / baseWidth).toFixed(2);
-        setPdfZoom(Math.max(0.3, Math.min(5, newZoom)));
-    }, []);
-
-    const handleFitPage = useCallback(() => {
-        if (!pdfContainerRef.current || !pageViewportRef.current) return;
-        const containerWidth = pdfContainerRef.current.clientWidth - 20;
-        const containerHeight = pdfContainerRef.current.clientHeight - 20;
-        const baseWidth = pageViewportRef.current.width;
-        const baseHeight = pageViewportRef.current.height;
-        const scaleW = containerWidth / baseWidth;
-        const scaleH = containerHeight / baseHeight;
-        const newZoom = +(Math.min(scaleW, scaleH)).toFixed(2);
-        setPdfZoom(Math.max(0.3, Math.min(5, newZoom)));
-    }, []);
-
-    // Wheel zoom handler (identical to PDFViewer)
-    const handlePdfWheel = useCallback((e) => {
-        e.preventDefault();
-        const delta = -e.deltaY;
-        setPdfZoom(prevZoom => {
-            let newZoom = prevZoom + (delta > 0 ? 0.1 : -0.1);
-            return Math.min(Math.max(0.3, newZoom), 5.0);
-        });
-    }, []);
-
-    // Native listener only for preventDefault (passive: false required)
-    // Re-attaches when container appears (conditional rendering)
-    useEffect(() => {
-        const container = pdfContainerRef.current;
-        if (container) {
-            const preventDefaultWheel = (e) => e.preventDefault();
-            container.addEventListener('wheel', preventDefaultWheel, { passive: false });
-            return () => container.removeEventListener('wheel', preventDefaultWheel);
-        }
-    }, [pdfFile, selectedBlobFile]);
-
-    // Mouse pan/drag handlers (plain functions for fresh isDragging reference)
-    const handlePdfMouseDown = (e) => {
-        if (e.button !== 0) return;
-        setIsDragging(true);
-        const container = pdfContainerRef.current;
-        dragStartRef.current = {
-            x: e.clientX,
-            y: e.clientY,
-            left: container.scrollLeft,
-            top: container.scrollTop
-        };
-        container.style.cursor = 'grabbing';
-    };
-
-    const handlePdfMouseMove = (e) => {
-        if (!isDragging) return;
-        const container = pdfContainerRef.current;
-        const dx = e.clientX - dragStartRef.current.x;
-        const dy = e.clientY - dragStartRef.current.y;
-        container.scrollLeft = dragStartRef.current.left - dx;
-        container.scrollTop = dragStartRef.current.top - dy;
-    };
-
-    const handlePdfMouseUp = () => {
-        setIsDragging(false);
-        if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'grab';
-    };
-
-    const handlePdfMouseLeave = () => {
-        setIsDragging(false);
-        if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'default';
-    };
 
     // 패널 리사이즈 핸들러
     const startResize = useCallback((e) => {
@@ -657,75 +499,46 @@ const LineList = () => {
                         </div>
                     ) : (
                         <>
-                            {/* File info bar */}
-                            <div className="flex-shrink-0 px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <FileText className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                                    <span className="text-sm text-slate-300 truncate">{pdfFile?.name || selectedBlobFile?.name}</span>
-                                    {pdfPages > 0 && <span className="text-xs text-slate-500">({pdfPages}p)</span>}
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        setPdfFile(null);
-                                        setPdfUrl(null);
-                                        setPdfPages(0);
-                                        pdfDocRef.current = null;
-                                        pageViewportRef.current = null;
-                                        setBlobPath(null);
-                                        setSelectedBlobFile(null);
-                                        setExtractionStatus('');
-                                        setPdfZoom(1.2);
-                                    }}
-                                    className="text-slate-500 hover:text-slate-300 text-sm"
-                                >
-                                    변경
-                                </button>
-                            </div>
-
                             {/* Extract Button */}
-                            <div className="flex-shrink-0 px-4 py-3 border-b border-slate-700">
+                            <div className="flex-shrink-0 px-3 py-2 border-b border-slate-700 flex items-center gap-2">
                                 <button
                                     onClick={handleExtract}
                                     disabled={isExtracting}
-                                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+                                    className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg font-medium text-sm transition-colors"
                                 >
                                     {isExtracting ? (
                                         <>
-                                            <Loader2 className="w-5 h-5 animate-spin" />
+                                            <Loader2 className="w-4 h-4 animate-spin" />
                                             추출 중...
                                         </>
                                     ) : (
                                         <>
-                                            <Play className="w-5 h-5" />
+                                            <Play className="w-4 h-4" />
                                             라인 리스트 추출
                                         </>
                                     )}
                                 </button>
-
-                                {/* Progress */}
-                                {(isExtracting || extractionStatus) && (
-                                    <div className="mt-3">
-                                        {isExtracting && (
-                                            <div className="w-full bg-slate-700 rounded-full h-2 mb-2">
-                                                <div
-                                                    className="bg-amber-500 h-2 rounded-full transition-all duration-500"
-                                                    style={{ width: `${extractionProgress}%` }}
-                                                />
-                                            </div>
-                                        )}
-                                        <p className="text-xs text-slate-400">{extractionStatus}</p>
+                                {isExtracting && (
+                                    <div className="flex-1 flex items-center gap-2">
+                                        <div className="flex-1 bg-slate-700 rounded-full h-1.5">
+                                            <div
+                                                className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
+                                                style={{ width: `${extractionProgress}%` }}
+                                            />
+                                        </div>
+                                        <span className="text-xs text-slate-400 whitespace-nowrap">{extractionStatus}</span>
                                     </div>
                                 )}
                             </div>
 
-                            {/* PDF Viewer — uses the SAME PDFViewer component as Dashboard */}
+                            {/* PDF Viewer — same component as Dashboard */}
                             <PDFViewer
                                 doc={{ page: currentPage, docId: pdfUrl || 'local' }}
                                 documents={[{ id: pdfUrl || 'local', name: pdfFile?.name || selectedBlobFile?.name || 'PDF', pdfUrl: pdfUrl }]}
                                 onClose={() => {
                                     setPdfFile(null); setPdfUrl(null); setPdfPages(0);
                                     pdfDocRef.current = null; setBlobPath(null);
-                                    setSelectedBlobFile(null); setPdfZoom(1.2);
+                                    setSelectedBlobFile(null); setExtractionStatus('');
                                 }}
                             />
                         </>

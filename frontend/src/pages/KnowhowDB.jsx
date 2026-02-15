@@ -1966,8 +1966,8 @@ const KnowhowDB = () => {
                     </>
                 ) : currentPdfUrlRef.current ? (
                     <PDFViewer
-                        doc={{ page: pdfPage, docId: currentPdfUrlRef.current }}
-                        documents={[{ id: currentPdfUrlRef.current, name: 'PDF', pdfUrl: currentPdfUrlRef.current }]}
+                        doc={{ page: pdfPage, docId: currentPdfUrlRef.current, term: highlightKeyword || undefined }}
+                        documents={[{ id: currentPdfUrlRef.current, name: highlightMetaRef.current?.filename || 'PDF', pdfUrl: currentPdfUrlRef.current }]}
                         onClose={() => { setRightOpen(false); setViewerType(null); }}
                     />
                 ) : (
