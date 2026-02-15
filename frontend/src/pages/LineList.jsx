@@ -77,8 +77,6 @@ const LineList = () => {
     const resizingRef = useRef(false);
     const pageViewportRef = useRef(null);
     const dragStartRef = useRef({ x: 0, y: 0, left: 0, top: 0 });
-    const pdfZoomRef = useRef(pdfZoom);
-    const renderZoomRef = useRef(renderZoom);
 
     // Azure Blob config for preview
     const AZURE_STORAGE_ACCOUNT_NAME = import.meta.env.VITE_AZURE_STORAGE_ACCOUNT_NAME;
@@ -134,10 +132,6 @@ const LineList = () => {
             setPdfPages(0);
         }
     }, [username]);
-
-    // Keep zoom refs in sync for native event handler
-    useEffect(() => { pdfZoomRef.current = pdfZoom; }, [pdfZoom]);
-    useEffect(() => { renderZoomRef.current = renderZoom; }, [renderZoom]);
 
     // Debounce zoom for rendering to prevent flicker
     useEffect(() => {
@@ -241,35 +235,25 @@ const LineList = () => {
         setPdfZoom(Math.max(0.3, Math.min(5, newZoom)));
     }, []);
 
-    // Wheel zoom: native listener with scroll-position preservation
-    // Depends on pdfFile/selectedBlobFile because container is conditionally rendered
+    // Wheel zoom handler (identical to PDFViewer)
+    const handlePdfWheel = useCallback((e) => {
+        e.preventDefault();
+        const delta = -e.deltaY;
+        setPdfZoom(prevZoom => {
+            let newZoom = prevZoom + (delta > 0 ? 0.1 : -0.1);
+            return Math.min(Math.max(0.3, newZoom), 5.0);
+        });
+    }, []);
+
+    // Native listener only for preventDefault (passive: false required)
+    // Re-attaches when container appears (conditional rendering)
     useEffect(() => {
         const container = pdfContainerRef.current;
-        if (!container) return;
-        const handleWheel = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const oldZoom = pdfZoomRef.current;
-            const rZoom = renderZoomRef.current;
-            const delta = -e.deltaY;
-            const newZoom = Math.min(Math.max(0.3, oldZoom + (delta > 0 ? 0.1 : -0.1)), 5.0);
-            if (newZoom === oldZoom) return;
-            // Keep mouse point stable during zoom
-            const rect = container.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-            const contentX = container.scrollLeft + mouseX;
-            const contentY = container.scrollTop + mouseY;
-            const ratio = newZoom / oldZoom;
-            pdfZoomRef.current = newZoom;
-            setPdfZoom(newZoom);
-            requestAnimationFrame(() => {
-                container.scrollLeft = contentX * ratio - mouseX;
-                container.scrollTop = contentY * ratio - mouseY;
-            });
-        };
-        container.addEventListener('wheel', handleWheel, { passive: false });
-        return () => container.removeEventListener('wheel', handleWheel);
+        if (container) {
+            const preventDefaultWheel = (e) => e.preventDefault();
+            container.addEventListener('wheel', preventDefaultWheel, { passive: false });
+            return () => container.removeEventListener('wheel', preventDefaultWheel);
+        }
     }, [pdfFile, selectedBlobFile]);
 
     // Mouse pan/drag handlers (plain functions for fresh isDragging reference)
@@ -783,6 +767,7 @@ const LineList = () => {
                             <div
                                 ref={pdfContainerRef}
                                 className="relative flex-1 overflow-auto bg-slate-900 p-12 cursor-grab select-none"
+                                onWheel={handlePdfWheel}
                                 onMouseDown={handlePdfMouseDown}
                                 onMouseMove={handlePdfMouseMove}
                                 onMouseUp={handlePdfMouseUp}

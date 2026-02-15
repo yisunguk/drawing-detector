@@ -156,8 +156,6 @@ const KnowhowDB = () => {
     const pdfContainerRef = useRef(null);
     const lastQueryRef = useRef('');
     const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
-    const pdfZoomRef = useRef(pdfZoom);
-    const renderZoomRef = useRef(renderZoom);
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -514,10 +512,6 @@ const KnowhowDB = () => {
         }
     };
 
-    // Keep zoom refs in sync for native event handler
-    useEffect(() => { pdfZoomRef.current = pdfZoom; }, [pdfZoom]);
-    useEffect(() => { renderZoomRef.current = renderZoom; }, [renderZoom]);
-
     // Debounce zoom for rendering to prevent flicker
     useEffect(() => {
         const timer = setTimeout(() => setRenderZoom(pdfZoom), 300);
@@ -556,34 +550,24 @@ const KnowhowDB = () => {
         }
     };
 
-    // Wheel zoom: native listener with scroll-position preservation
+    // Wheel zoom handler (identical to PDFViewer)
+    const handlePdfWheel = useCallback((e) => {
+        e.preventDefault();
+        const delta = -e.deltaY;
+        setPdfZoom(prevZoom => {
+            let newZoom = prevZoom + (delta > 0 ? 0.1 : -0.1);
+            return Math.min(Math.max(0.3, newZoom), 5.0);
+        });
+    }, []);
+
+    // Native listener only for preventDefault (passive: false required)
     useEffect(() => {
         const container = pdfContainerRef.current;
-        if (!container) return;
-        const handleWheel = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const oldZoom = pdfZoomRef.current;
-            const rZoom = renderZoomRef.current;
-            const delta = -e.deltaY;
-            const newZoom = Math.min(Math.max(0.3, oldZoom + (delta > 0 ? 0.1 : -0.1)), 5.0);
-            if (newZoom === oldZoom) return;
-            // Keep mouse point stable during zoom
-            const rect = container.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-            const contentX = container.scrollLeft + mouseX;
-            const contentY = container.scrollTop + mouseY;
-            const ratio = (newZoom / rZoom) / (oldZoom / rZoom);
-            pdfZoomRef.current = newZoom;
-            setPdfZoom(newZoom);
-            requestAnimationFrame(() => {
-                container.scrollLeft = contentX * ratio - mouseX;
-                container.scrollTop = contentY * ratio - mouseY;
-            });
-        };
-        container.addEventListener('wheel', handleWheel, { passive: false });
-        return () => container.removeEventListener('wheel', handleWheel);
+        if (container) {
+            const preventDefaultWheel = (e) => e.preventDefault();
+            container.addEventListener('wheel', preventDefaultWheel, { passive: false });
+            return () => container.removeEventListener('wheel', preventDefaultWheel);
+        }
     }, []);
 
     // Mouse pan/drag handlers (plain functions for fresh isDragging reference)
@@ -1996,6 +1980,7 @@ const KnowhowDB = () => {
                 <div
                     ref={pdfContainerRef}
                     className="relative flex-1 overflow-auto bg-[#f4f1ea] p-12 cursor-grab select-none"
+                    onWheel={handlePdfWheel}
                     onMouseDown={handlePdfMouseDown}
                     onMouseMove={handlePdfMouseMove}
                     onMouseUp={handlePdfMouseUp}
