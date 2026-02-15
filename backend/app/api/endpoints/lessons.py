@@ -31,6 +31,22 @@ from app.services.lessons_search import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ── Content cleaning: strip confidential footer ──
+
+_CONFIDENTIAL_RE = re.compile(
+    r'POSCO\s+ENC\s+CONFIDENTIAL\s+\S+(?:\(\S+\))?\s*\n?'
+    r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s*'
+    r'이\s*문서는\s*포스코이앤씨의\s*\n?\s*허락없이\s*배포할\s*수\s*없습니다\.?',
+    re.MULTILINE
+)
+
+
+def _clean_content(text: str) -> str:
+    if not text:
+        return text
+    return _CONFIDENTIAL_RE.sub('', text)
+
+
 # ── Keyword extraction for highlight fallback ──
 
 _PARTICLES = ['에서', '으로', '까지', '부터', '해서', '세요',
@@ -255,16 +271,18 @@ async def _handle_search(request: SearchRequest, username: str) -> SearchRespons
         source_file=request.source_file,
     )
 
-    # Build highlight text for each result
+    # Clean confidential footer + build highlight text
     search_keywords = _extract_search_keywords(request.query)
     for r in results:
+        r["content"] = _clean_content(r.get("content", ""))
+        r["content_preview"] = _clean_content(r.get("content_preview", ""))
         azure_highlights = r.pop("azure_highlights", [])
         if azure_highlights:
-            r["highlight"] = " ... ".join(azure_highlights[:3])
+            r["highlight"] = _clean_content(" ... ".join(azure_highlights[:3]))
         elif search_keywords:
-            r["highlight"] = _extract_and_highlight(r.get("content", ""), search_keywords)
+            r["highlight"] = _extract_and_highlight(r["content"], search_keywords)
         else:
-            r["highlight"] = (r.get("content") or "")[:300]
+            r["highlight"] = r["content"][:300]
 
     return SearchResponse(
         results=results,
@@ -289,8 +307,9 @@ async def _handle_chat(request: SearchRequest, username: str) -> SearchResponse:
     else:
         context_parts = []
         for r in results:
+            r["content"] = _clean_content(r.get("content", ""))
             header = f"=== 문서: {r['file_nm']} | 분류: {r['category']} | 프로젝트: {r.get('pjt_nm', '')} ==="
-            context_parts.append(f"{header}\n{r.get('content', '')}")
+            context_parts.append(f"{header}\n{r['content']}")
         context_text = "\n\n".join(context_parts)
 
     # Truncate if too long
@@ -342,8 +361,8 @@ async def _handle_chat(request: SearchRequest, username: str) -> SearchResponse:
             "category": r["category"],
             "pjt_nm": r.get("pjt_nm", ""),
             "score": r.get("score", 0),
-            "content_preview": r.get("content_preview", ""),
-            "content": r.get("content", ""),
+            "content_preview": _clean_content(r.get("content_preview", "")),
+            "content": r.get("content", ""),  # already cleaned above
             "source_file": r.get("source_file", ""),
         }
         for r in results[:10]
