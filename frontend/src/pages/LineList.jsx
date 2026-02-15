@@ -139,23 +139,36 @@ const LineList = () => {
         return () => clearTimeout(timer);
     }, [pdfZoom]);
 
+    // Canvas size state for scroll area
+    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+
     // Render PDF page (줌 적용)
     const renderPage = useCallback(async (pageNum) => {
         if (!pdfDocRef.current || !canvasRef.current) return;
         try {
             const page = await pdfDocRef.current.getPage(pageNum);
-            const canvas = canvasRef.current;
-            const ctx = canvas.getContext('2d');
 
             // 원본 viewport 저장 (Fit 계산용)
             const baseViewport = page.getViewport({ scale: 1 });
             pageViewportRef.current = baseViewport;
 
             const viewport = page.getViewport({ scale: renderZoom });
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
 
-            await page.render({ canvasContext: ctx, viewport }).promise;
+            // Offscreen canvas rendering to prevent flicker
+            const offscreen = document.createElement('canvas');
+            offscreen.width = viewport.width;
+            offscreen.height = viewport.height;
+            const offCtx = offscreen.getContext('2d');
+            await page.render({ canvasContext: offCtx, viewport }).promise;
+
+            const canvas = canvasRef.current;
+            if (canvas) {
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(offscreen, 0, 0);
+            }
+            setCanvasSize({ width: viewport.width, height: viewport.height });
         } catch (err) {
             console.error('PDF render error:', err);
         }
@@ -748,6 +761,8 @@ const LineList = () => {
                                 <div
                                     className="inline-block transition-transform duration-100 ease-out"
                                     style={{
+                                        width: canvasSize.width,
+                                        height: canvasSize.height,
                                         transform: `scale(${pdfZoom / renderZoom})`,
                                         transformOrigin: '0 0',
                                     }}

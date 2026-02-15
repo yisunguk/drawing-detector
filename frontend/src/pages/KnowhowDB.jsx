@@ -529,11 +529,21 @@ const KnowhowDB = () => {
             const page = await pdfDocObj.getPage(pdfPage);
             const viewport = page.getViewport({ scale: renderZoom });
             viewportRef.current = viewport;
+
+            // Offscreen canvas rendering to prevent flicker
+            const offscreen = document.createElement('canvas');
+            offscreen.width = viewport.width;
+            offscreen.height = viewport.height;
+            const offCtx = offscreen.getContext('2d');
+            await page.render({ canvasContext: offCtx, viewport }).promise;
+
             const canvas = canvasRef.current;
-            const ctx = canvas.getContext('2d');
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-            await page.render({ canvasContext: ctx, viewport }).promise;
+            if (canvas) {
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(offscreen, 0, 0);
+            }
             setCanvasSize({ width: viewport.width, height: viewport.height });
         } catch (e) {
             console.error('PDF render error:', e);
@@ -1974,6 +1984,8 @@ const KnowhowDB = () => {
                         <div
                             className="relative inline-block transition-transform duration-100 ease-out"
                             style={{
+                                width: canvasSize.width,
+                                height: canvasSize.height,
                                 transform: `scale(${pdfZoom / renderZoom})`,
                                 transformOrigin: '0 0',
                             }}
