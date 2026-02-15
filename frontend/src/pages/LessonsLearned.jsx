@@ -117,33 +117,38 @@ const LessonsLearned = () => {
     const formatContentAsReport = useCallback((text) => {
         if (!text) return '<p class="text-gray-400 italic">내용 없음</p>';
 
-        const lines = text.split('\n');
-        let html = '';
-        let inSection = false;
-        let sectionContent = [];
+        const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-        const flushSection = () => {
-            if (sectionContent.length > 0) {
-                const joined = sectionContent.join('\n').trim();
-                if (joined) {
-                    html += `<div class="rpt-body">${escapeAndFormat(joined)}</div>`;
-                }
-                sectionContent = [];
+        // ── Step 1: Merge short OCR-fragmented lines ──
+        const rawLines = text.split('\n');
+        const merged = [];
+        let buf = '';
+        for (const line of rawLines) {
+            const t = line.trim();
+            if (!t) {
+                if (buf) { merged.push(buf); buf = ''; }
+                merged.push('');
+                continue;
             }
-        };
+            // Very short line (< 4 chars, not a bullet) = OCR fragment → merge
+            if (t.length < 4 && !/^[-·•●]/.test(t)) {
+                buf += t;
+                continue;
+            }
+            if (buf) {
+                // If current line is also short-ish, keep merging
+                if (t.length < 10 && !/^[-·•●]/.test(t)) {
+                    buf += ' ' + t;
+                    continue;
+                }
+                merged.push(buf);
+                buf = '';
+            }
+            merged.push(t);
+        }
+        if (buf) merged.push(buf);
 
-        const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-        const escapeAndFormat = (s) => {
-            return escapeHtml(s)
-                .split('\n')
-                .map(l => l.trim())
-                .filter(l => l.length > 0)
-                .map(l => `<p>${l}</p>`)
-                .join('');
-        };
-
-        // Patterns for structure detection
+        // ── Step 2: Classify each line and build HTML ──
         const partRe = /^PART\s*[IⅠⅡ]+\s*.*/i;
         const sectionHeaders = [
             '부적합 내용', '부적합내용', 'NCR 내용', 'NCR내용',
@@ -157,93 +162,89 @@ const LessonsLearned = () => {
         const reportTitleRe = /^(NONCONFORMANCE|품질개선활동|NCR\s*REPORT|CORRECTIVE|시정조치|품질부적합)/i;
         const dateSignRe = /^\S+\s*\/\s*\d{4}-\d{2}-\d{2}\s/;
         const resultLineRe = /^(조치결과\s*확인|조치결과\s*승인)/;
+        const bulletRe = /^[-·•●]\s*/;
+        const quoteRe = /^["""].*["""]$/;
 
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            const trimmed = line.trim();
+        let html = '';
+        let bulletBuf = [];
 
-            if (!trimmed) {
-                sectionContent.push('');
+        const flushBullets = () => {
+            if (bulletBuf.length === 0) return;
+            html += '<ul class="rpt-list">' + bulletBuf.map(b => `<li>${esc(b)}</li>`).join('') + '</ul>';
+            bulletBuf = [];
+        };
+
+        let paraBuf = [];
+        const flushPara = () => {
+            if (paraBuf.length === 0) return;
+            html += `<div class="rpt-body"><p>${esc(paraBuf.join(' '))}</p></div>`;
+            paraBuf = [];
+        };
+
+        for (let i = 0; i < merged.length; i++) {
+            const t = merged[i];
+
+            if (!t) { flushBullets(); flushPara(); continue; }
+
+            // Bullet line
+            if (bulletRe.test(t)) {
+                flushPara();
+                bulletBuf.push(t.replace(bulletRe, ''));
+                continue;
+            }
+            flushBullets();
+
+            // Company name
+            if (companyRe.test(t) && i < 5) { flushPara(); html += `<div class="rpt-company">${esc(t)}</div>`; continue; }
+
+            // Report title
+            if (reportTitleRe.test(t)) {
+                flushPara();
+                html += `<div class="rpt-title">${esc(t)}</div>`;
+                if (i + 1 < merged.length && merged[i + 1]?.startsWith('(')) { i++; html += `<div class="rpt-subtitle">${esc(merged[i])}</div>`; }
                 continue;
             }
 
-            // Company name → report header
-            if (companyRe.test(trimmed) && i < 5) {
-                flushSection();
-                html += `<div class="rpt-company">${escapeHtml(trimmed)}</div>`;
+            // PART header
+            if (partRe.test(t)) { flushPara(); html += `<div class="rpt-part">${esc(t)}</div>`; continue; }
+
+            // Section header
+            if (sectionHeaders.some(h => t.replace(/\s/g, '').startsWith(h.replace(/\s/g, '')))) {
+                flushPara(); html += `<div class="rpt-section">${esc(t)}</div>`; continue;
+            }
+
+            // Key-value
+            const kvMatch = t.match(kvRe);
+            if (kvMatch) { flushPara(); html += `<div class="rpt-kv"><span class="rpt-key">${esc(kvMatch[1])}</span><span class="rpt-val">${esc(kvMatch[2])}</span></div>`; continue; }
+
+            // NCR번호 line
+            if (/^NCR번호|^NCR\s*번호/.test(t)) { flushPara(); html += `<div class="rpt-kv-line">${esc(t)}</div>`; continue; }
+
+            // Lv classification
+            if (/^Lv\d/.test(t)) { flushPara(); html += `<div class="rpt-lv">${esc(t)}</div>`; continue; }
+
+            // Attachment references
+            if (/\.(jpg|jpeg|png|gif|pdf|bmp)$/i.test(t) || /^조치\s*전|^조치\s*후/.test(t)) { flushPara(); html += `<div class="rpt-attach">${esc(t)}</div>`; continue; }
+
+            // Date/signature
+            if (dateSignRe.test(t) || resultLineRe.test(t)) { flushPara(); html += `<div class="rpt-sign">${esc(t)}</div>`; continue; }
+
+            // Quoted text (슬로건 등)
+            if (quoteRe.test(t)) { flushPara(); html += `<div class="rpt-quote">${esc(t)}</div>`; continue; }
+
+            // Header-like: short line (< 25 chars) followed by longer content or bullets
+            const nextLine = merged[i + 1] || '';
+            if (t.length <= 25 && t.length >= 2 && !t.includes(',') && (nextLine.length > 30 || bulletRe.test(nextLine) || !nextLine)) {
+                flushPara();
+                html += `<div class="rpt-heading">${esc(t)}</div>`;
                 continue;
             }
 
-            // Report title line
-            if (reportTitleRe.test(trimmed)) {
-                flushSection();
-                html += `<div class="rpt-title">${escapeHtml(trimmed)}</div>`;
-                // Check if next line is subtitle (e.g., "(품질개선활동 보고서)")
-                if (i + 1 < lines.length && lines[i + 1].trim().startsWith('(')) {
-                    i++;
-                    html += `<div class="rpt-subtitle">${escapeHtml(lines[i].trim())}</div>`;
-                }
-                continue;
-            }
-
-            // PART headers
-            if (partRe.test(trimmed)) {
-                flushSection();
-                html += `<div class="rpt-part">${escapeHtml(trimmed)}</div>`;
-                continue;
-            }
-
-            // Section headers (부적합 내용, 조치내용, etc.)
-            const isSectionHeader = sectionHeaders.some(h =>
-                trimmed.replace(/\s/g, '').startsWith(h.replace(/\s/g, ''))
-            );
-            if (isSectionHeader) {
-                flushSection();
-                html += `<div class="rpt-section">${escapeHtml(trimmed)}</div>`;
-                continue;
-            }
-
-            // Key-value lines (NCR번호 : xxx, 제 목 : xxx)
-            const kvMatch = trimmed.match(kvRe);
-            if (kvMatch) {
-                flushSection();
-                html += `<div class="rpt-kv"><span class="rpt-key">${escapeHtml(kvMatch[1])}</span><span class="rpt-val">${escapeHtml(kvMatch[2])}</span></div>`;
-                continue;
-            }
-
-            // NCR번호 line without colon (e.g., "NCR번호 : NCR_E20220_40 작성일자 : ...")
-            if (/^NCR번호|^NCR\s*번호/.test(trimmed)) {
-                flushSection();
-                html += `<div class="rpt-kv-line">${escapeHtml(trimmed)}</div>`;
-                continue;
-            }
-
-            // Lv1, Lv2, Lv3 classification lines
-            if (/^Lv\d/.test(trimmed)) {
-                flushSection();
-                html += `<div class="rpt-lv">${escapeHtml(trimmed)}</div>`;
-                continue;
-            }
-
-            // Image/attachment references
-            if (/\.(jpg|jpeg|png|gif|pdf|bmp)$/i.test(trimmed) || /^조치\s*전|^조치\s*후/.test(trimmed)) {
-                flushSection();
-                html += `<div class="rpt-attach">${escapeHtml(trimmed)}</div>`;
-                continue;
-            }
-
-            // Date/signature lines (이휘용 / 2024-08-03 ...)
-            if (dateSignRe.test(trimmed) || resultLineRe.test(trimmed)) {
-                flushSection();
-                html += `<div class="rpt-sign">${escapeHtml(trimmed)}</div>`;
-                continue;
-            }
-
-            // Regular content
-            sectionContent.push(trimmed);
+            // Regular paragraph content — accumulate
+            paraBuf.push(t);
         }
-
-        flushSection();
+        flushBullets();
+        flushPara();
         return html;
     }, []);
 
@@ -816,22 +817,22 @@ const LessonsLearned = () => {
                         className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                             mode === 'search'
                                 ? 'bg-purple-600 text-white'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                : 'text-gray-500 hover:bg-gray-100'
                         }`}
                     >
                         <SearchIcon className="w-4 h-4" />
-                        검색
+                        AI 검색
                     </button>
                     <button
                         onClick={() => setMode('chat')}
                         className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                             mode === 'chat'
                                 ? 'bg-purple-600 text-white'
-                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                : 'text-gray-500 hover:bg-gray-100'
                         }`}
                     >
                         <MessageSquare className="w-4 h-4" />
-                        분석
+                        AI 분석
                     </button>
 
                     {selectedCategory && (
