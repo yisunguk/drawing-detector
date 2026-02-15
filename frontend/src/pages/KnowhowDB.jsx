@@ -7,6 +7,7 @@ import {
     RefreshCcw, Trash2, List, Database, MessageSquare, Check
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import SharedPDFViewer from '../components/SharedPDFViewer';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
 import { auth, db } from '../firebase';
@@ -1960,111 +1961,52 @@ const KnowhowDB = () => {
                     </button>
                 </div>
 
-                {/* PDF Controls */}
-                {viewerType === 'pdf' && pdfDocObj && (
-                    <div className="h-10 border-b border-[#e5e1d8] flex items-center justify-center gap-3 px-4 bg-[#fcfaf7] flex-shrink-0">
-                        <button
-                            onClick={() => { setHighlightKeyword(null); setHighlightRects([]); setHighlightPolygons([]); setPdfPage(p => Math.max(1, p - 1)); }}
-                            disabled={pdfPage <= 1}
-                            className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
-                        >
-                            <ChevronLeft size={14} />
-                        </button>
-                        <span className="text-xs text-gray-600 font-medium min-w-[60px] text-center">
-                            {pdfPage} / {pdfTotalPages}
-                        </span>
-                        <button
-                            onClick={() => { setHighlightKeyword(null); setHighlightRects([]); setHighlightPolygons([]); setPdfPage(p => Math.min(pdfTotalPages, p + 1)); }}
-                            disabled={pdfPage >= pdfTotalPages}
-                            className="p-1 hover:bg-gray-200 rounded disabled:opacity-30"
-                        >
-                            <ChevronRight size={14} />
-                        </button>
-                        <div className="w-px h-4 bg-gray-300 mx-1" />
-                        <button onClick={() => setPdfZoom(z => Math.max(0.3, +(z - 0.2).toFixed(1)))} className="p-1 hover:bg-gray-200 rounded">
-                            <ZoomOut size={14} />
-                        </button>
-                        <span className="text-xs text-gray-500 w-10 text-center">{Math.round(pdfZoom * 100)}%</span>
-                        <button onClick={() => setPdfZoom(z => Math.min(5, +(z + 0.2).toFixed(1)))} className="p-1 hover:bg-gray-200 rounded">
-                            <ZoomIn size={14} />
-                        </button>
+                {/* PDF / Office Viewer */}
+                {pdfLoading ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                        <Loader2 className="w-8 h-8 animate-spin text-[#d97757] mb-3" />
+                        <span className="text-sm">Loading PDF...</span>
                     </div>
-                )}
-
-                {/* PDF Canvas */}
-                <div
-                    ref={pdfContainerRef}
-                    className="relative flex-1 overflow-auto bg-[#f4f1ea] p-12 cursor-grab select-none"
-                    onWheel={handlePdfWheel}
-                    onMouseDown={handlePdfMouseDown}
-                    onMouseMove={handlePdfMouseMove}
-                    onMouseUp={handlePdfMouseUp}
-                    onMouseLeave={handlePdfMouseLeave}
-                >
-                    {pdfLoading ? (
-                        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                            <Loader2 className="w-8 h-8 animate-spin text-[#d97757] mb-3" />
-                            <span className="text-sm">Loading PDF...</span>
-                        </div>
-                    ) : viewerType === 'office' && officeUrl ? (
-                        <iframe src={officeUrl} className="w-full h-full border-0" allowFullScreen />
-                    ) : pdfDocObj ? (
-                        <div
-                            className="relative mx-auto mb-8 shadow-2xl transition-transform duration-100 ease-out"
-                            style={{
-                                width: canvasSize.width,
-                                height: canvasSize.height,
-                                transform: `scale(${pdfZoom / renderZoom})`,
-                                transformOrigin: '0 0',
-                            }}
-                        >
-                            <canvas ref={canvasRef} className="shadow-lg" />
-                            {(highlightRects.length > 0 || highlightPolygons.length > 0) && canvasSize.width > 0 && (
+                ) : viewerType === 'office' && officeUrl ? (
+                    <iframe src={officeUrl} className="flex-1 w-full border-0" allowFullScreen />
+                ) : pdfDocObj ? (
+                    <SharedPDFViewer
+                        pdfDoc={pdfDocObj}
+                        page={pdfPage}
+                        totalPages={pdfTotalPages}
+                        onPageChange={(p) => { setHighlightKeyword(null); setHighlightRects([]); setHighlightPolygons([]); setPdfPage(p); }}
+                        loading={pdfLoading}
+                        theme="light"
+                        onViewportChange={(vp) => { viewportRef.current = vp; }}
+                        onCanvasSizeChange={(size) => setCanvasSize(size)}
+                        overlay={(cs) => (
+                            (highlightRects.length > 0 || highlightPolygons.length > 0) && cs.width > 0 ? (
                                 <svg
                                     className="absolute top-0 left-0 pointer-events-none"
-                                    style={{ width: canvasSize.width, height: canvasSize.height, zIndex: 10 }}
-                                    viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}
+                                    style={{ width: cs.width, height: cs.height, zIndex: 10 }}
+                                    viewBox={`0 0 ${cs.width} ${cs.height}`}
                                 >
-                                    {/* pdf.js text-based highlights (rect) */}
                                     {highlightRects.map((rect, i) => (
-                                        <rect
-                                            key={`r${i}`}
-                                            x={rect.x}
-                                            y={rect.y}
-                                            width={rect.width}
-                                            height={rect.height}
-                                            fill="rgba(255, 235, 59, 0.4)"
-                                            stroke="#f59e0b"
-                                            strokeWidth="1"
-                                            rx="2"
-                                        />
+                                        <rect key={`r${i}`} x={rect.x} y={rect.y} width={rect.width} height={rect.height}
+                                            fill="rgba(255, 235, 59, 0.4)" stroke="#f59e0b" strokeWidth="1" rx="2" />
                                     ))}
-                                    {/* OCR polygon-based highlights (for drawings) */}
                                     {highlightPolygons.map((hp, i) => {
                                         const pts = [];
-                                        for (let j = 0; j < hp.points.length; j += 2) {
-                                            pts.push(`${hp.points[j]},${hp.points[j + 1]}`);
-                                        }
-                                        return (
-                                            <polygon
-                                                key={`p${i}`}
-                                                points={pts.join(' ')}
-                                                fill={i === 0 ? "rgba(255, 235, 59, 0.5)" : "rgba(255, 235, 59, 0.3)"}
-                                                stroke="#f59e0b"
-                                                strokeWidth={i === 0 ? "3" : "1"}
-                                            />
-                                        );
+                                        for (let j = 0; j < hp.points.length; j += 2) pts.push(`${hp.points[j]},${hp.points[j + 1]}`);
+                                        return <polygon key={`p${i}`} points={pts.join(' ')}
+                                            fill={i === 0 ? "rgba(255, 235, 59, 0.5)" : "rgba(255, 235, 59, 0.3)"}
+                                            stroke="#f59e0b" strokeWidth={i === 0 ? "3" : "1"} />;
                                     })}
                                 </svg>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                            <FileText className="w-12 h-12 mb-3 opacity-30" />
-                            <p className="text-sm">Click a search result to view document</p>
-                        </div>
-                    )}
-                </div>
+                            ) : null
+                        )}
+                    />
+                ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                        <FileText className="w-12 h-12 mb-3 opacity-30" />
+                        <p className="text-sm">Click a search result to view document</p>
+                    </div>
+                )}
             </div>
         </div>
     );

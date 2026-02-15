@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { loadPdfJs, uploadToAzure } from '../services/analysisService';
+import SharedPDFViewer from '../components/SharedPDFViewer';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
 
@@ -715,91 +716,15 @@ const LineList = () => {
                                 )}
                             </div>
 
-                            {/* PDF 뷰어 툴바 (줌/페이지) */}
-                            <div className="flex-shrink-0 h-9 border-b border-slate-700 flex items-center justify-center gap-2 px-3 bg-slate-800/80">
-                                {/* 페이지 네비게이션 */}
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                    disabled={currentPage <= 1}
-                                    className="p-1 hover:bg-slate-700 rounded disabled:opacity-30 transition-colors"
-                                    title="이전 페이지"
-                                >
-                                    <ChevronLeft className="w-4 h-4" />
-                                </button>
-                                <span className="text-xs text-slate-400 font-medium min-w-[50px] text-center">
-                                    {currentPage} / {pdfPages || '?'}
-                                </span>
-                                <button
-                                    onClick={() => setCurrentPage(p => Math.min(pdfPages, p + 1))}
-                                    disabled={currentPage >= pdfPages}
-                                    className="p-1 hover:bg-slate-700 rounded disabled:opacity-30 transition-colors"
-                                    title="다음 페이지"
-                                >
-                                    <ChevronRight className="w-4 h-4" />
-                                </button>
-
-                                <div className="w-px h-4 bg-slate-600 mx-1" />
-
-                                {/* 줌 컨트롤 */}
-                                <button
-                                    onClick={handleZoomOut}
-                                    className="p-1 hover:bg-slate-700 rounded transition-colors"
-                                    title="축소"
-                                >
-                                    <ZoomOut className="w-4 h-4" />
-                                </button>
-                                <span className="text-xs text-slate-400 w-10 text-center">
-                                    {Math.round(pdfZoom * 100)}%
-                                </span>
-                                <button
-                                    onClick={handleZoomIn}
-                                    className="p-1 hover:bg-slate-700 rounded transition-colors"
-                                    title="확대"
-                                >
-                                    <ZoomIn className="w-4 h-4" />
-                                </button>
-
-                                <div className="w-px h-4 bg-slate-600 mx-1" />
-
-                                {/* 맞춤 버튼 */}
-                                <button
-                                    onClick={handleFitWidth}
-                                    className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-slate-200 transition-colors"
-                                    title="너비 맞춤"
-                                >
-                                    <Columns className="w-4 h-4" />
-                                </button>
-                                <button
-                                    onClick={handleFitPage}
-                                    className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-slate-200 transition-colors"
-                                    title="페이지 맞춤"
-                                >
-                                    <Maximize className="w-4 h-4" />
-                                </button>
-                            </div>
-
-                            {/* PDF Preview (스크롤 가능) */}
-                            <div
-                                ref={pdfContainerRef}
-                                className="relative flex-1 overflow-auto bg-slate-900 p-12 cursor-grab select-none"
-                                onWheel={handlePdfWheel}
-                                onMouseDown={handlePdfMouseDown}
-                                onMouseMove={handlePdfMouseMove}
-                                onMouseUp={handlePdfMouseUp}
-                                onMouseLeave={handlePdfMouseLeave}
-                            >
-                                <div
-                                    className="relative mx-auto mb-8 shadow-2xl transition-transform duration-100 ease-out"
-                                    style={{
-                                        width: canvasSize.width,
-                                        height: canvasSize.height,
-                                        transform: `scale(${pdfZoom / renderZoom})`,
-                                        transformOrigin: '0 0',
-                                    }}
-                                >
-                                    <canvas ref={canvasRef} className="border border-slate-700 rounded shadow-lg" />
-                                </div>
-                            </div>
+                            {/* PDF Viewer (SharedPDFViewer) */}
+                            <SharedPDFViewer
+                                pdfDoc={pdfDocRef.current}
+                                page={currentPage}
+                                totalPages={pdfPages}
+                                onPageChange={setCurrentPage}
+                                showFitButtons
+                                theme="dark"
+                            />
                         </>
                     )}
                 </div>
