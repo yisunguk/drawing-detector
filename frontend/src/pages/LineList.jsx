@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { loadPdfJs, uploadToAzure } from '../services/analysisService';
-import SharedPDFViewer from '../components/SharedPDFViewer';
+import PDFViewer from '../components/PDFViewer';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
 
@@ -122,10 +122,12 @@ const LineList = () => {
         setExtractionStatus('');
         setPdfZoom(1.2);
 
+        const url = buildBlobUrl(file.path);
+        setPdfUrl(url);
+
         try {
             const pdfjsLib = await loadPdfJs();
-            const pdfUrl = buildBlobUrl(file.path);
-            const pdf = await pdfjsLib.getDocument({ url: pdfUrl }).promise;
+            const pdf = await pdfjsLib.getDocument({ url }).promise;
             pdfDocRef.current = pdf;
             setPdfPages(pdf.numPages);
             setCurrentPage(1);
@@ -716,14 +718,15 @@ const LineList = () => {
                                 )}
                             </div>
 
-                            {/* PDF Viewer (SharedPDFViewer) */}
-                            <SharedPDFViewer
-                                pdfDoc={pdfDocRef.current}
-                                page={currentPage}
-                                totalPages={pdfPages}
-                                onPageChange={setCurrentPage}
-                                showFitButtons
-                                theme="dark"
+                            {/* PDF Viewer — uses the SAME PDFViewer component as Dashboard */}
+                            <PDFViewer
+                                doc={{ page: currentPage, docId: pdfUrl || 'local' }}
+                                documents={[{ id: pdfUrl || 'local', name: pdfFile?.name || selectedBlobFile?.name || 'PDF', pdfUrl: pdfUrl }]}
+                                onClose={() => {
+                                    setPdfFile(null); setPdfUrl(null); setPdfPages(0);
+                                    pdfDocRef.current = null; setBlobPath(null);
+                                    setSelectedBlobFile(null); setPdfZoom(1.2);
+                                }}
                             />
                         </>
                     )}

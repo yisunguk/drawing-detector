@@ -7,7 +7,7 @@ import {
     RefreshCcw, Trash2, List, Database, MessageSquare, Check
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import SharedPDFViewer from '../components/SharedPDFViewer';
+import PDFViewer from '../components/PDFViewer';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
 import { auth, db } from '../firebase';
@@ -1953,59 +1953,36 @@ const KnowhowDB = () => {
                     onMouseDown={startResize}
                 />
 
-                {/* PDF Header */}
-                <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#fcfaf7] flex-shrink-0">
-                    <span className="text-sm font-semibold text-gray-700">{viewerType === 'office' ? 'Document Viewer' : 'PDF Viewer'}</span>
-                    <button onClick={() => { setRightOpen(false); setViewerType(null); setOfficeUrl(null); }} className="p-1 hover:bg-gray-200 rounded text-gray-500">
-                        <X size={16} />
-                    </button>
-                </div>
-
-                {/* PDF / Office Viewer */}
-                {pdfLoading ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
-                        <Loader2 className="w-8 h-8 animate-spin text-[#d97757] mb-3" />
-                        <span className="text-sm">Loading PDF...</span>
-                    </div>
-                ) : viewerType === 'office' && officeUrl ? (
-                    <iframe src={officeUrl} className="flex-1 w-full border-0" allowFullScreen />
-                ) : pdfDocObj ? (
-                    <SharedPDFViewer
-                        pdfDoc={pdfDocObj}
-                        page={pdfPage}
-                        totalPages={pdfTotalPages}
-                        onPageChange={(p) => { setHighlightKeyword(null); setHighlightRects([]); setHighlightPolygons([]); setPdfPage(p); }}
-                        loading={pdfLoading}
-                        theme="light"
-                        onViewportChange={(vp) => { viewportRef.current = vp; }}
-                        onCanvasSizeChange={(size) => setCanvasSize(size)}
-                        overlay={(cs) => (
-                            (highlightRects.length > 0 || highlightPolygons.length > 0) && cs.width > 0 ? (
-                                <svg
-                                    className="absolute top-0 left-0 pointer-events-none"
-                                    style={{ width: cs.width, height: cs.height, zIndex: 10 }}
-                                    viewBox={`0 0 ${cs.width} ${cs.height}`}
-                                >
-                                    {highlightRects.map((rect, i) => (
-                                        <rect key={`r${i}`} x={rect.x} y={rect.y} width={rect.width} height={rect.height}
-                                            fill="rgba(255, 235, 59, 0.4)" stroke="#f59e0b" strokeWidth="1" rx="2" />
-                                    ))}
-                                    {highlightPolygons.map((hp, i) => {
-                                        const pts = [];
-                                        for (let j = 0; j < hp.points.length; j += 2) pts.push(`${hp.points[j]},${hp.points[j + 1]}`);
-                                        return <polygon key={`p${i}`} points={pts.join(' ')}
-                                            fill={i === 0 ? "rgba(255, 235, 59, 0.5)" : "rgba(255, 235, 59, 0.3)"}
-                                            stroke="#f59e0b" strokeWidth={i === 0 ? "3" : "1"} />;
-                                    })}
-                                </svg>
-                            ) : null
-                        )}
+                {/* PDF / Office Viewer — uses the SAME PDFViewer component as Dashboard */}
+                {viewerType === 'office' && officeUrl ? (
+                    <>
+                        <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#fcfaf7] flex-shrink-0">
+                            <span className="text-sm font-semibold text-gray-700">Document Viewer</span>
+                            <button onClick={() => { setRightOpen(false); setViewerType(null); setOfficeUrl(null); }} className="p-1 hover:bg-gray-200 rounded text-gray-500">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <iframe src={officeUrl} className="flex-1 w-full border-0" allowFullScreen />
+                    </>
+                ) : currentPdfUrlRef.current ? (
+                    <PDFViewer
+                        doc={{ page: pdfPage, docId: currentPdfUrlRef.current }}
+                        documents={[{ id: currentPdfUrlRef.current, name: 'PDF', pdfUrl: currentPdfUrlRef.current }]}
+                        onClose={() => { setRightOpen(false); setViewerType(null); }}
                     />
                 ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
-                        <FileText className="w-12 h-12 mb-3 opacity-30" />
-                        <p className="text-sm">Click a search result to view document</p>
-                    </div>
+                    <>
+                        <div className="h-12 border-b border-[#e5e1d8] flex items-center justify-between px-4 bg-[#fcfaf7] flex-shrink-0">
+                            <span className="text-sm font-semibold text-gray-700">PDF Viewer</span>
+                            <button onClick={() => { setRightOpen(false); setViewerType(null); }} className="p-1 hover:bg-gray-200 rounded text-gray-500">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                            <FileText className="w-12 h-12 mb-3 opacity-30" />
+                            <p className="text-sm">Click a search result to view document</p>
+                        </div>
+                    </>
                 )}
             </div>
         </div>
