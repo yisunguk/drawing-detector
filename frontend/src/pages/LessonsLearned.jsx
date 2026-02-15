@@ -60,6 +60,8 @@ const LessonsLearned = () => {
     // === Layout State ===
     const [leftWidth, setLeftWidth] = useState(300);
     const leftResizingRef = useRef(false);
+    const [rightWidth, setRightWidth] = useState(384);
+    const rightResizingRef = useRef(false);
 
     // === Refs ===
     const messagesEndRef = useRef(null);
@@ -386,6 +388,28 @@ const LessonsLearned = () => {
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
     }, [leftWidth]);
+
+    // =============================================
+    // RIGHT RESIZE
+    // =============================================
+    const startRightResize = useCallback((e) => {
+        e.preventDefault();
+        rightResizingRef.current = true;
+        const startX = e.clientX;
+        const startWidth = rightWidth;
+        const onMove = (ev) => {
+            if (!rightResizingRef.current) return;
+            const delta = startX - ev.clientX;
+            setRightWidth(Math.max(280, Math.min(700, startWidth + delta)));
+        };
+        const onUp = () => {
+            rightResizingRef.current = false;
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [rightWidth]);
 
     // =============================================
     // MARKDOWN COMPONENTS (for chat)
@@ -826,7 +850,12 @@ const LessonsLearned = () => {
                     : (currentPage?.text || '');
 
                 return (
-                    <div className="w-96 border-l border-gray-200 bg-white flex flex-col flex-shrink-0 h-full">
+                    <div className="border-l border-gray-200 bg-white flex flex-col flex-shrink-0 h-full relative" style={{ width: rightWidth }}>
+                        {/* Right Resize Handle */}
+                        <div
+                            className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-purple-400 z-50 transition-colors"
+                            onMouseDown={startRightResize}
+                        />
                         {/* Preview Header */}
                         <div className="p-4 border-b border-gray-200 flex items-start gap-2">
                             <div className="flex-1 min-w-0">
