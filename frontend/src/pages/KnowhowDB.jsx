@@ -156,6 +156,7 @@ const KnowhowDB = () => {
     const pdfContainerRef = useRef(null);
     const lastQueryRef = useRef('');
     const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
+    const renderTaskRef = useRef(null);
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -530,21 +531,35 @@ const KnowhowDB = () => {
             const viewport = page.getViewport({ scale: renderZoom });
             viewportRef.current = viewport;
 
-            // Offscreen canvas rendering to prevent flicker
             const offscreen = document.createElement('canvas');
             offscreen.width = viewport.width;
             offscreen.height = viewport.height;
             const offCtx = offscreen.getContext('2d');
-            await page.render({ canvasContext: offCtx, viewport }).promise;
 
-            const canvas = canvasRef.current;
-            if (canvas) {
-                canvas.width = viewport.width;
-                canvas.height = viewport.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(offscreen, 0, 0);
+            if (renderTaskRef.current) {
+                try { renderTaskRef.current.cancel(); } catch (e) { }
             }
-            setCanvasSize({ width: viewport.width, height: viewport.height });
+
+            const renderTask = page.render({ canvasContext: offCtx, viewport });
+            renderTaskRef.current = renderTask;
+
+            try {
+                await renderTask.promise;
+                if (renderTaskRef.current === renderTask) {
+                    const canvas = canvasRef.current;
+                    if (canvas) {
+                        canvas.width = viewport.width;
+                        canvas.height = viewport.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(offscreen, 0, 0);
+                    }
+                    setCanvasSize({ width: viewport.width, height: viewport.height });
+                    renderTaskRef.current = null;
+                }
+            } catch (err) {
+                if (err.name === 'RenderingCancelledException') return;
+                throw err;
+            }
         } catch (e) {
             console.error('PDF render error:', e);
         }
@@ -1995,7 +2010,7 @@ const KnowhowDB = () => {
                         <iframe src={officeUrl} className="w-full h-full border-0" allowFullScreen />
                     ) : pdfDocObj ? (
                         <div
-                            className="relative mx-auto mb-8 shadow-2xl"
+                            className="relative mx-auto mb-8 shadow-2xl transition-transform duration-100 ease-out"
                             style={{
                                 width: canvasSize.width,
                                 height: canvasSize.height,
