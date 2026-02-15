@@ -156,6 +156,8 @@ const KnowhowDB = () => {
     const pdfContainerRef = useRef(null);
     const lastQueryRef = useRef('');
     const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
+    const pdfZoomRef = useRef(pdfZoom);
+    const renderZoomRef = useRef(renderZoom);
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -512,6 +514,10 @@ const KnowhowDB = () => {
         }
     };
 
+    // Keep zoom refs in sync for native event handler
+    useEffect(() => { pdfZoomRef.current = pdfZoom; }, [pdfZoom]);
+    useEffect(() => { renderZoomRef.current = renderZoom; }, [renderZoom]);
+
     // Debounce zoom for rendering to prevent flicker
     useEffect(() => {
         const timer = setTimeout(() => setRenderZoom(pdfZoom), 300);
@@ -550,17 +556,30 @@ const KnowhowDB = () => {
         }
     };
 
-    // Wheel zoom: single native listener with passive:false to fully prevent scroll
+    // Wheel zoom: native listener with scroll-position preservation
     useEffect(() => {
         const container = pdfContainerRef.current;
         if (!container) return;
         const handleWheel = (e) => {
             e.preventDefault();
             e.stopPropagation();
+            const oldZoom = pdfZoomRef.current;
+            const rZoom = renderZoomRef.current;
             const delta = -e.deltaY;
-            setPdfZoom(prev => {
-                const next = prev + (delta > 0 ? 0.1 : -0.1);
-                return Math.min(Math.max(0.3, next), 5.0);
+            const newZoom = Math.min(Math.max(0.3, oldZoom + (delta > 0 ? 0.1 : -0.1)), 5.0);
+            if (newZoom === oldZoom) return;
+            // Keep mouse point stable during zoom
+            const rect = container.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const contentX = container.scrollLeft + mouseX;
+            const contentY = container.scrollTop + mouseY;
+            const ratio = (newZoom / rZoom) / (oldZoom / rZoom);
+            pdfZoomRef.current = newZoom;
+            setPdfZoom(newZoom);
+            requestAnimationFrame(() => {
+                container.scrollLeft = contentX * ratio - mouseX;
+                container.scrollTop = contentY * ratio - mouseY;
             });
         };
         container.addEventListener('wheel', handleWheel, { passive: false });
