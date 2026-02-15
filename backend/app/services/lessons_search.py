@@ -511,7 +511,7 @@ class LessonsSearchService:
             results = self.client.search(
                 search_text="*",
                 filter=filter_str,
-                facets=["category,count"],
+                facets=["category"],
                 top=0,
             )
 
@@ -573,7 +573,7 @@ class LessonsSearchService:
             results = self.client.search(
                 search_text="*",
                 filter=f"username eq '{safe_user}'",
-                facets=["source_file,count"],
+                facets=["source_file"],
                 top=0,
             )
 
