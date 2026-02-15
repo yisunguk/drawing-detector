@@ -52,6 +52,7 @@ const PublicRoute = ({ children }) => {
 import LandingPage from './pages/LandingPage';
 import KnowhowDB from './pages/KnowhowDB';
 import LineList from './pages/LineList';
+import LessonsLearned from './pages/LessonsLearned';
 
 const App = () => {
     return (
@@ -108,6 +109,15 @@ const App = () => {
                             element={
                                 <PrivateRoute>
                                     <LineList />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* Lessons Learned AI */}
+                        <Route
+                            path="/lessons-learned"
+                            element={
+                                <PrivateRoute>
+                                    <LessonsLearned />
                                 </PrivateRoute>
                             }
                         />

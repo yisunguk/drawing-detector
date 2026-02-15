@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSearch, Database, ArrowRight, LogOut, LayoutGrid, ListChecks } from 'lucide-react';
+import { FileSearch, Database, ArrowRight, LogOut, LayoutGrid, ListChecks, BookOpen } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const LandingPage = () => {
@@ -50,7 +50,7 @@ const LandingPage = () => {
                     </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 px-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 px-4">
                     {/* Card 1: Drawing Analysis AI */}
                     <div
                         onClick={() => navigate('/drawing-ai')}
@@ -122,6 +122,31 @@ const LandingPage = () => {
 
                             <div className="flex items-center text-amber-400 font-medium group-hover:translate-x-2 transition-transform">
                                 라인 리스트 추출 <ArrowRight className="w-4 h-4 ml-2" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Card 4: Lessons Learned AI */}
+                    <div
+                        onClick={() => navigate('/lessons-learned')}
+                        className="group relative cursor-pointer"
+                    >
+                        <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-violet-500 rounded-2xl opacity-20 group-hover:opacity-100 blur transition duration-500"></div>
+                        <div className="relative h-full bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-8 hover:border-purple-500/50 transition-all duration-300 transform group-hover:-translate-y-1">
+                            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-violet-500/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                                <BookOpen className="w-8 h-8 text-purple-400" />
+                            </div>
+
+                            <h2 className="text-2xl font-bold text-slate-100 mb-3 group-hover:text-purple-400 transition-colors">
+                                Lessons Learned AI
+                            </h2>
+                            <p className="text-slate-400 mb-8 leading-relaxed">
+                                프로젝트 경험과 교훈을 AI로 검색하고 분석합니다.
+                                과거 사례 기반 의사결정을 지원합니다.
+                            </p>
+
+                            <div className="flex items-center text-purple-400 font-medium group-hover:translate-x-2 transition-transform">
+                                교훈 분석 시작 <ArrowRight className="w-4 h-4 ml-2" />
                             </div>
                         </div>
                     </div>
