@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Folder, FolderOpen, FileText, Search as SearchIcon,
     Send, Bot, User, Loader2, Sparkles, ChevronRight,
-    X, ZoomIn, ZoomOut, ChevronLeft, LogOut, Upload,
+    X, LogOut, Upload,
     RefreshCcw, Trash2, List, Database, MessageSquare, Check
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -108,8 +108,6 @@ const KnowhowDB = () => {
     const [pdfDocObj, setPdfDocObj] = useState(null);
     const [pdfPage, setPdfPage] = useState(1);
     const [pdfTotalPages, setPdfTotalPages] = useState(0);
-    const [pdfZoom, setPdfZoom] = useState(1.2);
-    const [renderZoom, setRenderZoom] = useState(1.2); // Debounced zoom for smooth rendering
     const [pdfLoading, setPdfLoading] = useState(false);
     const [viewerType, setViewerType] = useState(null); // 'pdf' | 'office'
     const [officeUrl, setOfficeUrl] = useState(null);
@@ -143,21 +141,15 @@ const KnowhowDB = () => {
     const [highlightRects, setHighlightRects] = useState([]);
     const [highlightPolygons, setHighlightPolygons] = useState([]); // DI polygon-based highlights
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
-    const [isDragging, setIsDragging] = useState(false);
-    const dragStartRef = useRef({ x: 0, y: 0, left: 0, top: 0 });
     const highlightMetaRef = useRef(null); // { user_id, filename, page } for OCR fallback
 
     // === Refs ===
-    const canvasRef = useRef(null);
     const messagesEndRef = useRef(null);
     const resizingRef = useRef(false);
     const currentPdfUrlRef = useRef(null);
     const fileMapRef = useRef({});
-    const viewportRef = useRef(null);
-    const pdfContainerRef = useRef(null);
     const lastQueryRef = useRef('');
     const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
-    const renderTaskRef = useRef(null);
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -514,115 +506,11 @@ const KnowhowDB = () => {
         }
     };
 
-    // Debounce zoom for rendering to prevent flicker
-    useEffect(() => {
-        const timer = setTimeout(() => setRenderZoom(pdfZoom), 300);
-        return () => clearTimeout(timer);
-    }, [pdfZoom]);
-
-    useEffect(() => {
-        if (!pdfDocObj || !canvasRef.current) return;
-        renderPdfPage();
-    }, [pdfDocObj, pdfPage, renderZoom]);
-
-    const renderPdfPage = async () => {
-        if (!pdfDocObj || !canvasRef.current) return;
-        try {
-            const page = await pdfDocObj.getPage(pdfPage);
-            const viewport = page.getViewport({ scale: renderZoom });
-            viewportRef.current = viewport;
-
-            const offscreen = document.createElement('canvas');
-            offscreen.width = viewport.width;
-            offscreen.height = viewport.height;
-            const offCtx = offscreen.getContext('2d');
-
-            if (renderTaskRef.current) {
-                try { renderTaskRef.current.cancel(); } catch (e) { }
-            }
-
-            const renderTask = page.render({ canvasContext: offCtx, viewport });
-            renderTaskRef.current = renderTask;
-
-            try {
-                await renderTask.promise;
-                if (renderTaskRef.current === renderTask) {
-                    const canvas = canvasRef.current;
-                    if (canvas) {
-                        canvas.width = viewport.width;
-                        canvas.height = viewport.height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(offscreen, 0, 0);
-                    }
-                    setCanvasSize({ width: viewport.width, height: viewport.height });
-                    renderTaskRef.current = null;
-                }
-            } catch (err) {
-                if (err.name === 'RenderingCancelledException') return;
-                throw err;
-            }
-        } catch (e) {
-            console.error('PDF render error:', e);
-        }
-    };
-
-    // Wheel zoom handler (identical to PDFViewer)
-    const handlePdfWheel = useCallback((e) => {
-        e.preventDefault();
-        const delta = -e.deltaY;
-        setPdfZoom(prevZoom => {
-            let newZoom = prevZoom + (delta > 0 ? 0.1 : -0.1);
-            return Math.min(Math.max(0.3, newZoom), 5.0);
-        });
-    }, []);
-
-    // Native listener only for preventDefault (passive: false required)
-    useEffect(() => {
-        const container = pdfContainerRef.current;
-        if (container) {
-            const preventDefaultWheel = (e) => e.preventDefault();
-            container.addEventListener('wheel', preventDefaultWheel, { passive: false });
-            return () => container.removeEventListener('wheel', preventDefaultWheel);
-        }
-    }, []);
-
-    // Mouse pan/drag handlers (plain functions for fresh isDragging reference)
-    const handlePdfMouseDown = (e) => {
-        setIsDragging(true);
-        const container = pdfContainerRef.current;
-        dragStartRef.current = {
-            x: e.clientX,
-            y: e.clientY,
-            left: container.scrollLeft,
-            top: container.scrollTop
-        };
-        container.style.cursor = 'grabbing';
-    };
-
-    const handlePdfMouseMove = (e) => {
-        if (!isDragging) return;
-        const container = pdfContainerRef.current;
-        const dx = e.clientX - dragStartRef.current.x;
-        const dy = e.clientY - dragStartRef.current.y;
-        container.scrollLeft = dragStartRef.current.left - dx;
-        container.scrollTop = dragStartRef.current.top - dy;
-    };
-
-    const handlePdfMouseUp = () => {
-        setIsDragging(false);
-        if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'grab';
-    };
-
-    const handlePdfMouseLeave = () => {
-        setIsDragging(false);
-        if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'default';
-    };
-
     // =============================================
     // KEYWORD-BASED HIGHLIGHT (pdf.js text → OCR fallback)
     // =============================================
     useEffect(() => {
-        if (!pdfDocObj || !highlightKeyword || !viewportRef.current || canvasSize.width === 0) {
+        if (!pdfDocObj || !highlightKeyword || canvasSize.width === 0) {
             setHighlightRects([]);
             setHighlightPolygons([]);
             return;
@@ -631,7 +519,10 @@ const KnowhowDB = () => {
         (async () => {
             try {
                 const page = await pdfDocObj.getPage(pdfPage);
-                const viewport = viewportRef.current;
+                // Compute viewport that matches PDFViewer's canvas size
+                const baseVp = page.getViewport({ scale: 1 });
+                const scale = canvasSize.width / baseVp.width;
+                const viewport = page.getViewport({ scale });
                 const textContent = await page.getTextContent();
                 const stopWords = new Set([
                     '알려', '주세요', '해줘', '해주세요', '뭐야', '뭔가', '있나요', '인가요', '인지', '무엇',
@@ -806,30 +697,6 @@ const KnowhowDB = () => {
         return () => { cancelled = true; };
     }, [pdfDocObj, pdfPage, highlightKeyword, canvasSize]);
 
-    // Auto-scroll to first highlight (rect or polygon)
-    useEffect(() => {
-        if (!pdfContainerRef.current) return;
-        let cx, cy;
-        if (highlightRects.length > 0) {
-            const first = highlightRects[0];
-            cx = first.x + first.width / 2;
-            cy = first.y + first.height / 2;
-        } else if (highlightPolygons.length > 0) {
-            const pts = highlightPolygons[0].points;
-            const xs = pts.filter((_, i) => i % 2 === 0);
-            const ys = pts.filter((_, i) => i % 2 === 1);
-            cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-            cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-        } else return;
-        const container = pdfContainerRef.current;
-        setTimeout(() => {
-            container.scrollTo({
-                left: cx - container.clientWidth / 2,
-                top: cy - container.clientHeight / 2,
-                behavior: 'smooth'
-            });
-        }, 100);
-    }, [highlightRects, highlightPolygons]);
 
     // =============================================
     // SEARCH HANDLER (AI 검색)
@@ -1969,6 +1836,31 @@ const KnowhowDB = () => {
                         doc={{ page: pdfPage, docId: currentPdfUrlRef.current, term: highlightKeyword || undefined }}
                         documents={[{ id: currentPdfUrlRef.current, name: highlightMetaRef.current?.filename || 'PDF', pdfUrl: currentPdfUrlRef.current }]}
                         onClose={() => { setRightOpen(false); setViewerType(null); }}
+                        onCanvasSizeChange={(size) => setCanvasSize(size)}
+                        overlay={(cs) => (highlightRects.length > 0 || highlightPolygons.length > 0) ? (
+                            <svg
+                                className="absolute top-0 left-0 pointer-events-none"
+                                style={{ width: cs.width, height: cs.height, zIndex: 10 }}
+                                viewBox={`0 0 ${cs.width} ${cs.height}`}
+                            >
+                                {highlightRects.map((rect, i) => (
+                                    <rect key={`r${i}`} x={rect.x} y={rect.y} width={rect.width} height={rect.height}
+                                        fill="rgba(255, 235, 59, 0.35)" stroke="#f59e0b" strokeWidth="1.5" />
+                                ))}
+                                {highlightPolygons.map((poly, i) => {
+                                    const pts = poly.points;
+                                    const svgPts = [];
+                                    for (let j = 0; j < pts.length; j += 2) svgPts.push(`${pts[j]},${pts[j+1]}`);
+                                    return (
+                                        <polygon key={`p${i}`}
+                                            points={svgPts.join(' ')}
+                                            fill={i === 0 ? 'rgba(255, 235, 59, 0.45)' : 'rgba(255, 235, 59, 0.25)'}
+                                            stroke="#f59e0b" strokeWidth={i === 0 ? 2 : 1}
+                                            style={{ strokeLinejoin: 'round' }} />
+                                    );
+                                })}
+                            </svg>
+                        ) : null}
                     />
                 ) : (
                     <>

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Loader2 } from 'lucide-react';
 
-const PDFViewer = ({ doc, documents, activeDocData, onClose }) => {
+const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSizeChange }) => {
     const [currentPage, setCurrentPage] = useState(doc?.page || 1);
     const [zoom, setZoom] = useState(1);
     const [renderZoom, setRenderZoom] = useState(1); // Debounced zoom for high-quality render
     const [rotation, setRotation] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
+    const [hasRendered, setHasRendered] = useState(false); // track first successful render
     const [totalPages, setTotalPages] = useState(0);
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
@@ -26,6 +27,11 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose }) => {
 
     // Find document data
     const documentData = documents?.find(d => d.id === doc?.docId);
+
+    // Reset hasRendered when switching to a new document
+    useEffect(() => {
+        setHasRendered(false);
+    }, [doc?.docId]);
 
     // --- Highlighting Helpers ---
     const calculateScore = useCallback((content, search) => {
@@ -234,13 +240,13 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose }) => {
         }
     }, [selectedCenter]);
 
+    // stable ref for onCanvasSizeChange callback
+    const onCanvasSizeChangeRef = useRef(onCanvasSizeChange);
+    useEffect(() => { onCanvasSizeChangeRef.current = onCanvasSizeChange; }, [onCanvasSizeChange]);
+
     const loadAndRenderPage = useCallback(async (docData, pageNum, renderScale) => {
         if (!window.pdfjsLib) return;
         if (!canvasRef.current || (!docData?.pdfData && !docData?.pdfUrl)) return;
-
-        // We set loading true ONLY if we are doing a major scale/page change
-        // to prevent stroboscopic effect during small zoom adjustments
-        setIsLoading(true);
 
         try {
             let pdf = pdfCacheRef.current[docData.id];
@@ -298,7 +304,10 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose }) => {
                             mainCtx.drawImage(offscreenCanvas, 0, 0);
                         }
                     }
-                    setCanvasSize({ width: viewport.width, height: viewport.height });
+                    const newSize = { width: viewport.width, height: viewport.height };
+                    setCanvasSize(newSize);
+                    setHasRendered(true);
+                    onCanvasSizeChangeRef.current?.(newSize);
                     renderTaskRef.current = null;
                 }
             } catch (err) {
@@ -433,10 +442,10 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose }) => {
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseLeave}
             >
-                {isLoading && (
+                {isLoading && !hasRendered && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#f4f1ea]/80 z-20 transition-opacity">
                         <Loader2 className="w-8 h-8 animate-spin text-[#d97757] mb-2" />
-                        <span className="text-xs text-[#d97757] font-medium">Updating...</span>
+                        <span className="text-xs text-[#d97757] font-medium">Loading...</span>
                     </div>
                 )}
 
@@ -455,6 +464,9 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose }) => {
                         className="block bg-white"
                         style={{ width: canvasSize.width, height: canvasSize.height }}
                     />
+
+                    {/* External overlay (e.g. KnowhowDB highlights) */}
+                    {overlay?.(canvasSize)}
 
                     {/* SVG Content Highlight Overlay */}
                     {!isLoading && bestMatch && (
