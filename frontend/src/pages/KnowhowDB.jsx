@@ -550,24 +550,21 @@ const KnowhowDB = () => {
         }
     };
 
-    // Wheel zoom handler (matches PDFViewer pattern)
-    const handlePdfWheel = useCallback((e) => {
-        e.preventDefault();
-        const delta = -e.deltaY;
-        setPdfZoom(prevZoom => {
-            let newZoom = prevZoom + (delta > 0 ? 0.1 : -0.1);
-            return Math.min(Math.max(0.3, newZoom), 5.0);
-        });
-    }, []);
-
-    // Native event listener for preventDefault (passive: false required)
+    // Wheel zoom: single native listener with passive:false to fully prevent scroll
     useEffect(() => {
         const container = pdfContainerRef.current;
-        if (container) {
-            const preventDefaultWheel = (e) => e.preventDefault();
-            container.addEventListener('wheel', preventDefaultWheel, { passive: false });
-            return () => container.removeEventListener('wheel', preventDefaultWheel);
-        }
+        if (!container) return;
+        const handleWheel = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const delta = -e.deltaY;
+            setPdfZoom(prev => {
+                const next = prev + (delta > 0 ? 0.1 : -0.1);
+                return Math.min(Math.max(0.3, next), 5.0);
+            });
+        };
+        container.addEventListener('wheel', handleWheel, { passive: false });
+        return () => container.removeEventListener('wheel', handleWheel);
     }, []);
 
     // Mouse pan/drag handlers (plain functions for fresh isDragging reference)
@@ -1980,7 +1977,6 @@ const KnowhowDB = () => {
                 <div
                     ref={pdfContainerRef}
                     className="relative flex-1 overflow-auto bg-[#f4f1ea] p-12 cursor-grab select-none"
-                    onWheel={handlePdfWheel}
                     onMouseDown={handlePdfMouseDown}
                     onMouseMove={handlePdfMouseMove}
                     onMouseUp={handlePdfMouseUp}
