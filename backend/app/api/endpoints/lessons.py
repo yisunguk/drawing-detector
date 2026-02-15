@@ -364,6 +364,7 @@ async def _handle_chat(request: SearchRequest, username: str) -> SearchResponse:
             "content_preview": _clean_content(r.get("content_preview", "")),
             "content": r.get("content", ""),  # already cleaned above
             "source_file": r.get("source_file", ""),
+            "file_path": r.get("file_path", ""),
         }
         for r in results[:10]
     ]

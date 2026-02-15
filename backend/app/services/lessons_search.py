@@ -286,6 +286,7 @@ class LessonsSearchService:
             SimpleField(name="reg_date", type=SearchFieldDataType.String, filterable=True, sortable=True),
             SimpleField(name="username", type=SearchFieldDataType.String, filterable=True),
             SimpleField(name="source_file", type=SearchFieldDataType.String, filterable=True, facetable=True),
+            SimpleField(name="file_path", type=SearchFieldDataType.String, filterable=False),
             SearchField(
                 name="content_embedding",
                 type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
@@ -414,6 +415,7 @@ class LessonsSearchService:
                 "reg_date": doc.get('reg_date', ''),
                 "username": username,
                 "source_file": source_file,
+                "file_path": doc.get('file_path', ''),
                 "content_embedding": embeddings[i],
             }
             search_docs.append(search_doc)
@@ -475,7 +477,7 @@ class LessonsSearchService:
                 vector_queries=[vector_query],
                 filter=filter_str,
                 top=top,
-                select="doc_id,file_nm,mclass,dclass,category,content,pjt_nm,pjt_cd,creator_name,reg_date,username,source_file",
+                select="doc_id,file_nm,mclass,dclass,category,content,pjt_nm,pjt_cd,creator_name,reg_date,username,source_file,file_path",
                 highlight_fields="content",
                 highlight_pre_tag="<mark>",
                 highlight_post_tag="</mark>",
@@ -497,6 +499,7 @@ class LessonsSearchService:
                     "creator_name": r.get("creator_name", ""),
                     "reg_date": r.get("reg_date", ""),
                     "source_file": r.get("source_file", ""),
+                    "file_path": r.get("file_path", ""),
                     "score": r.get("@search.score", 0),
                     "azure_highlights": azure_highlights,
                 })

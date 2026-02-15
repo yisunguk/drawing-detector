@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Search as SearchIcon, Send, Bot, User, Loader2,
     ChevronRight, ChevronDown, ChevronLeft, X, Upload, Trash2,
-    BookOpen, MessageSquare, FileText, FolderTree, RefreshCcw, Check
+    BookOpen, MessageSquare, FileText, FolderTree, RefreshCcw, Check, ExternalLink
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1057,6 +1057,17 @@ const LessonsLearned = () => {
                                 )}
                                 {previewDoc.source_file && (
                                     <p className="text-[10px] text-gray-400 mt-0.5">소스: {previewDoc.source_file}</p>
+                                )}
+                                {previewDoc.file_path && (
+                                    <a
+                                        href={previewDoc.file_path}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 mt-1.5 px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-medium rounded-md transition-colors"
+                                    >
+                                        <ExternalLink className="w-3 h-3" />
+                                        DOC-Master 문서열기
+                                    </a>
                                 )}
                             </div>
                             <button
