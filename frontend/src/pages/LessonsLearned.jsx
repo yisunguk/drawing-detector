@@ -1022,6 +1022,7 @@ const LessonsLearned = () => {
             {/* ===== RIGHT PANEL (Document Viewer) ===== */}
             {previewDoc && (() => {
                 const fullContent = previewDoc.content || previewDoc.content_preview || '';
+                const viewerEmpty = fullContent.replace(/\.\.PAGE:\d+/g, '').trim().length < 10;
                 const pages = parseContentPages(fullContent);
                 const currentPage = pages[viewerPage] || pages[0];
                 const searchKeywords = query.trim() ? query.trim().split(/\s+/).filter(w => w.length >= 2) : [];
@@ -1105,10 +1106,21 @@ const LessonsLearned = () => {
 
                         {/* Document Content — Report Style */}
                         <div className="flex-1 overflow-y-auto p-5">
-                            <div
-                                className="report-viewer text-[13px] text-gray-700 leading-relaxed"
-                                dangerouslySetInnerHTML={{ __html: highlightedContent }}
-                            />
+                            {viewerEmpty ? (
+                                <div className="flex flex-col items-center justify-center h-full text-center">
+                                    <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center mb-3">
+                                        <FileText className="w-6 h-6 text-orange-400" />
+                                    </div>
+                                    <span className="px-2 py-1 bg-orange-100 text-orange-600 text-xs rounded font-medium mb-2">OCR 미처리</span>
+                                    <p className="text-sm text-gray-500">문서 본문이 추출되지 않았습니다.</p>
+                                    <p className="text-xs text-gray-400 mt-1">SDC 시스템에서 OCR 처리가 되지 않은 문서입니다.</p>
+                                </div>
+                            ) : (
+                                <div
+                                    className="report-viewer text-[13px] text-gray-700 leading-relaxed"
+                                    dangerouslySetInnerHTML={{ __html: highlightedContent }}
+                                />
+                            )}
                         </div>
                     </div>
                 );
