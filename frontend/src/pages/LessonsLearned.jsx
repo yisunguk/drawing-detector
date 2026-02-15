@@ -90,6 +90,142 @@ const LessonsLearned = () => {
     }, []);
 
     // =============================================
+    // UTILITY: Format content as professional report HTML
+    // =============================================
+    const formatContentAsReport = useCallback((text) => {
+        if (!text) return '<p class="text-gray-400 italic">내용 없음</p>';
+
+        const lines = text.split('\n');
+        let html = '';
+        let inSection = false;
+        let sectionContent = [];
+
+        const flushSection = () => {
+            if (sectionContent.length > 0) {
+                const joined = sectionContent.join('\n').trim();
+                if (joined) {
+                    html += `<div class="rpt-body">${escapeAndFormat(joined)}</div>`;
+                }
+                sectionContent = [];
+            }
+        };
+
+        const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        const escapeAndFormat = (s) => {
+            return escapeHtml(s)
+                .split('\n')
+                .map(l => l.trim())
+                .filter(l => l.length > 0)
+                .map(l => `<p>${l}</p>`)
+                .join('');
+        };
+
+        // Patterns for structure detection
+        const partRe = /^PART\s*[IⅠⅡ]+\s*.*/i;
+        const sectionHeaders = [
+            '부적합 내용', '부적합내용', 'NCR 내용', 'NCR내용',
+            '조치내용', '조치 내용', '조치결과', '조치 결과',
+            '재발방지대책', '재발 방지 대책', '재발방지 대책',
+            '시정조치', '시정 조치', '원인분석', '원인 분석',
+            '첨 부 파 일', '첨부파일', '첨부 파일',
+        ];
+        const kvRe = /^(NCR번호|NCR 번호|제\s*목|발\s*행\s*자|조치\s*담당자|작성일자|도면\s*개정번호|공종분류|보관\s*상태)\s*[:：]?\s*(.+)/;
+        const companyRe = /^(POSCO|삼성|현대|대우|GS|SK|한화|두산|대림|롯데)/i;
+        const reportTitleRe = /^(NONCONFORMANCE|품질개선활동|NCR\s*REPORT|CORRECTIVE|시정조치|품질부적합)/i;
+        const dateSignRe = /^\S+\s*\/\s*\d{4}-\d{2}-\d{2}\s/;
+        const resultLineRe = /^(조치결과\s*확인|조치결과\s*승인)/;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+
+            if (!trimmed) {
+                sectionContent.push('');
+                continue;
+            }
+
+            // Company name → report header
+            if (companyRe.test(trimmed) && i < 5) {
+                flushSection();
+                html += `<div class="rpt-company">${escapeHtml(trimmed)}</div>`;
+                continue;
+            }
+
+            // Report title line
+            if (reportTitleRe.test(trimmed)) {
+                flushSection();
+                html += `<div class="rpt-title">${escapeHtml(trimmed)}</div>`;
+                // Check if next line is subtitle (e.g., "(품질개선활동 보고서)")
+                if (i + 1 < lines.length && lines[i + 1].trim().startsWith('(')) {
+                    i++;
+                    html += `<div class="rpt-subtitle">${escapeHtml(lines[i].trim())}</div>`;
+                }
+                continue;
+            }
+
+            // PART headers
+            if (partRe.test(trimmed)) {
+                flushSection();
+                html += `<div class="rpt-part">${escapeHtml(trimmed)}</div>`;
+                continue;
+            }
+
+            // Section headers (부적합 내용, 조치내용, etc.)
+            const isSectionHeader = sectionHeaders.some(h =>
+                trimmed.replace(/\s/g, '').startsWith(h.replace(/\s/g, ''))
+            );
+            if (isSectionHeader) {
+                flushSection();
+                html += `<div class="rpt-section">${escapeHtml(trimmed)}</div>`;
+                continue;
+            }
+
+            // Key-value lines (NCR번호 : xxx, 제 목 : xxx)
+            const kvMatch = trimmed.match(kvRe);
+            if (kvMatch) {
+                flushSection();
+                html += `<div class="rpt-kv"><span class="rpt-key">${escapeHtml(kvMatch[1])}</span><span class="rpt-val">${escapeHtml(kvMatch[2])}</span></div>`;
+                continue;
+            }
+
+            // NCR번호 line without colon (e.g., "NCR번호 : NCR_E20220_40 작성일자 : ...")
+            if (/^NCR번호|^NCR\s*번호/.test(trimmed)) {
+                flushSection();
+                html += `<div class="rpt-kv-line">${escapeHtml(trimmed)}</div>`;
+                continue;
+            }
+
+            // Lv1, Lv2, Lv3 classification lines
+            if (/^Lv\d/.test(trimmed)) {
+                flushSection();
+                html += `<div class="rpt-lv">${escapeHtml(trimmed)}</div>`;
+                continue;
+            }
+
+            // Image/attachment references
+            if (/\.(jpg|jpeg|png|gif|pdf|bmp)$/i.test(trimmed) || /^조치\s*전|^조치\s*후/.test(trimmed)) {
+                flushSection();
+                html += `<div class="rpt-attach">${escapeHtml(trimmed)}</div>`;
+                continue;
+            }
+
+            // Date/signature lines (이휘용 / 2024-08-03 ...)
+            if (dateSignRe.test(trimmed) || resultLineRe.test(trimmed)) {
+                flushSection();
+                html += `<div class="rpt-sign">${escapeHtml(trimmed)}</div>`;
+                continue;
+            }
+
+            // Regular content
+            sectionContent.push(trimmed);
+        }
+
+        flushSection();
+        return html;
+    }, []);
+
+    // =============================================
     // UTILITY: Score badge color
     // =============================================
     const getScoreBadge = useCallback((score) => {
@@ -845,9 +981,10 @@ const LessonsLearned = () => {
                 const pages = parseContentPages(fullContent);
                 const currentPage = pages[viewerPage] || pages[0];
                 const searchKeywords = query.trim() ? query.trim().split(/\s+/).filter(w => w.length >= 2) : [];
+                const reportHtml = formatContentAsReport(currentPage?.text || '');
                 const highlightedContent = searchKeywords.length > 0
-                    ? highlightTextInViewer(currentPage?.text || '', searchKeywords)
-                    : (currentPage?.text || '');
+                    ? highlightTextInViewer(reportHtml, searchKeywords)
+                    : reportHtml;
 
                 return (
                     <div className="border-l border-gray-200 bg-white flex flex-col flex-shrink-0 h-full relative" style={{ width: rightWidth }}>
@@ -922,11 +1059,11 @@ const LessonsLearned = () => {
                             </div>
                         )}
 
-                        {/* Document Content */}
-                        <div className="flex-1 overflow-y-auto p-4">
-                            <pre
-                                className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed font-sans [&_mark]:bg-yellow-200 [&_mark]:px-0.5 [&_mark]:rounded"
-                                dangerouslySetInnerHTML={{ __html: highlightedContent || '내용 없음' }}
+                        {/* Document Content — Report Style */}
+                        <div className="flex-1 overflow-y-auto p-5">
+                            <div
+                                className="report-viewer text-[13px] text-gray-700 leading-relaxed"
+                                dangerouslySetInnerHTML={{ __html: highlightedContent }}
                             />
                         </div>
                     </div>
