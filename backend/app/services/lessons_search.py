@@ -585,7 +585,7 @@ class LessonsSearchService:
                 search_text="*",
                 filter=" and ".join(filters),
                 top=top,
-                select="doc_id,file_nm,mclass,dclass,category,pjt_nm,pjt_cd,creator_name,reg_date",
+                select="doc_id,file_nm,mclass,dclass,category,pjt_nm,pjt_cd,creator_name,reg_date,file_path,content,source_file",
                 order_by="file_nm",
             )
 
@@ -600,6 +600,9 @@ class LessonsSearchService:
                     "pjt_cd": r.get("pjt_cd", ""),
                     "creator_name": r.get("creator_name", ""),
                     "reg_date": r.get("reg_date", ""),
+                    "file_path": r.get("file_path", ""),
+                    "content": r.get("content", ""),
+                    "source_file": r.get("source_file", ""),
                 }
                 for r in results
             ]
