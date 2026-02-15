@@ -18,19 +18,27 @@ const getLessonsApiUrl = (path) => {
     return `${base}/${path}`;
 };
 
+// ── sessionStorage helpers ──
+const SS_KEY = 'lessons-learned-state';
+const _loadSS = () => { try { return JSON.parse(sessionStorage.getItem(SS_KEY)) || {}; } catch { return {}; } };
+
 const LessonsLearned = () => {
     const navigate = useNavigate();
     const { currentUser } = useAuth();
     const username = currentUser?.displayName || currentUser?.email?.split('@')[0];
 
+    // Restore saved state once
+    const saved = useRef(_loadSS()).current;
+    const defaultChat = [{ role: 'assistant', content: '안녕하세요! Lessons Learned에 대해 궁금한 점을 물어보세요.' }];
+
     // === Left Sidebar State ===
     const [categoryTree, setCategoryTree] = useState([]);
     const [totalDocs, setTotalDocs] = useState(0);
-    const [expandedGroups, setExpandedGroups] = useState(new Set());
-    const [selectedCategory, setSelectedCategory] = useState(null);
+    const [expandedGroups, setExpandedGroups] = useState(() => new Set(saved.expandedGroups || []));
+    const [selectedCategory, setSelectedCategory] = useState(saved.selectedCategory || null);
     const [categoryDocs, setCategoryDocs] = useState([]);
     const [loadingDocs, setLoadingDocs] = useState(false);
-    const [selectedDoc, setSelectedDoc] = useState(null);
+    const [selectedDoc, setSelectedDoc] = useState(saved.selectedDoc || null);
 
     // === Upload State ===
     const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -39,32 +47,46 @@ const LessonsLearned = () => {
     const fileInputRef = useRef(null);
 
     // === Center State ===
-    const [mode, setMode] = useState('search');
-    const [query, setQuery] = useState('');
-    const [searchResults, setSearchResults] = useState([]);
+    const [mode, setMode] = useState(saved.mode || 'search');
+    const [query, setQuery] = useState(saved.query || '');
+    const [searchResults, setSearchResults] = useState(saved.searchResults || []);
     const [isSearching, setIsSearching] = useState(false);
-    const [hasSearched, setHasSearched] = useState(false);
+    const [hasSearched, setHasSearched] = useState(saved.hasSearched || false);
     const [searchError, setSearchError] = useState(null);
-    const [chatMessages, setChatMessages] = useState([
-        { role: 'assistant', content: '안녕하세요! Lessons Learned에 대해 궁금한 점을 물어보세요.' }
-    ]);
+    const [chatMessages, setChatMessages] = useState(
+        saved.chatMessages && saved.chatMessages.length > 0 ? saved.chatMessages : defaultChat
+    );
     const [isChatLoading, setIsChatLoading] = useState(false);
 
     // === Search Scope State ===
-    const [selectedSourceFile, setSelectedSourceFile] = useState(null);
+    const [selectedSourceFile, setSelectedSourceFile] = useState(saved.selectedSourceFile || null);
 
     // === Right Panel State ===
-    const [previewDoc, setPreviewDoc] = useState(null);
-    const [viewerPage, setViewerPage] = useState(0);
+    const [previewDoc, setPreviewDoc] = useState(saved.previewDoc || null);
+    const [viewerPage, setViewerPage] = useState(saved.viewerPage || 0);
 
     // === Layout State ===
-    const [leftWidth, setLeftWidth] = useState(300);
+    const [leftWidth, setLeftWidth] = useState(saved.leftWidth || 300);
     const leftResizingRef = useRef(false);
-    const [rightWidth, setRightWidth] = useState(384);
+    const [rightWidth, setRightWidth] = useState(saved.rightWidth || 384);
     const rightResizingRef = useRef(false);
 
     // === Refs ===
     const messagesEndRef = useRef(null);
+
+    // ── Persist state to sessionStorage on change ──
+    useEffect(() => {
+        const state = {
+            mode, query, searchResults, hasSearched, chatMessages,
+            selectedCategory, selectedSourceFile, selectedDoc,
+            previewDoc, viewerPage,
+            expandedGroups: [...expandedGroups],
+            leftWidth, rightWidth,
+        };
+        try { sessionStorage.setItem(SS_KEY, JSON.stringify(state)); } catch {}
+    }, [mode, query, searchResults, hasSearched, chatMessages,
+        selectedCategory, selectedSourceFile, selectedDoc,
+        previewDoc, viewerPage, expandedGroups, leftWidth, rightWidth]);
 
     // =============================================
     // UTILITY: Parse content into pages by ..PAGE:N markers
@@ -249,7 +271,22 @@ const LessonsLearned = () => {
     useEffect(() => {
         loadCategories();
         loadUploadedFiles();
-    }, []);
+        // Restore category docs if a category was selected before refresh
+        if (saved.selectedCategory) {
+            (async () => {
+                try {
+                    const token = await getIdToken();
+                    const res = await fetch(getLessonsApiUrl(`documents?category=${encodeURIComponent(saved.selectedCategory)}`), {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        setCategoryDocs(data.documents || []);
+                    }
+                } catch {}
+            })();
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const loadCategories = async () => {
         try {
