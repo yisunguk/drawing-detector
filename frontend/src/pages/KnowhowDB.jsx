@@ -1995,7 +1995,7 @@ const KnowhowDB = () => {
                         <iframe src={officeUrl} className="w-full h-full border-0" allowFullScreen />
                     ) : pdfDocObj ? (
                         <div
-                            className="relative mx-auto mb-8 shadow-2xl transition-transform duration-100 ease-out"
+                            className="relative mx-auto mb-8 shadow-2xl"
                             style={{
                                 width: canvasSize.width,
                                 height: canvasSize.height,

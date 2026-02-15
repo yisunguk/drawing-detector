@@ -774,7 +774,7 @@ const LineList = () => {
                                 onMouseLeave={handlePdfMouseLeave}
                             >
                                 <div
-                                    className="relative mx-auto mb-8 shadow-2xl transition-transform duration-100 ease-out"
+                                    className="relative mx-auto mb-8 shadow-2xl"
                                     style={{
                                         width: canvasSize.width,
                                         height: canvasSize.height,
