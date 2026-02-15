@@ -297,8 +297,13 @@ class AzureSearchService:
                     continue
                 p2 = l2.get("polygon", [])
                 if len(p1) >= 2 and len(p2) >= 2:
-                    dx = abs(p1[0] - p2[0])
-                    dy = abs(p1[1] - p2[1])
+                    # Handle nested polygon format [[x,y], ...] vs flat [x, y, ...]
+                    p1x = p1[0][0] if isinstance(p1[0], (list, tuple)) else p1[0]
+                    p1y = p1[0][1] if isinstance(p1[0], (list, tuple)) else p1[1]
+                    p2x = p2[0][0] if isinstance(p2[0], (list, tuple)) else p2[0]
+                    p2y = p2[0][1] if isinstance(p2[0], (list, tuple)) else p2[1]
+                    dx = abs(p1x - p2x)
+                    dy = abs(p1y - p2y)
                     if dx < 0.15 and 0.005 < dy < 0.25:
                         tags.append(f"{t1}{t2}")
                         used.add(i)
