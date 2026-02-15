@@ -256,14 +256,25 @@ class LessonsSearchService:
             pass
         self._create_index()
 
+    # Fields that must exist in the index (add new fields here)
+    _REQUIRED_FIELDS = {"id", "doc_id", "file_nm", "mclass", "dclass", "category",
+                        "content", "pjt_nm", "pjt_cd", "creator_name", "reg_date",
+                        "username", "source_file", "file_path", "content_embedding"}
+
     def ensure_index(self):
-        """Create the lessons-learned-index if it doesn't exist."""
+        """Create or recreate the lessons-learned-index if schema is outdated."""
         if not self.index_client:
             raise RuntimeError("Azure Search index client not initialized")
 
         try:
-            self.index_client.get_index(self.index_name)
-            print(f"[Lessons] Index '{self.index_name}' already exists", flush=True)
+            existing = self.index_client.get_index(self.index_name)
+            existing_fields = {f.name for f in existing.fields}
+            missing = self._REQUIRED_FIELDS - existing_fields
+            if missing:
+                print(f"[Lessons] Index missing fields {missing}, recreating...", flush=True)
+                self.recreate_index()
+            else:
+                print(f"[Lessons] Index '{self.index_name}' schema OK", flush=True)
             return
         except Exception:
             pass  # Index doesn't exist, create it
@@ -472,21 +483,41 @@ class LessonsSearchService:
         )
 
         try:
-            results = self.client.search(
-                search_text=query,
-                vector_queries=[vector_query],
-                filter=filter_str,
-                top=top,
-                select="doc_id,file_nm,mclass,dclass,category,content,pjt_nm,pjt_cd,creator_name,reg_date,username,source_file,file_path",
-                highlight_fields="content",
-                highlight_pre_tag="<mark>",
-                highlight_post_tag="</mark>",
-            )
+            select_fields = "doc_id,file_nm,mclass,dclass,category,content,pjt_nm,pjt_cd,creator_name,reg_date,username,source_file,file_path"
+            try:
+                results = self.client.search(
+                    search_text=query,
+                    vector_queries=[vector_query],
+                    filter=filter_str,
+                    top=top,
+                    select=select_fields,
+                    highlight_fields="content",
+                    highlight_pre_tag="<mark>",
+                    highlight_post_tag="</mark>",
+                )
+                # Force iteration to trigger any lazy errors
+                result_list = []
+                for r in results:
+                    result_list.append(r)
+            except Exception:
+                # Fallback: select without file_path (old schema)
+                print("[Lessons] Retrying search without file_path field", flush=True)
+                results = self.client.search(
+                    search_text=query,
+                    vector_queries=[vector_query],
+                    filter=filter_str,
+                    top=top,
+                    select="doc_id,file_nm,mclass,dclass,category,content,pjt_nm,pjt_cd,creator_name,reg_date,username,source_file",
+                    highlight_fields="content",
+                    highlight_pre_tag="<mark>",
+                    highlight_post_tag="</mark>",
+                )
+                result_list = list(results)
 
-            result_list = []
-            for r in results:
+            final_list = []
+            for r in result_list:
                 azure_highlights = (r.get("@search.highlights") or {}).get("content", [])
-                result_list.append({
+                final_list.append({
                     "doc_id": r.get("doc_id", ""),
                     "file_nm": r.get("file_nm", ""),
                     "mclass": r.get("mclass", ""),
@@ -503,7 +534,7 @@ class LessonsSearchService:
                     "score": r.get("@search.score", 0),
                     "azure_highlights": azure_highlights,
                 })
-            return result_list
+            return final_list
 
         except Exception as e:
             logger.error(f"Search failed: {e}")
