@@ -1979,7 +1979,7 @@ const KnowhowDB = () => {
                 {/* PDF Canvas */}
                 <div
                     ref={pdfContainerRef}
-                    className="flex-1 overflow-auto bg-gray-100 flex items-start justify-center p-12 cursor-grab select-none"
+                    className="relative flex-1 overflow-auto bg-[#f4f1ea] p-12 cursor-grab select-none"
                     onWheel={handlePdfWheel}
                     onMouseDown={handlePdfMouseDown}
                     onMouseMove={handlePdfMouseMove}
@@ -1995,7 +1995,7 @@ const KnowhowDB = () => {
                         <iframe src={officeUrl} className="w-full h-full border-0" allowFullScreen />
                     ) : pdfDocObj ? (
                         <div
-                            className="relative inline-block transition-transform duration-100 ease-out"
+                            className="relative mx-auto mb-8 shadow-2xl transition-transform duration-100 ease-out"
                             style={{
                                 width: canvasSize.width,
                                 height: canvasSize.height,

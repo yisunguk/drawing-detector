@@ -765,7 +765,7 @@ const LineList = () => {
                             {/* PDF Preview (스크롤 가능) */}
                             <div
                                 ref={pdfContainerRef}
-                                className="flex-1 overflow-auto p-12 flex items-start justify-center cursor-grab select-none"
+                                className="relative flex-1 overflow-auto bg-slate-900 p-12 cursor-grab select-none"
                                 onWheel={handleWheel}
                                 onMouseDown={handlePdfMouseDown}
                                 onMouseMove={handlePdfMouseMove}
@@ -773,7 +773,7 @@ const LineList = () => {
                                 onMouseLeave={handlePdfMouseLeave}
                             >
                                 <div
-                                    className="inline-block transition-transform duration-100 ease-out"
+                                    className="relative mx-auto mb-8 shadow-2xl transition-transform duration-100 ease-out"
                                     style={{
                                         width: canvasSize.width,
                                         height: canvasSize.height,
