@@ -892,6 +892,8 @@ const LessonsLearned = () => {
                             <div className="space-y-3">
                                 {searchResults.map((r, i) => {
                                     const badge = getScoreBadge(r.score);
+                                    const rawText = (r.content || r.content_preview || '').replace(/\.\.PAGE:\d+/g, '').trim();
+                                    const isEmptyContent = rawText.length < 10;
                                     return (
                                         <div
                                             key={r.doc_id || i}
@@ -908,8 +910,13 @@ const LessonsLearned = () => {
                                                 <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[10px] rounded font-medium">{r.category}</span>
                                                 <span className="text-[10px] text-gray-400">{r.mclass} / {r.dclass}</span>
                                                 {r.pjt_nm && <span className="text-[10px] text-gray-400 truncate max-w-[200px]">{r.pjt_nm}</span>}
+                                                {isEmptyContent && (
+                                                    <span className="px-1.5 py-0.5 bg-orange-100 text-orange-600 text-[10px] rounded font-medium">OCR 미처리</span>
+                                                )}
                                             </div>
-                                            {r.highlight ? (
+                                            {isEmptyContent ? (
+                                                <p className="text-xs text-orange-400 italic">문서 본문이 추출되지 않았습니다 (OCR 미처리)</p>
+                                            ) : r.highlight ? (
                                                 <p
                                                     className="text-xs text-gray-600 line-clamp-3 leading-relaxed [&_mark]:bg-yellow-200 [&_mark]:px-0.5 [&_mark]:rounded"
                                                     dangerouslySetInnerHTML={{ __html: r.highlight }}
