@@ -550,45 +550,57 @@ const KnowhowDB = () => {
         }
     };
 
-    // Mouse wheel zoom (no Ctrl required)
+    // Wheel zoom handler (matches PDFViewer pattern)
     const handlePdfWheel = useCallback((e) => {
         e.preventDefault();
         const delta = -e.deltaY;
-        setPdfZoom(z => Math.min(5, Math.max(0.3, +(z + (delta > 0 ? 0.1 : -0.1)).toFixed(2))));
+        setPdfZoom(prevZoom => {
+            let newZoom = prevZoom + (delta > 0 ? 0.1 : -0.1);
+            return Math.min(Math.max(0.3, newZoom), 5.0);
+        });
     }, []);
 
+    // Native event listener for preventDefault (passive: false required)
     useEffect(() => {
         const container = pdfContainerRef.current;
-        if (!container) return;
-        container.addEventListener('wheel', handlePdfWheel, { passive: false });
-        return () => container.removeEventListener('wheel', handlePdfWheel);
-    }, [handlePdfWheel]);
+        if (container) {
+            const preventDefaultWheel = (e) => e.preventDefault();
+            container.addEventListener('wheel', preventDefaultWheel, { passive: false });
+            return () => container.removeEventListener('wheel', preventDefaultWheel);
+        }
+    }, []);
 
-    // Mouse pan/drag handlers
-    const handlePdfMouseDown = useCallback((e) => {
-        if (e.button !== 0) return; // left click only
+    // Mouse pan/drag handlers (plain functions for fresh isDragging reference)
+    const handlePdfMouseDown = (e) => {
         setIsDragging(true);
         const container = pdfContainerRef.current;
-        dragStartRef.current = { x: e.clientX, y: e.clientY, left: container.scrollLeft, top: container.scrollTop };
+        dragStartRef.current = {
+            x: e.clientX,
+            y: e.clientY,
+            left: container.scrollLeft,
+            top: container.scrollTop
+        };
         container.style.cursor = 'grabbing';
-    }, []);
+    };
 
-    const handlePdfMouseMove = useCallback((e) => {
+    const handlePdfMouseMove = (e) => {
         if (!isDragging) return;
         const container = pdfContainerRef.current;
-        container.scrollLeft = dragStartRef.current.left - (e.clientX - dragStartRef.current.x);
-        container.scrollTop = dragStartRef.current.top - (e.clientY - dragStartRef.current.y);
-    }, [isDragging]);
+        const dx = e.clientX - dragStartRef.current.x;
+        const dy = e.clientY - dragStartRef.current.y;
+        container.scrollLeft = dragStartRef.current.left - dx;
+        container.scrollTop = dragStartRef.current.top - dy;
+    };
 
-    const handlePdfMouseUp = useCallback(() => {
+    const handlePdfMouseUp = () => {
         setIsDragging(false);
         if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'grab';
-    }, []);
+    };
 
-    const handlePdfMouseLeave = useCallback(() => {
+    const handlePdfMouseLeave = () => {
         setIsDragging(false);
         if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'default';
-    }, []);
+    };
 
     // =============================================
     // KEYWORD-BASED HIGHLIGHT (pdf.js text → OCR fallback)
@@ -1967,7 +1979,8 @@ const KnowhowDB = () => {
                 {/* PDF Canvas */}
                 <div
                     ref={pdfContainerRef}
-                    className="flex-1 overflow-auto bg-gray-100 flex items-start justify-center p-4 cursor-grab select-none"
+                    className="flex-1 overflow-auto bg-gray-100 flex items-start justify-center p-12 cursor-grab select-none"
+                    onWheel={handlePdfWheel}
                     onMouseDown={handlePdfMouseDown}
                     onMouseMove={handlePdfMouseMove}
                     onMouseUp={handlePdfMouseUp}
