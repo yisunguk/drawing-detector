@@ -245,6 +245,17 @@ class LessonsSearchService:
 
     # ── Index Management ──
 
+    def recreate_index(self):
+        """Delete and recreate the index (fixes schema issues)."""
+        if not self.index_client:
+            raise RuntimeError("Azure Search index client not initialized")
+        try:
+            self.index_client.delete_index(self.index_name)
+            print(f"[Lessons] Deleted index '{self.index_name}'", flush=True)
+        except Exception:
+            pass
+        self._create_index()
+
     def ensure_index(self):
         """Create the lessons-learned-index if it doesn't exist."""
         if not self.index_client:
@@ -257,10 +268,14 @@ class LessonsSearchService:
         except Exception:
             pass  # Index doesn't exist, create it
 
+        self._create_index()
+
+    def _create_index(self):
+
         fields = [
             SimpleField(name="id", type=SearchFieldDataType.String, key=True, filterable=True),
             SearchableField(name="doc_id", type=SearchFieldDataType.String, filterable=True),
-            SearchableField(name="file_nm", type=SearchFieldDataType.String, filterable=True),
+            SearchableField(name="file_nm", type=SearchFieldDataType.String, filterable=True, sortable=True),
             SearchableField(name="mclass", type=SearchFieldDataType.String, filterable=True, facetable=True),
             SearchableField(name="dclass", type=SearchFieldDataType.String, filterable=True, facetable=True),
             SearchableField(name="category", type=SearchFieldDataType.String, filterable=True, facetable=True),
@@ -270,7 +285,7 @@ class LessonsSearchService:
             SearchableField(name="creator_name", type=SearchFieldDataType.String, filterable=True),
             SimpleField(name="reg_date", type=SearchFieldDataType.String, filterable=True, sortable=True),
             SimpleField(name="username", type=SearchFieldDataType.String, filterable=True),
-            SimpleField(name="source_file", type=SearchFieldDataType.String, filterable=True),
+            SimpleField(name="source_file", type=SearchFieldDataType.String, filterable=True, facetable=True),
             SearchField(
                 name="content_embedding",
                 type=SearchFieldDataType.Collection(SearchFieldDataType.Single),

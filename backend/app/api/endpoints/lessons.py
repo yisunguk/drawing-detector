@@ -346,3 +346,13 @@ async def delete_file(
         print(f"[Lessons] Blob delete warning: {e}", flush=True)
 
     return {"status": "success", "deleted_count": deleted, "filename": filename}
+
+
+@router.post("/recreate-index")
+async def recreate_index(
+    authorization: Optional[str] = Header(None)
+):
+    """Delete and recreate the lessons index (fixes schema). Data must be re-uploaded."""
+    _get_username(authorization)
+    lessons_search_service.recreate_index()
+    return {"status": "success", "message": "Index recreated. Please re-upload files."}
