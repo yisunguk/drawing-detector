@@ -47,6 +47,8 @@ const LineList = () => {
 
     // PDF viewer 확대/축소
     const [pdfZoom, setPdfZoom] = useState(1.2);
+    const [renderZoom, setRenderZoom] = useState(1.2); // Debounced zoom for smooth rendering
+    const [isDragging, setIsDragging] = useState(false);
     const [panelWidth, setPanelWidth] = useState(450); // px (기존 450px 기본값)
     const [isResizing, setIsResizing] = useState(false);
     const [selectedRowIdx, setSelectedRowIdx] = useState(null);
@@ -74,6 +76,7 @@ const LineList = () => {
     const editInputRef = useRef(null);
     const resizingRef = useRef(false);
     const pageViewportRef = useRef(null);
+    const dragStartRef = useRef({ x: 0, y: 0, left: 0, top: 0 });
 
     // Azure Blob config for preview
     const AZURE_STORAGE_ACCOUNT_NAME = import.meta.env.VITE_AZURE_STORAGE_ACCOUNT_NAME;
@@ -130,6 +133,12 @@ const LineList = () => {
         }
     }, [username]);
 
+    // Debounce zoom for rendering to prevent flicker
+    useEffect(() => {
+        const timer = setTimeout(() => setRenderZoom(pdfZoom), 300);
+        return () => clearTimeout(timer);
+    }, [pdfZoom]);
+
     // Render PDF page (줌 적용)
     const renderPage = useCallback(async (pageNum) => {
         if (!pdfDocRef.current || !canvasRef.current) return;
@@ -142,7 +151,7 @@ const LineList = () => {
             const baseViewport = page.getViewport({ scale: 1 });
             pageViewportRef.current = baseViewport;
 
-            const viewport = page.getViewport({ scale: pdfZoom });
+            const viewport = page.getViewport({ scale: renderZoom });
             canvas.width = viewport.width;
             canvas.height = viewport.height;
 
@@ -150,7 +159,7 @@ const LineList = () => {
         } catch (err) {
             console.error('PDF render error:', err);
         }
-    }, [pdfZoom]);
+    }, [renderZoom]);
 
     // Load PDF file
     const handleFileSelect = useCallback(async (file) => {
@@ -180,7 +189,7 @@ const LineList = () => {
         if (pdfDocRef.current && currentPage > 0) {
             renderPage(currentPage);
         }
-    }, [currentPage, pdfZoom, renderPage]);
+    }, [currentPage, renderZoom, renderPage]);
 
     // Also render after initial load
     useEffect(() => {
@@ -213,13 +222,11 @@ const LineList = () => {
         setPdfZoom(Math.max(0.3, Math.min(5, newZoom)));
     }, []);
 
-    // Ctrl+휠 줌
+    // 휠 줌 (Ctrl 없이도 동작)
     const handleWheel = useCallback((e) => {
-        if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            const delta = e.deltaY > 0 ? -0.1 : 0.1;
-            setPdfZoom(z => Math.min(5, Math.max(0.3, +(z + delta).toFixed(1))));
-        }
+        e.preventDefault();
+        const delta = -e.deltaY;
+        setPdfZoom(z => Math.min(5, Math.max(0.3, +(z + (delta > 0 ? 0.1 : -0.1)).toFixed(2))));
     }, []);
 
     useEffect(() => {
@@ -228,6 +235,32 @@ const LineList = () => {
         container.addEventListener('wheel', handleWheel, { passive: false });
         return () => container.removeEventListener('wheel', handleWheel);
     }, [handleWheel]);
+
+    // Mouse pan/drag handlers
+    const handlePdfMouseDown = useCallback((e) => {
+        if (e.button !== 0) return;
+        setIsDragging(true);
+        const container = pdfContainerRef.current;
+        dragStartRef.current = { x: e.clientX, y: e.clientY, left: container.scrollLeft, top: container.scrollTop };
+        container.style.cursor = 'grabbing';
+    }, []);
+
+    const handlePdfMouseMove = useCallback((e) => {
+        if (!isDragging) return;
+        const container = pdfContainerRef.current;
+        container.scrollLeft = dragStartRef.current.left - (e.clientX - dragStartRef.current.x);
+        container.scrollTop = dragStartRef.current.top - (e.clientY - dragStartRef.current.y);
+    }, [isDragging]);
+
+    const handlePdfMouseUp = useCallback(() => {
+        setIsDragging(false);
+        if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'grab';
+    }, []);
+
+    const handlePdfMouseLeave = useCallback(() => {
+        setIsDragging(false);
+        if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'default';
+    }, []);
 
     // 패널 리사이즈 핸들러
     const startResize = useCallback((e) => {
@@ -706,9 +739,21 @@ const LineList = () => {
                             {/* PDF Preview (스크롤 가능) */}
                             <div
                                 ref={pdfContainerRef}
-                                className="flex-1 overflow-auto p-2 flex items-start justify-center"
+                                className="flex-1 overflow-auto p-2 flex items-start justify-center cursor-grab select-none"
+                                onMouseDown={handlePdfMouseDown}
+                                onMouseMove={handlePdfMouseMove}
+                                onMouseUp={handlePdfMouseUp}
+                                onMouseLeave={handlePdfMouseLeave}
                             >
-                                <canvas ref={canvasRef} className="border border-slate-700 rounded shadow-lg" />
+                                <div
+                                    className="inline-block transition-transform duration-100 ease-out"
+                                    style={{
+                                        transform: `scale(${pdfZoom / renderZoom})`,
+                                        transformOrigin: '0 0',
+                                    }}
+                                >
+                                    <canvas ref={canvasRef} className="border border-slate-700 rounded shadow-lg" />
+                                </div>
                             </div>
                         </>
                     )}

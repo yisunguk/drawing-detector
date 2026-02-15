@@ -108,6 +108,7 @@ const KnowhowDB = () => {
     const [pdfPage, setPdfPage] = useState(1);
     const [pdfTotalPages, setPdfTotalPages] = useState(0);
     const [pdfZoom, setPdfZoom] = useState(1.2);
+    const [renderZoom, setRenderZoom] = useState(1.2); // Debounced zoom for smooth rendering
     const [pdfLoading, setPdfLoading] = useState(false);
     const [viewerType, setViewerType] = useState(null); // 'pdf' | 'office'
     const [officeUrl, setOfficeUrl] = useState(null);
@@ -141,6 +142,8 @@ const KnowhowDB = () => {
     const [highlightRects, setHighlightRects] = useState([]);
     const [highlightPolygons, setHighlightPolygons] = useState([]); // DI polygon-based highlights
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const dragStartRef = useRef({ x: 0, y: 0, left: 0, top: 0 });
     const highlightMetaRef = useRef(null); // { user_id, filename, page } for OCR fallback
 
     // === Refs ===
@@ -509,16 +512,22 @@ const KnowhowDB = () => {
         }
     };
 
+    // Debounce zoom for rendering to prevent flicker
+    useEffect(() => {
+        const timer = setTimeout(() => setRenderZoom(pdfZoom), 300);
+        return () => clearTimeout(timer);
+    }, [pdfZoom]);
+
     useEffect(() => {
         if (!pdfDocObj || !canvasRef.current) return;
         renderPdfPage();
-    }, [pdfDocObj, pdfPage, pdfZoom]);
+    }, [pdfDocObj, pdfPage, renderZoom]);
 
     const renderPdfPage = async () => {
         if (!pdfDocObj || !canvasRef.current) return;
         try {
             const page = await pdfDocObj.getPage(pdfPage);
-            const viewport = page.getViewport({ scale: pdfZoom });
+            const viewport = page.getViewport({ scale: renderZoom });
             viewportRef.current = viewport;
             const canvas = canvasRef.current;
             const ctx = canvas.getContext('2d');
@@ -530,6 +539,46 @@ const KnowhowDB = () => {
             console.error('PDF render error:', e);
         }
     };
+
+    // Mouse wheel zoom (no Ctrl required)
+    const handlePdfWheel = useCallback((e) => {
+        e.preventDefault();
+        const delta = -e.deltaY;
+        setPdfZoom(z => Math.min(5, Math.max(0.3, +(z + (delta > 0 ? 0.1 : -0.1)).toFixed(2))));
+    }, []);
+
+    useEffect(() => {
+        const container = pdfContainerRef.current;
+        if (!container) return;
+        container.addEventListener('wheel', handlePdfWheel, { passive: false });
+        return () => container.removeEventListener('wheel', handlePdfWheel);
+    }, [handlePdfWheel]);
+
+    // Mouse pan/drag handlers
+    const handlePdfMouseDown = useCallback((e) => {
+        if (e.button !== 0) return; // left click only
+        setIsDragging(true);
+        const container = pdfContainerRef.current;
+        dragStartRef.current = { x: e.clientX, y: e.clientY, left: container.scrollLeft, top: container.scrollTop };
+        container.style.cursor = 'grabbing';
+    }, []);
+
+    const handlePdfMouseMove = useCallback((e) => {
+        if (!isDragging) return;
+        const container = pdfContainerRef.current;
+        container.scrollLeft = dragStartRef.current.left - (e.clientX - dragStartRef.current.x);
+        container.scrollTop = dragStartRef.current.top - (e.clientY - dragStartRef.current.y);
+    }, [isDragging]);
+
+    const handlePdfMouseUp = useCallback(() => {
+        setIsDragging(false);
+        if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'grab';
+    }, []);
+
+    const handlePdfMouseLeave = useCallback(() => {
+        setIsDragging(false);
+        if (pdfContainerRef.current) pdfContainerRef.current.style.cursor = 'default';
+    }, []);
 
     // =============================================
     // KEYWORD-BASED HIGHLIGHT (pdf.js text → OCR fallback)
@@ -1895,18 +1944,25 @@ const KnowhowDB = () => {
                             <ChevronRight size={14} />
                         </button>
                         <div className="w-px h-4 bg-gray-300 mx-1" />
-                        <button onClick={() => setPdfZoom(z => Math.max(0.5, +(z - 0.2).toFixed(1)))} className="p-1 hover:bg-gray-200 rounded">
+                        <button onClick={() => setPdfZoom(z => Math.max(0.3, +(z - 0.2).toFixed(1)))} className="p-1 hover:bg-gray-200 rounded">
                             <ZoomOut size={14} />
                         </button>
                         <span className="text-xs text-gray-500 w-10 text-center">{Math.round(pdfZoom * 100)}%</span>
-                        <button onClick={() => setPdfZoom(z => Math.min(3, +(z + 0.2).toFixed(1)))} className="p-1 hover:bg-gray-200 rounded">
+                        <button onClick={() => setPdfZoom(z => Math.min(5, +(z + 0.2).toFixed(1)))} className="p-1 hover:bg-gray-200 rounded">
                             <ZoomIn size={14} />
                         </button>
                     </div>
                 )}
 
                 {/* PDF Canvas */}
-                <div ref={pdfContainerRef} className="flex-1 overflow-auto bg-gray-100 flex items-start justify-center p-4">
+                <div
+                    ref={pdfContainerRef}
+                    className="flex-1 overflow-auto bg-gray-100 flex items-start justify-center p-4 cursor-grab select-none"
+                    onMouseDown={handlePdfMouseDown}
+                    onMouseMove={handlePdfMouseMove}
+                    onMouseUp={handlePdfMouseUp}
+                    onMouseLeave={handlePdfMouseLeave}
+                >
                     {pdfLoading ? (
                         <div className="flex flex-col items-center justify-center py-20 text-gray-400">
                             <Loader2 className="w-8 h-8 animate-spin text-[#d97757] mb-3" />
@@ -1915,7 +1971,13 @@ const KnowhowDB = () => {
                     ) : viewerType === 'office' && officeUrl ? (
                         <iframe src={officeUrl} className="w-full h-full border-0" allowFullScreen />
                     ) : pdfDocObj ? (
-                        <div className="relative inline-block">
+                        <div
+                            className="relative inline-block transition-transform duration-100 ease-out"
+                            style={{
+                                transform: `scale(${pdfZoom / renderZoom})`,
+                                transformOrigin: '0 0',
+                            }}
+                        >
                             <canvas ref={canvasRef} className="shadow-lg" />
                             {(highlightRects.length > 0 || highlightPolygons.length > 0) && canvasSize.width > 0 && (
                                 <svg
