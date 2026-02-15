@@ -31,6 +31,79 @@ from app.services.lessons_search import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ── Keyword extraction for highlight fallback ──
+
+_PARTICLES = ['에서', '으로', '까지', '부터', '해서', '세요',
+              '을', '를', '의', '이', '가', '에', '도', '는', '은', '로', '와', '과', '하']
+
+_FILLER = {'알려', '주세요', '알려주세요', '하세요', '해주세요', '설명', '뭐',
+           '입니다', '합니다', '있는', '대해', '무엇', '어떤', '어떻게',
+           'please', 'tell', 'what', 'about', 'the', 'show'}
+
+
+def _strip_particle(w: str) -> str:
+    for p in sorted(_PARTICLES, key=len, reverse=True):
+        if w.endswith(p) and len(w) - len(p) >= 2:
+            return w[:-len(p)]
+    return w
+
+
+def _extract_search_keywords(query: str) -> list:
+    raw_words = re.split(r'\s+', query.lower().strip())
+    keywords = []
+    for w in raw_words:
+        if re.match(r'^[\w]+-[\w]+-?[\w]*$', w):
+            keywords.append(w)
+            continue
+        stripped = _strip_particle(w)
+        if len(stripped) >= 2 and stripped not in _FILLER:
+            keywords.append(stripped)
+    return keywords
+
+
+def _extract_and_highlight(content: str, keywords: list) -> str:
+    if not content or not keywords:
+        return content[:300] if content else ""
+
+    content_lower = content.lower()
+    positions = []
+    for kw in keywords:
+        start = 0
+        kw_lower = kw.lower()
+        while True:
+            idx = content_lower.find(kw_lower, start)
+            if idx == -1:
+                break
+            positions.append((idx, len(kw_lower)))
+            start = idx + 1
+
+    if not positions:
+        return content[:300]
+
+    positions.sort(key=lambda x: x[0])
+
+    snippets = []
+    used_ranges = []
+    for pos, kw_len in positions:
+        if len(snippets) >= 3:
+            break
+        snippet_start = max(0, pos - 150)
+        snippet_end = min(len(content), pos + kw_len + 150)
+        overlaps = any(s <= snippet_start <= e or s <= snippet_end <= e for s, e in used_ranges)
+        if overlaps:
+            continue
+        used_ranges.append((snippet_start, snippet_end))
+        snippet = content[snippet_start:snippet_end]
+        prefix = "..." if snippet_start > 0 else ""
+        suffix = "..." if snippet_end < len(content) else ""
+        snippets.append(f"{prefix}{snippet}{suffix}")
+
+    result = " ... ".join(snippets)
+    for kw in keywords:
+        pattern = re.compile(re.escape(kw), re.IGNORECASE)
+        result = pattern.sub(lambda m: f"<mark>{m.group(0)}</mark>", result)
+    return result
+
 # Azure OpenAI client for RAG chat
 _openai_client = AzureOpenAI(
     azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
@@ -72,6 +145,7 @@ def _get_username(authorization: Optional[str]) -> str:
 class SearchRequest(BaseModel):
     query: str
     category: Optional[str] = None
+    source_file: Optional[str] = None
     mode: Optional[str] = "search"  # "search" or "chat"
     history: Optional[List[dict]] = None
     top: Optional[int] = 20
@@ -172,13 +246,25 @@ async def search_lessons(
 
 
 async def _handle_search(request: SearchRequest, username: str) -> SearchResponse:
-    """Keyword + vector hybrid search."""
+    """Keyword + vector hybrid search with highlight."""
     results = lessons_search_service.hybrid_search(
         query=request.query,
         category=request.category,
         username=None,  # Search across all users' lessons
         top=request.top or 20,
+        source_file=request.source_file,
     )
+
+    # Build highlight text for each result
+    search_keywords = _extract_search_keywords(request.query)
+    for r in results:
+        azure_highlights = r.pop("azure_highlights", [])
+        if azure_highlights:
+            r["highlight"] = " ... ".join(azure_highlights[:3])
+        elif search_keywords:
+            r["highlight"] = _extract_and_highlight(r.get("content", ""), search_keywords)
+        else:
+            r["highlight"] = (r.get("content") or "")[:300]
 
     return SearchResponse(
         results=results,
@@ -194,6 +280,7 @@ async def _handle_chat(request: SearchRequest, username: str) -> SearchResponse:
         category=request.category,
         username=None,
         top=15,
+        source_file=request.source_file,
     )
 
     # Build context from search results
@@ -256,6 +343,8 @@ async def _handle_chat(request: SearchRequest, username: str) -> SearchResponse:
             "pjt_nm": r.get("pjt_nm", ""),
             "score": r.get("score", 0),
             "content_preview": r.get("content_preview", ""),
+            "content": r.get("content", ""),
+            "source_file": r.get("source_file", ""),
         }
         for r in results[:10]
     ]

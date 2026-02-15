@@ -437,9 +437,11 @@ class LessonsSearchService:
     # ── Search ──
 
     def hybrid_search(self, query: str, category: Optional[str] = None,
-                      username: Optional[str] = None, top: int = 20) -> List[Dict]:
+                      username: Optional[str] = None, top: int = 20,
+                      source_file: Optional[str] = None) -> List[Dict]:
         """
-        Hybrid search: keyword + vector search with optional category filter.
+        Hybrid search: keyword + vector search with optional category/source_file filter.
+        Returns Azure Search highlights when available.
         """
         if not self.client:
             return []
@@ -452,6 +454,9 @@ class LessonsSearchService:
         if username:
             safe_user = username.replace("'", "''")
             filters.append(f"username eq '{safe_user}'")
+        if source_file:
+            safe_sf = source_file.replace("'", "''")
+            filters.append(f"source_file eq '{safe_sf}'")
 
         filter_str = " and ".join(filters) if filters else None
 
@@ -471,10 +476,14 @@ class LessonsSearchService:
                 filter=filter_str,
                 top=top,
                 select="doc_id,file_nm,mclass,dclass,category,content,pjt_nm,pjt_cd,creator_name,reg_date,username,source_file",
+                highlight_fields="content",
+                highlight_pre_tag="<mark>",
+                highlight_post_tag="</mark>",
             )
 
             result_list = []
             for r in results:
+                azure_highlights = (r.get("@search.highlights") or {}).get("content", [])
                 result_list.append({
                     "doc_id": r.get("doc_id", ""),
                     "file_nm": r.get("file_nm", ""),
@@ -487,7 +496,9 @@ class LessonsSearchService:
                     "pjt_cd": r.get("pjt_cd", ""),
                     "creator_name": r.get("creator_name", ""),
                     "reg_date": r.get("reg_date", ""),
+                    "source_file": r.get("source_file", ""),
                     "score": r.get("@search.score", 0),
+                    "azure_highlights": azure_highlights,
                 })
             return result_list
 

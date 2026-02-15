@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Search as SearchIcon, Send, Bot, User, Loader2,
-    ChevronRight, ChevronDown, X, Upload, Trash2,
-    BookOpen, MessageSquare, FileText, FolderTree, RefreshCcw
+    ChevronRight, ChevronDown, ChevronLeft, X, Upload, Trash2,
+    BookOpen, MessageSquare, FileText, FolderTree, RefreshCcw, Check
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -50,8 +50,12 @@ const LessonsLearned = () => {
     ]);
     const [isChatLoading, setIsChatLoading] = useState(false);
 
+    // === Search Scope State ===
+    const [selectedSourceFile, setSelectedSourceFile] = useState(null);
+
     // === Right Panel State ===
     const [previewDoc, setPreviewDoc] = useState(null);
+    const [viewerPage, setViewerPage] = useState(0);
 
     // === Layout State ===
     const [leftWidth, setLeftWidth] = useState(300);
@@ -59,6 +63,38 @@ const LessonsLearned = () => {
 
     // === Refs ===
     const messagesEndRef = useRef(null);
+
+    // =============================================
+    // UTILITY: Parse content into pages by ..PAGE:N markers
+    // =============================================
+    const parseContentPages = useCallback((content) => {
+        if (!content) return [{ pageNum: 1, text: '' }];
+        const parts = content.split(/\.\.PAGE:\d+/);
+        const pages = parts.map((text, i) => ({
+            pageNum: i + 1,
+            text: text.trim(),
+        })).filter(p => p.text.length > 0);
+        return pages.length > 0 ? pages : [{ pageNum: 1, text: content }];
+    }, []);
+
+    // =============================================
+    // UTILITY: Highlight keywords in text (for document viewer)
+    // =============================================
+    const highlightTextInViewer = useCallback((text, keywords) => {
+        if (!text || !keywords || keywords.length === 0) return text;
+        const escaped = keywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const pattern = new RegExp(`(${escaped.join('|')})`, 'gi');
+        return text.replace(pattern, '<mark>$1</mark>');
+    }, []);
+
+    // =============================================
+    // UTILITY: Score badge color
+    // =============================================
+    const getScoreBadge = useCallback((score) => {
+        if (score >= 10) return { bg: 'bg-green-100', text: 'text-green-700', label: '높음' };
+        if (score >= 3) return { bg: 'bg-blue-100', text: 'text-blue-700', label: '보통' };
+        return { bg: 'bg-gray-100', text: 'text-gray-500', label: '낮음' };
+    }, []);
 
     // =============================================
     // AUTH HELPER
@@ -226,6 +262,7 @@ const LessonsLearned = () => {
                 body: JSON.stringify({
                     query: query.trim(),
                     category: selectedCategory,
+                    source_file: selectedSourceFile,
                     mode: 'search',
                     top: 20
                 })
@@ -273,6 +310,7 @@ const LessonsLearned = () => {
                 body: JSON.stringify({
                     query: userMessage,
                     category: selectedCategory,
+                    source_file: selectedSourceFile,
                     mode: 'chat',
                     history: history.length > 0 ? history : null
                 })
@@ -301,6 +339,11 @@ const LessonsLearned = () => {
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [chatMessages]);
+
+    // Reset viewer page when preview doc changes
+    useEffect(() => {
+        setViewerPage(0);
+    }, [previewDoc]);
 
     // =============================================
     // SUBMIT / KEY HANDLER
@@ -440,6 +483,41 @@ const LessonsLearned = () => {
                     </div>
                 )}
 
+                {/* Search Scope */}
+                {uploadedFiles.length > 0 && (
+                    <div className="px-3 py-2 border-b border-gray-200">
+                        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">검색 범위</div>
+                        <button
+                            onClick={() => setSelectedSourceFile(null)}
+                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                                !selectedSourceFile
+                                    ? 'bg-purple-100 text-purple-700 font-medium'
+                                    : 'text-gray-600 hover:bg-gray-200'
+                            }`}
+                        >
+                            {!selectedSourceFile && <Check className="w-3 h-3 flex-shrink-0" />}
+                            {selectedSourceFile && <div className="w-3 h-3 flex-shrink-0" />}
+                            <span>전체 문서</span>
+                        </button>
+                        {uploadedFiles.map((f) => (
+                            <button
+                                key={f.filename}
+                                onClick={() => setSelectedSourceFile(f.filename)}
+                                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                                    selectedSourceFile === f.filename
+                                        ? 'bg-purple-100 text-purple-700 font-medium'
+                                        : 'text-gray-600 hover:bg-gray-200'
+                                }`}
+                            >
+                                {selectedSourceFile === f.filename && <Check className="w-3 h-3 flex-shrink-0" />}
+                                {selectedSourceFile !== f.filename && <div className="w-3 h-3 flex-shrink-0" />}
+                                <span className="truncate">{f.filename}</span>
+                                <span className="text-[10px] text-gray-400 ml-auto">{f.document_count}</span>
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 {/* Category Tree */}
                 <div className="flex-1 overflow-y-auto px-3 py-2">
                     <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">분류 (Categories)</div>
@@ -568,6 +646,16 @@ const LessonsLearned = () => {
                         </div>
                     )}
 
+                    {selectedSourceFile && (
+                        <div className="flex items-center gap-1 ml-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs">
+                            <FileText className="w-3 h-3" />
+                            <span className="font-medium truncate max-w-[150px]">{selectedSourceFile}</span>
+                            <button onClick={() => setSelectedSourceFile(null)} className="p-0.5 hover:bg-blue-100 rounded">
+                                <X className="w-3 h-3" />
+                            </button>
+                        </div>
+                    )}
+
                     {mode === 'chat' && chatMessages.length > 1 && (
                         <button
                             onClick={handleResetChat}
@@ -605,28 +693,38 @@ const LessonsLearned = () => {
                                 </div>
                             )}
                             <div className="space-y-3">
-                                {searchResults.map((r, i) => (
-                                    <div
-                                        key={r.doc_id || i}
-                                        className="bg-white border border-gray-200 rounded-lg p-4 hover:border-purple-300 hover:shadow-sm cursor-pointer transition-all"
-                                        onClick={() => setPreviewDoc(r)}
-                                    >
-                                        <div className="flex items-start justify-between mb-1.5">
-                                            <h3 className="font-semibold text-sm text-gray-800 flex-1 truncate">{r.file_nm}</h3>
-                                            <span className="text-[10px] text-gray-400 ml-2 flex-shrink-0">
-                                                {r.score?.toFixed(1)}
-                                            </span>
+                                {searchResults.map((r, i) => {
+                                    const badge = getScoreBadge(r.score);
+                                    return (
+                                        <div
+                                            key={r.doc_id || i}
+                                            className="bg-white border border-gray-200 rounded-lg p-4 hover:border-purple-300 hover:shadow-sm cursor-pointer transition-all"
+                                            onClick={() => setPreviewDoc(r)}
+                                        >
+                                            <div className="flex items-start justify-between mb-1.5">
+                                                <h3 className="font-semibold text-sm text-gray-800 flex-1 truncate">{r.file_nm}</h3>
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ml-2 flex-shrink-0 ${badge.bg} ${badge.text}`}>
+                                                    {badge.label} {r.score?.toFixed(1)}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[10px] rounded font-medium">{r.category}</span>
+                                                <span className="text-[10px] text-gray-400">{r.mclass} / {r.dclass}</span>
+                                                {r.pjt_nm && <span className="text-[10px] text-gray-400 truncate max-w-[200px]">{r.pjt_nm}</span>}
+                                            </div>
+                                            {r.highlight ? (
+                                                <p
+                                                    className="text-xs text-gray-600 line-clamp-3 leading-relaxed [&_mark]:bg-yellow-200 [&_mark]:px-0.5 [&_mark]:rounded"
+                                                    dangerouslySetInnerHTML={{ __html: r.highlight }}
+                                                />
+                                            ) : (
+                                                <p className="text-xs text-gray-600 line-clamp-3 leading-relaxed">
+                                                    {r.content_preview}
+                                                </p>
+                                            )}
                                         </div>
-                                        <div className="flex items-center gap-2 mb-2">
-                                            <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[10px] rounded font-medium">{r.category}</span>
-                                            <span className="text-[10px] text-gray-400">{r.mclass} / {r.dclass}</span>
-                                            {r.pjt_nm && <span className="text-[10px] text-gray-400 truncate max-w-[200px]">{r.pjt_nm}</span>}
-                                        </div>
-                                        <p className="text-xs text-gray-600 line-clamp-3 leading-relaxed">
-                                            {r.content_preview}
-                                        </p>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </>
                     ) : (
@@ -717,42 +815,94 @@ const LessonsLearned = () => {
                 </div>
             </div>
 
-            {/* ===== RIGHT PANEL (Content Preview) ===== */}
-            {previewDoc && (
-                <div className="w-96 border-l border-gray-200 bg-white flex flex-col flex-shrink-0 h-full">
-                    {/* Preview Header */}
-                    <div className="p-4 border-b border-gray-200 flex items-start gap-2">
-                        <div className="flex-1 min-w-0">
-                            <h2 className="font-bold text-sm text-gray-800 truncate" title={previewDoc.file_nm}>
-                                {previewDoc.file_nm}
-                            </h2>
-                            <div className="flex items-center gap-2 mt-1">
-                                <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[10px] rounded font-medium">{previewDoc.category}</span>
-                                <span className="text-[10px] text-gray-400">{previewDoc.mclass} / {previewDoc.dclass}</span>
-                            </div>
-                            {previewDoc.pjt_nm && (
-                                <p className="text-[10px] text-gray-400 mt-1 truncate">{previewDoc.pjt_nm}</p>
-                            )}
-                            {previewDoc.creator_name && (
-                                <p className="text-[10px] text-gray-400">작성자: {previewDoc.creator_name} | {previewDoc.reg_date}</p>
-                            )}
-                        </div>
-                        <button
-                            onClick={() => setPreviewDoc(null)}
-                            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
-                        >
-                            <X className="w-4 h-4" />
-                        </button>
-                    </div>
+            {/* ===== RIGHT PANEL (Document Viewer) ===== */}
+            {previewDoc && (() => {
+                const fullContent = previewDoc.content || previewDoc.content_preview || '';
+                const pages = parseContentPages(fullContent);
+                const currentPage = pages[viewerPage] || pages[0];
+                const searchKeywords = query.trim() ? query.trim().split(/\s+/).filter(w => w.length >= 2) : [];
+                const highlightedContent = searchKeywords.length > 0
+                    ? highlightTextInViewer(currentPage?.text || '', searchKeywords)
+                    : (currentPage?.text || '');
 
-                    {/* Preview Content */}
-                    <div className="flex-1 overflow-y-auto p-4">
-                        <pre className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed font-sans">
-                            {previewDoc.content || previewDoc.content_preview || '내용 없음'}
-                        </pre>
+                return (
+                    <div className="w-96 border-l border-gray-200 bg-white flex flex-col flex-shrink-0 h-full">
+                        {/* Preview Header */}
+                        <div className="p-4 border-b border-gray-200 flex items-start gap-2">
+                            <div className="flex-1 min-w-0">
+                                <h2 className="font-bold text-sm text-gray-800 truncate" title={previewDoc.file_nm}>
+                                    {previewDoc.file_nm}
+                                </h2>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[10px] rounded font-medium">{previewDoc.category}</span>
+                                    <span className="text-[10px] text-gray-400">{previewDoc.mclass} / {previewDoc.dclass}</span>
+                                </div>
+                                {previewDoc.pjt_nm && (
+                                    <p className="text-[10px] text-gray-400 mt-1 truncate">{previewDoc.pjt_nm}</p>
+                                )}
+                                {previewDoc.creator_name && (
+                                    <p className="text-[10px] text-gray-400">작성자: {previewDoc.creator_name} | {previewDoc.reg_date}</p>
+                                )}
+                                {previewDoc.source_file && (
+                                    <p className="text-[10px] text-gray-400 mt-0.5">소스: {previewDoc.source_file}</p>
+                                )}
+                            </div>
+                            <button
+                                onClick={() => setPreviewDoc(null)}
+                                className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {/* Page Navigation (if multiple pages) */}
+                        {pages.length > 1 && (
+                            <div className="flex items-center gap-1 px-4 py-2 border-b border-gray-100 bg-gray-50">
+                                <button
+                                    onClick={() => setViewerPage(p => Math.max(0, p - 1))}
+                                    disabled={viewerPage === 0}
+                                    className="p-1 rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <div className="flex-1 flex items-center gap-1 overflow-x-auto px-1">
+                                    {pages.map((p, idx) => (
+                                        <button
+                                            key={idx}
+                                            onClick={() => setViewerPage(idx)}
+                                            className={`min-w-[28px] h-7 px-1.5 rounded text-xs font-medium transition-colors ${
+                                                viewerPage === idx
+                                                    ? 'bg-purple-600 text-white'
+                                                    : 'bg-white text-gray-600 hover:bg-gray-200 border border-gray-200'
+                                            }`}
+                                        >
+                                            {p.pageNum}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={() => setViewerPage(p => Math.min(pages.length - 1, p + 1))}
+                                    disabled={viewerPage === pages.length - 1}
+                                    className="p-1 rounded hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronRight className="w-4 h-4" />
+                                </button>
+                                <span className="text-[10px] text-gray-400 ml-1 flex-shrink-0">
+                                    {viewerPage + 1}/{pages.length}
+                                </span>
+                            </div>
+                        )}
+
+                        {/* Document Content */}
+                        <div className="flex-1 overflow-y-auto p-4">
+                            <pre
+                                className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed font-sans [&_mark]:bg-yellow-200 [&_mark]:px-0.5 [&_mark]:rounded"
+                                dangerouslySetInnerHTML={{ __html: highlightedContent || '내용 없음' }}
+                            />
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div>
     );
 };
