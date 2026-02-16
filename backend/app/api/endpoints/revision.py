@@ -29,12 +29,32 @@ from app.services.revision_search import revision_search_service
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Phase definitions
+# Phase definitions — based on GMTP-FEED-PR-RPT-013 flow
 PHASES = {
-    "phase_1": {"name": "Pre-Commissioning", "name_ko": "사전 시운전"},
-    "phase_2": {"name": "Commissioning", "name_ko": "시운전"},
-    "phase_3": {"name": "Initial Acceptance", "name_ko": "초기 인수"},
-    "phase_4": {"name": "Final Acceptance", "name_ko": "최종 인수"},
+    "phase_1": {
+        "name": "Pre-Commissioning & MC",
+        "name_ko": "사전시운전 / MC",
+        "milestones": ["MC (Mechanical Completion)", "PSSR", "RFSU"],
+        "description": "Construction completion → Flushing/Pressure test → Punch list → MC → PSSR → RFSU",
+    },
+    "phase_2": {
+        "name": "Commissioning & Testing",
+        "name_ko": "시운전 / 시험",
+        "milestones": ["FGSO (First Gas Send-Out)", "Unit Function Test", "RRT", "Performance Guarantee Test"],
+        "description": "Energizing → Cool-down → FGSO → Unit Function Test → RRT (30 days) → Performance Guarantee Test",
+    },
+    "phase_3": {
+        "name": "Performance & Initial Acceptance",
+        "name_ko": "성능인수 / 초기인수",
+        "milestones": ["PA (Performance Acceptance)", "IA (Initial Acceptance)", "COD"],
+        "description": "Performance Acceptance → Punch/Job Card close-out → As-built → Training → Initial Acceptance → COD",
+    },
+    "phase_4": {
+        "name": "Final Acceptance",
+        "name_ko": "최종 인수",
+        "milestones": ["FA (Final Acceptance)"],
+        "description": "Warranty period obligations → Defect remedy → Final Acceptance Certificate",
+    },
 }
 
 # Azure OpenAI client for GPT
@@ -237,25 +257,33 @@ def _extract_documents_from_spec(spec_text: str, project_code: str, project_name
     if len(spec_text) > 60000:
         spec_text = spec_text[:60000] + "\n...(truncated)"
 
-    prompt = f"""당신은 EPC 프로젝트 준공도서(As-Built) 전문가입니다.
-아래 사양서(Specification) 내용을 분석하여 4단계 Phase별 필요 문서 목록을 JSON으로 추출하세요.
+    prompt = f"""당신은 EPCC 프로젝트 Pre-Commissioning/Commissioning/Acceptance 전문가입니다.
+아래 사양서(Specification) 내용을 분석하여 4단계 Phase별 필요 문서/성적서/인증서 목록을 JSON으로 추출하세요.
 
 프로젝트 코드: {project_code}
 프로젝트명: {project_name}
 
-Phase 정의:
-- phase_1: Pre-Commissioning (사전 시운전) — 플러싱, 수압시험, 기밀시험, 정렬 등
-- phase_2: Commissioning (시운전) — 단독운전, 연동시험, 성능시험 등
-- phase_3: Initial Acceptance (초기 인수) — 잠정인수, 펀치리스트, 성적서 등
-- phase_4: Final Acceptance (최종 인수) — 최종인수, 보증서, 준공도면 등
+Phase 정의 (EPCC 준공 프로세스 기준):
+- phase_1: Pre-Commissioning & MC — 배관 플러싱/세정/건조, 수압시험, 기밀시험, 계기루프시험, 케이블시험, 장비정렬, 펀치리스트(A/B/C), System Completion Manual, P&ID 워크다운, MC 인증서, PSSR, RFSU 인증서
+- phase_2: Commissioning & Testing — 유틸리티 시운전, 냉각(Cool-down), FGSO(First Gas Send-Out), 단독운전(Unit Function Test), 연동시험, 신뢰성시험(RRT 30일), 성능보증시험(Performance Guarantee Test), 일일보고서
+- phase_3: Performance & Initial Acceptance — 성능인수 인증서, 펀치/Job Card 클로즈아웃, As-Built 도면, 운전매뉴얼, 교육기록, 예비품목록(3년), 정부허가, 초기인수 인증서
+- phase_4: Final Acceptance — 보증기간 의무이행, 결함시정, 최종인수 인증서
 
-각 문서에 대해:
-- doc_no: 문서번호 (없으면 project_code 기반으로 자동 부여)
-- tag_no: 관련 장비/라인 태그번호 (없으면 빈 문자열)
-- title: 문서 제목
-- phase: phase_1 ~ phase_4
-
-최소 20개 이상 문서를 추출하세요. 사양서에 명시되지 않아도 EPC 표준 문서는 포함하세요.
+추출 규칙:
+1. 사양서에 명시된 모든 제출문서(deliverables)를 빠짐없이 추출
+2. 각 System별 반복 문서는 대표 1건으로 추출 (예: "System Completion Manual (per system)")
+3. 장비별 시험성적서는 장비 tag_no 포함 (사양서에 언급된 경우)
+4. 최소 30개 이상 문서 추출
+5. 사양서에 없더라도 EPCC 표준 문서 포함:
+   - Inspection & Testing Plan, Check Sheet/Log Sheet
+   - Marked-up P&IDs (System isolation)
+   - Vendor Attendance Schedule
+   - Commissioning Execution Plan
+   - Emergency Response Plan
+   - Interface Procedures
+   - Consumables List
+   - Commissioning Spare Parts List
+   - Job Card Form / Job Card Item List
 
 반드시 아래 JSON 형식으로 응답하세요:
 {{"documents": [{{"doc_no": "...", "tag_no": "...", "title": "...", "phase": "phase_1"}}]}}
@@ -298,34 +326,58 @@ def _ensure_standard_documents(documents: list, project_code: str) -> list:
     existing_titles = {d.get("title", "").lower() for d in documents}
 
     standard_docs = [
-        # Phase 1: Pre-Commissioning
-        {"title": "Piping Flushing Test Report", "phase": "phase_1"},
-        {"title": "Hydrostatic Test Report", "phase": "phase_1"},
-        {"title": "Pneumatic Test Report", "phase": "phase_1"},
-        {"title": "Pump Alignment Report", "phase": "phase_1"},
-        {"title": "Equipment Inspection Report", "phase": "phase_1"},
-        {"title": "Instrument Loop Check Report", "phase": "phase_1"},
-        {"title": "Cable Megger Test Report", "phase": "phase_1"},
-        {"title": "Motor Solo Run Report", "phase": "phase_1"},
-        # Phase 2: Commissioning
-        {"title": "Pump Performance Test Report", "phase": "phase_2"},
-        {"title": "Interlock Function Test Report", "phase": "phase_2"},
-        {"title": "Control Valve Calibration Report", "phase": "phase_2"},
-        {"title": "DCS/PLC Functional Test Report", "phase": "phase_2"},
+        # Phase 1: Pre-Commissioning & MC
+        {"title": "Commissioning Execution Plan", "phase": "phase_1"},
+        {"title": "System Definition & Isolation (Marked-up P&IDs)", "phase": "phase_1"},
+        {"title": "Inspection & Testing Plan (per System)", "phase": "phase_1"},
+        {"title": "Equipment List (per System)", "phase": "phase_1"},
+        {"title": "Piping Flushing / Cleaning / Drying Report", "phase": "phase_1"},
+        {"title": "Hydrostatic Pressure Test Report", "phase": "phase_1"},
+        {"title": "Pneumatic / Tightness Test Report", "phase": "phase_1"},
+        {"title": "Instrument Loop Test Report", "phase": "phase_1"},
+        {"title": "Cable Continuity / Megger Test Report", "phase": "phase_1"},
+        {"title": "Equipment Alignment Report", "phase": "phase_1"},
+        {"title": "Motor Solo Run Test Report", "phase": "phase_1"},
+        {"title": "Punch List (Category A/B/C)", "phase": "phase_1"},
+        {"title": "System Completion Manual (per System)", "phase": "phase_1"},
+        {"title": "Integrated Systems Completion Schedule", "phase": "phase_1"},
+        {"title": "P&ID Walk-down Report", "phase": "phase_1"},
+        {"title": "Certificate of Mechanical Completion (MC)", "phase": "phase_1"},
+        {"title": "PSSR (Pre-Start-up Safety Review) Report", "phase": "phase_1"},
+        {"title": "Certificate of RFSU (Ready For Start-Up)", "phase": "phase_1"},
+        # Phase 2: Commissioning & Testing
+        {"title": "Detailed Commissioning Schedule", "phase": "phase_2"},
+        {"title": "Commissioning & Testing Procedures", "phase": "phase_2"},
+        {"title": "Consumables List for Commissioning", "phase": "phase_2"},
+        {"title": "Commissioning Spare Parts & Special Tools List", "phase": "phase_2"},
+        {"title": "Vendor Attendance Schedule", "phase": "phase_2"},
+        {"title": "Emergency Response Plan for Commissioning", "phase": "phase_2"},
+        {"title": "Interface Procedures (Commissioning/Construction/Operation)", "phase": "phase_2"},
+        {"title": "Commissioning Daily Report", "phase": "phase_2"},
+        {"title": "Unit Function Test Report (per Equipment)", "phase": "phase_2"},
         {"title": "Safety Valve Test Report", "phase": "phase_2"},
-        {"title": "Electrical System Test Report", "phase": "phase_2"},
-        # Phase 3: Initial Acceptance
-        {"title": "Provisional Acceptance Certificate", "phase": "phase_3"},
-        {"title": "Punch List", "phase": "phase_3"},
-        {"title": "Performance Test Certificate", "phase": "phase_3"},
-        {"title": "Operating Manual", "phase": "phase_3"},
+        {"title": "DCS/ESD Functional Test Report", "phase": "phase_2"},
+        {"title": "Fire & Gas Detection System Test Report", "phase": "phase_2"},
+        {"title": "Control Valve Calibration Report", "phase": "phase_2"},
+        {"title": "Reliability Run Test (RRT) Report - 30 Days", "phase": "phase_2"},
+        {"title": "Performance Guarantee Test Procedures", "phase": "phase_2"},
+        {"title": "Performance Guarantee Test Report", "phase": "phase_2"},
+        {"title": "Job Card Form / Job Card Item List", "phase": "phase_2"},
+        # Phase 3: Performance & Initial Acceptance
+        {"title": "Certificate of Performance Acceptance", "phase": "phase_3"},
+        {"title": "Punch List Close-out Report", "phase": "phase_3"},
+        {"title": "Job Card Close-out Report", "phase": "phase_3"},
+        {"title": "Operating Manual (incl. Vendor Manuals)", "phase": "phase_3"},
         {"title": "Maintenance Manual", "phase": "phase_3"},
+        {"title": "Training Records & Course Materials", "phase": "phase_3"},
+        {"title": "Recommended Spare Parts List (3 Years)", "phase": "phase_3"},
+        {"title": "As-Built Drawing Package", "phase": "phase_3"},
+        {"title": "Government Permits & Approvals", "phase": "phase_3"},
+        {"title": "Certificate of Initial Acceptance (IA)", "phase": "phase_3"},
         # Phase 4: Final Acceptance
-        {"title": "Final Acceptance Certificate", "phase": "phase_4"},
-        {"title": "As-Built Drawing Package", "phase": "phase_4"},
-        {"title": "Warranty Certificate", "phase": "phase_4"},
-        {"title": "Spare Parts List", "phase": "phase_4"},
-        {"title": "Training Records", "phase": "phase_4"},
+        {"title": "Warranty Obligation Completion Report", "phase": "phase_4"},
+        {"title": "Defect Remedy Report (Warranty Period)", "phase": "phase_4"},
+        {"title": "Certificate of Final Acceptance (FA)", "phase": "phase_4"},
     ]
 
     idx = len(documents) + 1

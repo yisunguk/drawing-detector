@@ -19,10 +19,10 @@ const getRevisionApiUrl = (path) => {
 };
 
 const PHASES = {
-    phase_1: { name: 'Pre-Commissioning', name_ko: '사전 시운전' },
-    phase_2: { name: 'Commissioning', name_ko: '시운전' },
-    phase_3: { name: 'Initial Acceptance', name_ko: '초기 인수' },
-    phase_4: { name: 'Final Acceptance', name_ko: '최종 인수' },
+    phase_1: { name: 'Pre-Commissioning & MC', name_ko: '사전시운전/MC', milestones: ['MC', 'PSSR', 'RFSU'] },
+    phase_2: { name: 'Commissioning & Testing', name_ko: '시운전/시험', milestones: ['FGSO', 'UFT', 'RRT', 'PG Test'] },
+    phase_3: { name: 'Performance & Initial Acceptance', name_ko: '성능인수/초기인수', milestones: ['PA', 'IA', 'COD'] },
+    phase_4: { name: 'Final Acceptance', name_ko: '최종 인수', milestones: ['FA'] },
 };
 
 const STATUS_CONFIG = {
@@ -501,14 +501,20 @@ const RevisionMaster = () => {
                             </div>
                             {Object.entries(PHASES).map(([key, phase]) => {
                                 const pct = getPhaseProgress(key);
+                                const s = projectData?.summary?.[key];
                                 return (
-                                    <div key={key} className="mb-1.5">
+                                    <div key={key} className="mb-2">
                                         <div className="flex justify-between text-xs text-slate-500 mb-0.5">
-                                            <span>{phase.name_ko}</span>
-                                            <span>{pct}%</span>
+                                            <span className="font-medium">{phase.name_ko}</span>
+                                            <span>{pct}% ({s?.approved || 0}/{s?.total || 0})</span>
                                         </div>
                                         <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
                                             <div className="h-full bg-cyan-500 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                                        </div>
+                                        <div className="flex gap-1 mt-0.5 flex-wrap">
+                                            {phase.milestones?.map(ms => (
+                                                <span key={ms} className="text-[10px] bg-slate-200 text-slate-500 px-1 rounded">{ms}</span>
+                                            ))}
                                         </div>
                                     </div>
                                 );
