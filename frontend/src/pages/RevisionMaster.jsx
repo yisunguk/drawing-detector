@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import * as XLSX from 'xlsx';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../firebase';
 
@@ -647,6 +648,37 @@ const RevisionMaster = () => {
 
     const selectedDoc = projectData?.documents?.find(d => d.doc_id === selectedDocId);
 
+    // ── Excel Download ──
+    const handleExcelDownload = () => {
+        if (!filteredDocs.length || !projectData) return;
+        const STATUS_LABEL = { not_started: '미착수', in_progress: '진행중', approved: '승인', cancelled: '취소' };
+        const PHASE_LABEL = { phase_1: 'Phase 1', phase_2: 'Phase 2', phase_3: 'Phase 3', phase_4: 'Phase 4' };
+
+        const rows = filteredDocs.map((d, i) => ({
+            'No': i + 1,
+            '상태': STATUS_LABEL[d.status] || d.status,
+            '문서번호': d.doc_no || '',
+            '태그번호': d.tag_no || '',
+            '제목': d.title || '',
+            'Phase': PHASE_LABEL[d.phase] || d.phase,
+            '최신 리비전': d.latest_revision || '-',
+            '최신 날짜': d.latest_date || '-',
+            '리비전 횟수': d.revisions?.length || 0,
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(rows);
+        // Column widths
+        ws['!cols'] = [
+            { wch: 5 }, { wch: 8 }, { wch: 22 }, { wch: 14 }, { wch: 55 },
+            { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
+        ];
+        const wb = XLSX.utils.book_new();
+        const sheetName = activePhaseTab === 'all' ? '전체' : (PHASES[activePhaseTab]?.name_ko || activePhaseTab);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName.substring(0, 31));
+        const filename = `${projectData.project_code || projectData.project_name || 'Revision'}_${sheetName}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        XLSX.writeFile(wb, filename);
+    };
+
     // ── Phase progress ──
     const getPhaseProgress = (phaseKey) => {
         const s = projectData?.summary?.[phaseKey];
@@ -939,6 +971,11 @@ const RevisionMaster = () => {
                                             </button>
                                         )}
                                     </div>
+                                )}
+                                {selectedProject && filteredDocs.length > 0 && (
+                                    <button onClick={handleExcelDownload} className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition" title="엑셀 다운로드">
+                                        <Download className="w-3.5 h-3.5" /> Excel
+                                    </button>
                                 )}
                                 <span className="text-xs text-slate-400">{filteredDocs.length}건</span>
                             </div>
