@@ -587,39 +587,62 @@ const LessonsLearned = () => {
             : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
     };
 
-    // Convert [문서명] references to clickable markdown links
-    const linkDocReferences = useCallback((text, sources) => {
-        if (!text || !sources?.length) return text;
-        const fnames = sources.map(s => s.file_nm).filter(Boolean);
-        if (!fnames.length) return text;
-        // Match [text] that is NOT already a markdown link [text](url)
-        return text.replace(/\[([^\]]+)\](?!\()/g, (match, inner) => {
-            const found = fnames.find(fn => inner.includes(fn) || fn.includes(inner));
-            if (found) return `[${inner}](docref:${encodeURIComponent(found)})`;
-            return match;
-        });
+    // Recursively scan React children and replace source file_nm occurrences with clickable buttons
+    const linkifyDocNames = useCallback((children, sources) => {
+        if (!sources?.length) return children;
+        const fnames = sources.map(s => s.file_nm).filter(Boolean).sort((a, b) => b.length - a.length);
+        if (!fnames.length) return children;
+
+        // Build one regex matching any source filename (longest first)
+        const escaped = fnames.map(fn => fn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        const re = new RegExp(`(${escaped.join('|')})`, 'g');
+
+        const processNode = (child) => {
+            if (typeof child === 'string') {
+                const parts = child.split(re);
+                if (parts.length === 1) return child;
+                return parts.map((part, idx) => {
+                    const src = sources.find(s => s.file_nm === part);
+                    if (src) {
+                        return (
+                            <button
+                                key={idx}
+                                onClick={(e) => { e.stopPropagation(); setPreviewDoc(src); }}
+                                className="inline text-purple-600 hover:text-purple-800 underline decoration-purple-300 hover:decoration-purple-500 cursor-pointer font-medium transition-colors"
+                                title="클릭하여 문서 보기"
+                            >
+                                {part}
+                            </button>
+                        );
+                    }
+                    return part;
+                });
+            }
+            if (child?.props?.children) {
+                const newChildren = Array.isArray(child.props.children)
+                    ? child.props.children.map(processNode)
+                    : processNode(child.props.children);
+                return { ...child, props: { ...child.props, children: newChildren } };
+            }
+            return child;
+        };
+
+        if (Array.isArray(children)) return children.map(processNode);
+        return processNode(children);
     }, []);
 
     // Build chat markdown components with doc-link support per message
-    const getChatComponents = useCallback((sources) => ({
-        ...baseMarkdownComponents,
-        a: ({ href, children }) => {
-            if (href?.startsWith('docref:')) {
-                const filename = decodeURIComponent(href.replace('docref:', ''));
-                const source = sources?.find(s => s.file_nm === filename);
-                return (
-                    <button
-                        onClick={(e) => { e.preventDefault(); source && setPreviewDoc(source); }}
-                        className="inline text-purple-600 hover:text-purple-800 underline decoration-purple-300 hover:decoration-purple-500 cursor-pointer font-medium transition-colors"
-                        title={`문서 보기: ${filename}`}
-                    >
-                        {children}
-                    </button>
-                );
-            }
-            return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{children}</a>;
-        },
-    }), []);
+    const getChatComponents = useCallback((sources) => {
+        const wrap = (Tag, baseClass) => ({ node, children, ...props }) => (
+            <Tag className={baseClass} {...props}>{linkifyDocNames(children, sources)}</Tag>
+        );
+        return {
+            ...baseMarkdownComponents,
+            p: wrap('p', 'mb-2 last:mb-0 leading-relaxed'),
+            td: wrap('td', 'border border-gray-300 px-3 py-2'),
+            li: wrap('li', 'leading-relaxed'),
+        };
+    }, [linkifyDocNames, baseMarkdownComponents]);
 
     // =============================================
     // RENDER
@@ -1015,7 +1038,7 @@ const LessonsLearned = () => {
                                     }`}>
                                         {msg.role === 'assistant' ? (
                                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={getChatComponents(msg.sources)}>
-                                                {linkDocReferences(msg.content, msg.sources)}
+                                                {msg.content}
                                             </ReactMarkdown>
                                         ) : (
                                             <p className="whitespace-pre-wrap">{msg.content}</p>
