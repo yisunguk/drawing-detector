@@ -57,6 +57,7 @@ const RevisionMaster = () => {
     // === Center Panel State ===
     const [activePhaseTab, setActivePhaseTab] = useState(saved.activePhaseTab || 'all');
     const [selectedDocId, setSelectedDocId] = useState(saved.selectedDocId || null);
+    const [tableFilter, setTableFilter] = useState('');
     const [searchMode, setSearchMode] = useState(false);
     const [mode, setMode] = useState(saved.mode || 'search');
     const [query, setQuery] = useState('');
@@ -414,9 +415,18 @@ const RevisionMaster = () => {
     }, [chatMessages]);
 
     // ── Filtered documents ──
-    const filteredDocs = projectData?.documents?.filter(d =>
-        activePhaseTab === 'all' || d.phase === activePhaseTab
-    ) || [];
+    const filteredDocs = projectData?.documents?.filter(d => {
+        if (activePhaseTab !== 'all' && d.phase !== activePhaseTab) return false;
+        if (tableFilter.trim()) {
+            const q = tableFilter.trim().toLowerCase();
+            return (d.doc_no || '').toLowerCase().includes(q)
+                || (d.tag_no || '').toLowerCase().includes(q)
+                || (d.title || '').toLowerCase().includes(q)
+                || (d.status || '').toLowerCase().includes(q)
+                || (d.latest_revision || '').toLowerCase().includes(q);
+        }
+        return true;
+    }) || [];
 
     const selectedDoc = projectData?.documents?.find(d => d.doc_id === selectedDocId);
 
@@ -696,6 +706,23 @@ const RevisionMaster = () => {
                                     </>
                                 )}
                                 <div className="flex-1" />
+                                {selectedProject && (
+                                    <div className="relative">
+                                        <SearchIcon className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <input
+                                            type="text"
+                                            value={tableFilter}
+                                            onChange={e => setTableFilter(e.target.value)}
+                                            placeholder="문서 검색..."
+                                            className="w-48 pl-8 pr-7 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white"
+                                        />
+                                        {tableFilter && (
+                                            <button onClick={() => setTableFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                                 <span className="text-xs text-slate-400">{filteredDocs.length}건</span>
                             </div>
 
