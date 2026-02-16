@@ -284,8 +284,8 @@ async def _handle_search(request: SearchRequest, username: str) -> SearchRespons
         has_kw_in_name = any(kw in file_nm_lower for kw in kws_lower) if kws_lower else False
         has_kw_in_content = any(kw in content_lower for kw in kws_lower) if kws_lower else False
 
-        # Keep results with meaningful score OR keyword match
-        if score > 0.005 or has_kw_in_name or has_kw_in_content:
+        # Only keep results where keyword actually appears in file_nm or content
+        if has_kw_in_name or has_kw_in_content:
             bonus = (100 if has_kw_in_name else 0) + (50 if has_kw_in_content else 0)
             r["_rank"] = score + bonus
             filtered.append(r)
