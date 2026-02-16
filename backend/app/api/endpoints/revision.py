@@ -1465,6 +1465,119 @@ async def delete_project(
     return {"status": "success", "deleted_blobs": deleted_count}
 
 
+# ── Reindex Project ──
+
+@router.post("/reindex-project/{project_id}")
+async def reindex_project(
+    project_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Re-index all revisions in a project with page-level DI + embedding.
+    - Deletes old search index entries
+    - For each revision with blob_path: DI page-level → save page JSONs → index
+    - Updates project.json with di_folder_path / total_pages
+    """
+    username = _get_username(authorization)
+    container = _get_container()
+
+    json_path = f"{username}/revision/{project_id}/project.json"
+    project = _load_project_json(container, json_path)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project_name = project.get("project_name", "")
+    print(f"[Revision] Reindex project '{project_name}' ({project_id}) started", flush=True)
+
+    # Step 1: Delete all existing index entries
+    try:
+        deleted = revision_search_service.delete_by_project(project_id)
+        print(f"[Revision] Cleared {deleted} old index entries", flush=True)
+    except Exception as e:
+        print(f"[Revision] Index cleanup failed: {e}", flush=True)
+
+    # Step 2: Process each revision
+    total_revisions = 0
+    success_count = 0
+    error_count = 0
+    total_pages_indexed = 0
+
+    for doc in project.get("documents", []):
+        for rev in doc.get("revisions", []):
+            blob_path = rev.get("blob_path", "")
+            if not blob_path:
+                continue
+
+            total_revisions += 1
+            revision = rev.get("revision", "")
+            doc_title = doc.get("title", "")[:40]
+            print(f"[Revision] Reindexing [{total_revisions}] {doc.get('doc_no', '')} {revision} - {doc_title}", flush=True)
+
+            try:
+                # DI page-level extraction
+                di_pages = await _extract_pages_with_di(blob_path)
+                total_pages = len(di_pages)
+                full_text = "\n\n".join([p.get("content", "") for p in di_pages])
+
+                # Save page-level JSONs
+                di_folder_path = f"{username}/revision/{project_id}/docs/{doc['doc_id']}/{revision}_di/"
+                _save_page_jsons(container, di_folder_path, di_pages, {
+                    "doc_id": doc["doc_id"],
+                    "doc_no": doc.get("doc_no", ""),
+                    "title": doc.get("title", ""),
+                }, revision)
+
+                # Index pages
+                phase_name = PHASES.get(doc.get("phase", ""), {}).get("name", "")
+                pages_for_index = [
+                    {"page_number": p.get("page_number", i + 1), "content": p.get("content", "")}
+                    for i, p in enumerate(di_pages)
+                ]
+                metadata = {
+                    "project_id": project_id,
+                    "project_name": project_name,
+                    "doc_id": doc["doc_id"],
+                    "doc_no": doc.get("doc_no", ""),
+                    "tag_no": doc.get("tag_no", ""),
+                    "title": doc.get("title", ""),
+                    "phase": doc.get("phase", ""),
+                    "phase_name": phase_name,
+                    "revision": revision,
+                    "engineer_name": rev.get("engineer_name", ""),
+                    "revision_date": rev.get("date", ""),
+                    "change_description": rev.get("change_description", ""),
+                    "blob_path": blob_path,
+                    "username": username,
+                }
+                indexed = revision_search_service.index_revision_pages(pages_for_index, metadata)
+                total_pages_indexed += indexed
+
+                # Update revision entry in project.json
+                rev["di_folder_path"] = di_folder_path
+                rev["total_pages"] = total_pages
+                rev["text_length"] = len(full_text)
+
+                success_count += 1
+                print(f"[Revision] ✓ {doc.get('doc_no', '')} {revision}: {total_pages} pages indexed", flush=True)
+
+            except Exception as e:
+                error_count += 1
+                print(f"[Revision] ✗ {doc.get('doc_no', '')} {revision} failed: {e}", flush=True)
+
+    # Save updated project.json
+    _save_project_json(container, json_path, project)
+
+    result = {
+        "status": "success",
+        "project_id": project_id,
+        "total_revisions": total_revisions,
+        "success": success_count,
+        "errors": error_count,
+        "total_pages_indexed": total_pages_indexed,
+    }
+    print(f"[Revision] Reindex complete: {result}", flush=True)
+    return result
+
+
 # ── Search ──
 
 @router.post("/search")

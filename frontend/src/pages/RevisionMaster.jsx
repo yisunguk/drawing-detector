@@ -200,6 +200,8 @@ const RevisionMaster = () => {
     const [showReanalyze, setShowReanalyze] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState('');
+    const [isReindexing, setIsReindexing] = useState(false);
+    const [reindexResult, setReindexResult] = useState(null);
 
     // === Layout ===
     const [leftWidth, setLeftWidth] = useState(saved.leftWidth || 280);
@@ -581,6 +583,28 @@ const RevisionMaster = () => {
         }
     };
 
+    // ── Reindex Project ──
+    const handleReindexProject = async () => {
+        if (!selectedProject) return;
+        const revCount = projectData?.documents?.reduce((acc, d) => acc + (d.revisions?.length || 0), 0) || 0;
+        if (!revCount) { alert('등록된 리비전이 없습니다.'); return; }
+        if (!window.confirm(`이 프로젝트의 리비전 ${revCount}건을 모두 재처리합니다.\nDI 분석 + 임베딩 + 인덱싱이 실행되며 시간이 걸릴 수 있습니다.\n\n진행하시겠습니까?`)) return;
+        setIsReindexing(true);
+        setReindexResult(null);
+        try {
+            const headers = await getAuthHeaders();
+            const res = await fetch(getRevisionApiUrl(`reindex-project/${selectedProject}`), { method: 'POST', headers });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Reindex failed');
+            setReindexResult(data);
+            loadProjectDetail(selectedProject);
+        } catch (err) {
+            alert('리인덱싱 실패: ' + err.message);
+        } finally {
+            setIsReindexing(false);
+        }
+    };
+
     // ── Search / Chat ──
     const handleSearch = async () => {
         if (!query.trim()) return;
@@ -746,7 +770,7 @@ const RevisionMaster = () => {
                                 <Plus className="w-4 h-4" />
                             </button>
                         </div>
-                        {selectedProject && (
+                        {selectedProject && (<>
                             <div className="flex gap-1 flex-wrap">
                                 <button onClick={() => loadProjectDetail(selectedProject)} className="text-xs text-cyan-600 hover:text-cyan-800 flex items-center gap-1">
                                     <RefreshCcw className="w-3 h-3" /> 새로고침
@@ -759,8 +783,21 @@ const RevisionMaster = () => {
                                 <button onClick={handleDeleteProject} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
                                     <Trash2 className="w-3 h-3" /> 삭제
                                 </button>
+                                <span className="text-slate-300 mx-0.5">|</span>
+                                <button onClick={handleReindexProject} disabled={isReindexing}
+                                    className="text-xs text-orange-600 hover:text-orange-800 disabled:opacity-50 flex items-center gap-1">
+                                    {isReindexing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
+                                    {isReindexing ? '리인덱싱 중...' : '리인덱싱'}
+                                </button>
                             </div>
-                        )}
+                            {reindexResult && (
+                                <div className="mt-1 px-2 py-1.5 bg-green-50 rounded-lg text-xs text-green-700 flex items-center gap-2">
+                                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                    <span>리인덱싱 완료: {reindexResult.success}/{reindexResult.total_revisions}건 성공, {reindexResult.total_pages_indexed}페이지 인덱싱</span>
+                                    <button onClick={() => setReindexResult(null)} className="ml-auto"><X className="w-3 h-3" /></button>
+                                </div>
+                            )}
+                        </>)}
                     </div>
 
                     {/* Phase Tree */}
