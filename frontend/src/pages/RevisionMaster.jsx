@@ -237,6 +237,43 @@ const RevisionMaster = () => {
     };
 
     // ── Register Revision ──
+    // ── Auto-analyze revision file ──
+    const [revFormData, setRevFormData] = useState({ revision: '', change_description: '' });
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+    const handleRevFileChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file || !selectedProject || !selectedDocId) return;
+
+        setIsAnalyzing(true);
+        setUploadProgress('파일 분석 중... (AI가 리비전 정보를 추출합니다)');
+        try {
+            const headers = await getAuthHeaders();
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('project_id', selectedProject);
+            formData.append('doc_id', selectedDocId);
+
+            const res = await fetch(getRevisionApiUrl('analyze-revision-file'), {
+                method: 'POST', headers, body: formData,
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Analysis failed');
+
+            setRevFormData({
+                revision: data.suggested_revision || '',
+                change_description: data.suggested_description || '',
+            });
+            setUploadProgress(data.detected_from_document
+                ? '문서에서 리비전 정보를 자동 추출했습니다'
+                : '리비전 번호를 자동 제안했습니다');
+        } catch (err) {
+            setUploadProgress(`분석 실패 (수동 입력 가능): ${err.message}`);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
     const handleRegisterRevision = async (e) => {
         e.preventDefault();
         const form = e.target;
@@ -695,7 +732,7 @@ const RevisionMaster = () => {
                                         </button>
                                         {selectedDocId && (
                                             <>
-                                                <button onClick={() => { setShowRegisterRev(true); setUploadProgress(''); }} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition">
+                                                <button onClick={() => { setShowRegisterRev(true); setUploadProgress(''); setRevFormData({ revision: '', change_description: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition">
                                                     <Upload className="w-3.5 h-3.5" /> 리비전 등록
                                                 </button>
                                                 <button onClick={() => setShowEditDoc(true)} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-100 transition">
@@ -925,7 +962,7 @@ const RevisionMaster = () => {
                             <div className="flex-1 overflow-y-auto p-4">
                                 <div className="flex items-center justify-between mb-3">
                                     <h4 className="text-sm font-semibold text-slate-700">리비전 이력</h4>
-                                    <button onClick={() => { setShowRegisterRev(true); setUploadProgress(''); }} className="text-xs text-cyan-600 hover:text-cyan-800 flex items-center gap-1">
+                                    <button onClick={() => { setShowRegisterRev(true); setUploadProgress(''); setRevFormData({ revision: '', change_description: '' }); }} className="text-xs text-cyan-600 hover:text-cyan-800 flex items-center gap-1">
                                         <Plus className="w-3 h-3" /> 등록
                                     </button>
                                 </div>
@@ -976,7 +1013,7 @@ const RevisionMaster = () => {
                                     <div className="text-center text-slate-400 py-8">
                                         <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                                         <p className="text-sm">등록된 리비전이 없습니다</p>
-                                        <button onClick={() => { setShowRegisterRev(true); setUploadProgress(''); }} className="mt-3 text-sm text-cyan-600 hover:text-cyan-800">
+                                        <button onClick={() => { setShowRegisterRev(true); setUploadProgress(''); setRevFormData({ revision: '', change_description: '' }); }} className="mt-3 text-sm text-cyan-600 hover:text-cyan-800">
                                             첫 리비전 등록하기
                                         </button>
                                     </div>
@@ -1080,31 +1117,49 @@ const RevisionMaster = () => {
                             <button onClick={() => { setShowRegisterRev(false); setUploadProgress(''); }} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
                         </div>
                         <form onSubmit={handleRegisterRevision} className="p-5 space-y-4">
+                            {/* Step 1: File first */}
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">리비전 번호 *</label>
-                                <input name="revision" required placeholder="예: Rev.A, Rev.0, Rev.1" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                                <label className="block text-sm font-medium text-slate-700 mb-1">1. 파일 선택 (PDF) *</label>
+                                <input ref={revFileRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx" required
+                                    onChange={handleRevFileChange}
+                                    className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-cyan-50 file:text-cyan-700 file:font-medium file:cursor-pointer" />
+                                <p className="text-xs text-slate-400 mt-1">파일을 선택하면 AI가 리비전 번호와 변경내용을 자동 추출합니다</p>
+                            </div>
+                            {/* Analysis progress */}
+                            {isAnalyzing && (
+                                <div className="flex items-center gap-2 text-sm p-3 bg-blue-50 rounded-lg text-blue-600">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    <span>AI가 문서를 분석 중입니다...</span>
+                                </div>
+                            )}
+                            {/* Step 2: Auto-filled fields */}
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">2. 리비전 번호 *</label>
+                                <input name="revision" required placeholder="예: Rev.A, Rev.0, Rev.1"
+                                    value={revFormData.revision}
+                                    onChange={e => setRevFormData(p => ({ ...p, revision: e.target.value }))}
+                                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
                                 <p className="text-xs text-slate-400 mt-1">Rev.A = 초안 | Rev.0 = 정식 승인 | Rev.1+ = 수정</p>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">변경 내용</label>
-                                <textarea name="change_description" rows={2} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" placeholder="변경 사유 또는 설명" />
+                                <label className="block text-sm font-medium text-slate-700 mb-1">3. 변경 내용</label>
+                                <textarea name="change_description" rows={2} placeholder="변경 사유 또는 설명"
+                                    value={revFormData.change_description}
+                                    onChange={e => setRevFormData(p => ({ ...p, change_description: e.target.value }))}
+                                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">담당자</label>
                                 <input name="engineer_name" defaultValue={username} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">파일 (PDF) *</label>
-                                <input ref={revFileRef} type="file" accept=".pdf,.doc,.docx,.xls,.xlsx" required className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-cyan-50 file:text-cyan-700 file:font-medium file:cursor-pointer" />
-                            </div>
-                            {uploadProgress && (
-                                <div className="flex items-center gap-2 text-sm">
-                                    {isUploading && <Loader2 className="w-4 h-4 animate-spin text-cyan-600" />}
-                                    <span className={isUploading ? 'text-cyan-600' : uploadProgress.startsWith('오류') ? 'text-red-600' : 'text-green-600'}>{uploadProgress}</span>
+                            {uploadProgress && !isAnalyzing && (
+                                <div className={`flex items-center gap-2 text-sm p-3 rounded-lg ${uploadProgress.includes('오류') || uploadProgress.includes('실패') ? 'bg-red-50 text-red-600' : uploadProgress.includes('완료') || uploadProgress.includes('추출') || uploadProgress.includes('제안') ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                                    {isUploading && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    <span>{uploadProgress}</span>
                                 </div>
                             )}
-                            <button type="submit" disabled={isUploading} className="w-full py-2.5 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 disabled:opacity-50 transition">
-                                {isUploading ? '처리 중...' : '리비전 등록'}
+                            <button type="submit" disabled={isUploading || isAnalyzing} className="w-full py-2.5 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 disabled:opacity-50 transition">
+                                {isUploading ? '등록 중...' : isAnalyzing ? '분석 중...' : '리비전 등록'}
                             </button>
                         </form>
                     </div>

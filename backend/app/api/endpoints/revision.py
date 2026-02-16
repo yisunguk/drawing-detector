@@ -646,6 +646,146 @@ async def get_project(
     return project
 
 
+# ── Analyze Revision File (auto-detect revision & change description) ──
+
+@router.post("/analyze-revision-file")
+async def analyze_revision_file(
+    file: UploadFile = File(...),
+    project_id: str = Form(...),
+    doc_id: str = Form(...),
+    authorization: Optional[str] = Header(None)
+):
+    """Upload file → DI extract → GPT analyze → suggest revision number & change description."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    # Load project and find document
+    json_path = f"{username}/revision/{project_id}/project.json"
+    project = _load_project_json(container, json_path)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    doc = None
+    for d in project.get("documents", []):
+        if d["doc_id"] == doc_id:
+            doc = d
+            break
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    print(f"[Revision] Analyzing revision file for doc '{doc.get('title')}'", flush=True)
+
+    # Save file temporarily to blob for DI analysis
+    file_content = await file.read()
+    filename = file.filename or "document.pdf"
+    temp_blob_path = f"{username}/revision/{project_id}/docs/{doc_id}/temp_{filename}"
+    container.upload_blob(name=temp_blob_path, data=file_content, overwrite=True)
+
+    # Azure DI text extraction
+    extracted_text = ""
+    try:
+        from app.services.azure_di import azure_di_service
+        from app.services.blob_storage import generate_sas_url
+        file_url = generate_sas_url(temp_blob_path)
+        di_result = azure_di_service.analyze_document_from_url(file_url)
+        extracted_text = "\n\n".join([p.get("content", "") for p in di_result])
+        print(f"[Revision] DI extracted {len(extracted_text)} chars for analysis", flush=True)
+    except Exception as e:
+        print(f"[Revision] DI extraction failed: {e}", flush=True)
+        # Clean up temp file
+        try:
+            container.delete_blob(temp_blob_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Document analysis failed: {e}")
+
+    # Clean up temp blob
+    try:
+        container.delete_blob(temp_blob_path)
+    except Exception:
+        pass
+
+    # Determine next revision number from existing history
+    existing_revs = [r.get("revision", "") for r in doc.get("revisions", [])]
+    suggested_revision = _suggest_next_revision(existing_revs)
+
+    # Get previous revision's content summary for comparison
+    prev_summary = ""
+    if existing_revs:
+        last_rev = doc["revisions"][-1]
+        prev_desc = last_rev.get("change_description", "")
+        prev_rev = last_rev.get("revision", "")
+        prev_summary = f"이전 리비전: {prev_rev}, 변경내용: {prev_desc}" if prev_desc else f"이전 리비전: {prev_rev}"
+
+    # GPT: Analyze document and generate change description
+    suggested_description = ""
+    detected_revision = ""
+    try:
+        if _openai_client and extracted_text:
+            doc_text = extracted_text[:30000] if len(extracted_text) > 30000 else extracted_text
+            gpt_prompt = f"""당신은 EPC 프로젝트 준공도서 리비전 관리 전문가입니다.
+아래 문서를 분석하여 리비전 정보를 추출하세요.
+
+문서 제목: {doc.get('title', '')}
+문서번호: {doc.get('doc_no', '')}
+{prev_summary}
+
+분석할 내용:
+1. 문서에서 리비전 번호를 찾으세요 (예: Rev.A, Rev.0, Rev.1, Revision A 등)
+2. 문서의 핵심 내용을 1-2문장으로 요약하세요
+3. 이전 리비전이 있는 경우, 주요 변경사항을 추론하세요
+
+반드시 아래 JSON 형식으로 응답하세요:
+{{"detected_revision": "문서에서 발견한 리비전 번호 (없으면 빈 문자열)", "description": "문서 내용 요약 또는 변경사항 (한국어, 1-2문장)"}}
+
+문서 내용:
+{doc_text}"""
+
+            response = _openai_client.chat.completions.create(
+                model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
+                messages=[{"role": "user", "content": gpt_prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.2,
+            )
+            result = json.loads(response.choices[0].message.content)
+            detected_revision = result.get("detected_revision", "")
+            suggested_description = result.get("description", "")
+            print(f"[Revision] GPT detected rev='{detected_revision}', desc='{suggested_description[:50]}'", flush=True)
+    except Exception as e:
+        print(f"[Revision] GPT analysis failed: {e}", flush=True)
+
+    # Use detected revision if available, otherwise use calculated suggestion
+    final_revision = detected_revision if detected_revision else suggested_revision
+
+    return {
+        "suggested_revision": final_revision,
+        "suggested_description": suggested_description,
+        "detected_from_document": bool(detected_revision),
+        "extracted_text_length": len(extracted_text),
+    }
+
+
+def _suggest_next_revision(existing_revs: list) -> str:
+    """Suggest next revision number based on existing revision history."""
+    if not existing_revs:
+        return "Rev.A"
+
+    last = existing_revs[-1].upper().replace("REV.", "").replace("REV ", "").strip()
+
+    # If last was a letter (A, B, C...) → suggest next letter or Rev.0
+    if len(last) == 1 and last.isalpha() and last in "ABCDEFGHIJKLMNOPQRSTUVWXY":
+        # If it's a late draft letter, suggest Rev.0 (formal issue)
+        if last >= "B":
+            return "Rev.0"
+        return f"Rev.{chr(ord(last) + 1)}"
+
+    # If last was a number → suggest next number
+    if last.isdigit():
+        return f"Rev.{int(last) + 1}"
+
+    return "Rev.A"
+
+
 # ── Register Revision ──
 
 @router.post("/register-revision")
