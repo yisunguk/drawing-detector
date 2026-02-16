@@ -689,13 +689,21 @@ const LessonsLearned = () => {
         if (!fnames.length) return text;
 
         let result = text;
-        for (const fn of fnames) {
-            const escapedRe = fn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const safeFn = fn.replace(/_/g, '\\_');
-            const href = `docref:${encodeURIComponent(fn)}`;
-            const mdLink = `[${safeFn}](${href})`;
+        // Sort by length descending to match longer filenames first
+        const indexed = fnames.map((fn, i) => ({ fn, i })).sort((a, b) => b.fn.length - a.fn.length);
 
-            // 1) Replace [filename] (bracketed references) — remove outer []
+        for (const { fn, i } of indexed) {
+            const escapedRe = fn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // Truncate display name: max 30 chars
+            const ext = fn.lastIndexOf('.') > 0 ? fn.slice(fn.lastIndexOf('.')) : '';
+            const base = fn.lastIndexOf('.') > 0 ? fn.slice(0, fn.lastIndexOf('.')) : fn;
+            const displayName = base.length > 28 ? base.slice(0, 28) + '..' + ext : fn;
+            // Safe display: escape underscores for markdown
+            const safeDisplay = displayName.replace(/_/g, '\\_');
+            // Use numeric index as href — no special chars to break markdown
+            const mdLink = `[${safeDisplay}](docref:${i})`;
+
+            // 1) Replace [filename] (bracketed references)
             result = result.replace(new RegExp(`\\[${escapedRe}\\](?!\\()`, 'g'), mdLink);
             // 2) Replace standalone filename not already inside a link
             result = result.replace(new RegExp(`(?<!\\[)(?<!\\]\\()${escapedRe}(?!\\])(?!\\))`, 'g'), mdLink);
@@ -703,19 +711,19 @@ const LessonsLearned = () => {
         return result;
     }, []);
 
-    // Chat markdown components with docref: link handler
+    // Chat markdown components with docref: link handler → opens right sidebar viewer
     const getChatComponents = useCallback((sources) => ({
         ...baseMarkdownComponents,
         a: ({ href, children }) => {
             if (href?.startsWith('docref:')) {
-                const filename = decodeURIComponent(href.replace('docref:', ''));
-                const source = sources?.find(s => s.file_nm === filename);
+                const idx = parseInt(href.replace('docref:', ''), 10);
+                const source = sources?.[idx];
                 if (source) {
                     return (
                         <button
                             onClick={(e) => { e.stopPropagation(); setPreviewDoc(source); }}
                             className="inline text-purple-600 hover:text-purple-800 underline decoration-purple-300 hover:decoration-purple-500 cursor-pointer font-medium transition-colors"
-                            title="클릭하여 문서 보기"
+                            title={source.file_nm}
                         >
                             {children}
                         </button>

@@ -540,11 +540,34 @@ class LessonsSearchService:
             logger.error(f"Search failed: {e}")
             return []
 
+    @staticmethod
+    def _extract_filename_keywords(query: str) -> str:
+        """Extract meaningful keywords from a query for filename matching.
+
+        Strips Korean particles/postpositions and common question words
+        so that '정산명세서의 내용을 알려 주세요' → '정산명세서 내용'.
+        """
+        particles = r'(의|을|를|은|는|이|가|에|로|에서|으로|에게|와|과|도|만|부터|까지|해서|인|처럼|같이|대해|대한|위해|관한|관련|따른|된|되는|하는|한|할)$'
+        stop_words = {'알려', '해줘', '해주', '주세요', '찾아', '보여', '설명', '어떤', '무엇',
+                       '어디', '언제', '뭐', '좀', '것', '수', '거', '줘', '해', '주세요',
+                       '있는', '없는', '합니다', '하세요', '입니다', '알려주세요', '내용'}
+        words = query.split()
+        keywords = []
+        for w in words:
+            cleaned = re.sub(particles, '', w)
+            if len(cleaned) >= 2 and cleaned not in stop_words:
+                keywords.append(cleaned)
+        return ' '.join(keywords) if keywords else query
+
     def search_by_filename(self, query: str, category: Optional[str] = None,
                            source_file: Optional[str] = None, top: int = 5) -> List[Dict]:
         """Search documents specifically by file_nm field to catch filename matches."""
         if not self.client:
             return []
+
+        # Extract clean keywords for filename matching
+        search_text = self._extract_filename_keywords(query)
+        logger.info(f"Filename search: query='{query}' → keywords='{search_text}'")
 
         filters = []
         if category:
@@ -558,7 +581,7 @@ class LessonsSearchService:
         try:
             select_fields = "doc_id,file_nm,mclass,dclass,category,content,pjt_nm,pjt_cd,creator_name,reg_date,username,source_file,file_path"
             results = self.client.search(
-                search_text=query,
+                search_text=search_text,
                 search_fields=["file_nm"],
                 filter=filter_str,
                 top=top,
