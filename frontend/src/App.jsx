@@ -53,6 +53,7 @@ import LandingPage from './pages/LandingPage';
 import KnowhowDB from './pages/KnowhowDB';
 import LineList from './pages/LineList';
 import LessonsLearned from './pages/LessonsLearned';
+import RevisionMaster from './pages/RevisionMaster';
 
 const App = () => {
     return (
@@ -118,6 +119,15 @@ const App = () => {
                             element={
                                 <PrivateRoute>
                                     <LessonsLearned />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* Revision Master */}
+                        <Route
+                            path="/revision-master"
+                            element={
+                                <PrivateRoute>
+                                    <RevisionMaster />
                                 </PrivateRoute>
                             }
                         />

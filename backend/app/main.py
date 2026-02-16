@@ -104,6 +104,13 @@ try:
 except Exception as e:
     print(f"Error loading lessons module: {e}")
 
+# Enable Revision Master Router
+try:
+    from app.api.endpoints import revision
+    app.include_router(revision.router, prefix=f"{settings.API_V1_STR}/revision", tags=["revision"])
+except Exception as e:
+    print(f"Error loading revision module: {e}")
+
 # Mount uploads directory to serve static files if it exists
 uploads_dir = Path("uploads")
 if not uploads_dir.exists():
