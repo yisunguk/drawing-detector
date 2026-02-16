@@ -144,43 +144,137 @@ const LessonsLearned = () => {
         const lines = text.split('\n');
         let html = '';
         let bulletBuf = [];
+        let codeBuf = [];
+        let numListBuf = [];
+        let tableBuf = [];
+
+        // SQL/code detection
+        const sqlStartRe = /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH|DECLARE|EXEC|SET\s|BEGIN|USE\s|GRANT|REVOKE|MERGE|TRUNCATE|GO\b|IF\s|PRINT\s|RETURN\b)\b/i;
+        const sqlContRe = /^\s*(FROM|WHERE|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|FULL|GROUP\s+BY|ORDER\s+BY|HAVING|UNION|AND|OR|ON|AS|INTO|VALUES|SET|WHEN|THEN|ELSE|END|CASE|LIMIT|OFFSET|TOP|DISTINCT|BETWEEN|LIKE|IN\s*\(|NOT|EXISTS|NULL|IS\s|OVER\s*\(|PARTITION|FETCH|PIVOT)\b/i;
+        const isSqlStart = (line) => sqlStartRe.test(line);
+        const isSqlContinue = (line) => {
+            const t = line.trim();
+            return sqlContRe.test(t) || /^\s{2,}\S/.test(line) || /[,;(]$/.test(t) || /^\)/.test(t) || /^--/.test(t) || t === '';
+        };
+
+        // Table detection: 3+ tab-separated columns or 3+ pipe-separated columns
+        const isTableLine = (line) => {
+            const t = line.trim();
+            return (t.split('\t').length >= 3) || (/\|/.test(t) && t.split('|').filter(c => c.trim()).length >= 2);
+        };
 
         const flushBullets = () => {
-            if (bulletBuf.length === 0) return;
+            if (!bulletBuf.length) return;
             html += '<ul class="rpt-list">' + bulletBuf.map(b => `<li>${esc(b)}</li>`).join('') + '</ul>';
             bulletBuf = [];
         };
+        const flushCode = () => {
+            if (!codeBuf.length) return;
+            // Remove trailing blank lines
+            while (codeBuf.length && !codeBuf[codeBuf.length - 1].trim()) codeBuf.pop();
+            html += `<pre class="rpt-code"><code>${codeBuf.map(l => esc(l)).join('\n')}</code></pre>`;
+            codeBuf = [];
+        };
+        const flushNumList = () => {
+            if (!numListBuf.length) return;
+            html += '<ol class="rpt-numlist">' + numListBuf.map(item => `<li>${esc(item)}</li>`).join('') + '</ol>';
+            numListBuf = [];
+        };
+        const flushTable = () => {
+            if (!tableBuf.length) return;
+            const delim = tableBuf[0].includes('\t') ? '\t' : '|';
+            const rows = tableBuf.map(line => {
+                let cells = line.split(delim).map(c => c.trim());
+                if (delim === '|') cells = cells.filter(c => c !== ''); // strip empty edge cells from |col|col|
+                return cells;
+            });
+            html += '<div class="rpt-table-wrap"><table class="rpt-table">';
+            rows.forEach((row, i) => {
+                const tag = i === 0 ? 'th' : 'td';
+                html += '<tr>' + row.map(cell => `<${tag}>${esc(cell)}</${tag}>`).join('') + '</tr>';
+            });
+            html += '</table></div>';
+            tableBuf = [];
+        };
+        const flushAll = () => { flushBullets(); flushCode(); flushNumList(); flushTable(); };
 
-        for (const line of lines) {
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
             const t = line.trim();
 
-            // Empty line → spacer
-            if (!t) { flushBullets(); html += '<div class="h-2"></div>'; continue; }
+            // Empty line → spacer (but keep blank lines inside code blocks)
+            if (!t) {
+                if (codeBuf.length > 0) { codeBuf.push(''); continue; }
+                flushAll();
+                html += '<div class="h-2"></div>';
+                continue;
+            }
 
             // ..SHEET:N marker → section header
             const sheetMatch = t.match(/^\.\.SHEET:(\d+)/);
             if (sheetMatch) {
-                flushBullets();
-                html += `<div style="font-size:13px;font-weight:700;color:#6d28d9;background:#f5f3ff;padding:6px 12px;margin:12px 0 6px;border-left:3px solid #7c3aed;border-radius:0 6px 6px 0;">SHEET ${esc(sheetMatch[1])}</div>`;
+                flushAll();
+                html += `<div class="rpt-sheet">SHEET ${esc(sheetMatch[1])}</div>`;
                 continue;
             }
 
+            // SQL/Code block detection
+            if (isSqlStart(t)) {
+                flushBullets(); flushNumList(); flushTable();
+                codeBuf.push(line);
+                continue;
+            }
+            if (codeBuf.length > 0 && isSqlContinue(line)) {
+                codeBuf.push(line);
+                continue;
+            }
+            flushCode();
+
+            // Table detection
+            if (isTableLine(t)) {
+                flushBullets(); flushNumList();
+                tableBuf.push(t);
+                continue;
+            }
+            flushTable();
+
             // Bullet line
             if (/^[-·•●]\s/.test(t)) {
+                flushNumList();
                 bulletBuf.push(t.replace(/^[-·•●]\s*/, ''));
                 continue;
             }
             flushBullets();
 
-            // Section-like header (short uppercase or Korean section title)
-            if (/^(PART\s*[IⅠⅡ]+|부적합\s?내용|조치\s?내용|조치\s?결과|재발\s?방지|시정\s?조치|원인\s?분석|첨부\s?파일|NCR\s*(REPORT|내용))/i.test(t)) {
+            // Numbered list: 1. / 1) / (1)
+            const numMatch = t.match(/^(?:(\d+)[.)]\s+|\((\d+)\)\s+)(.+)/);
+            if (numMatch) {
+                numListBuf.push(numMatch[3]);
+                continue;
+            }
+            flushNumList();
+
+            // Section-like header (Korean NCR sections + generic)
+            if (/^(PART\s*[IⅠⅡⅢⅣⅤVvi]+|부적합\s?내용|조치\s?내용|조치\s?결과|재발\s?방지|시정\s?조치|원인\s?분석|첨부\s?파일|NCR\s*(REPORT|내용)|개요|목적|범위|적용\s?범위|참고\s?사항|비고|결론|요약|배경|절차|방법|내용|결과|조건|기준|특이\s?사항)/i.test(t)) {
                 html += `<div class="rpt-section">${esc(t)}</div>`;
                 continue;
             }
 
-            // Key: Value pattern
-            const kvMatch = t.match(/^(NCR\s*번호|제\s*목|발\s*행\s*자|조치\s*담당자|작성일자|공종분류)\s*[:：]\s*(.+)/);
-            if (kvMatch) {
+            // Generic section header: short line ending with :/：
+            if ((t.endsWith(':') || t.endsWith('：')) && t.length <= 50 && !/^(https?|ftp):/.test(t)) {
+                html += `<div class="rpt-section">${esc(t)}</div>`;
+                continue;
+            }
+
+            // All-caps English header (4+ chars, no lowercase)
+            if (/^[A-Z][A-Z\s_\-/]{3,}$/.test(t) && t.length <= 60) {
+                html += `<div class="rpt-section">${esc(t)}</div>`;
+                continue;
+            }
+
+            // Key: Value pattern (generic — key up to 30 chars, not a URL)
+            const kvMatch = t.match(/^([^\s:：]{1,30})\s*[:：]\s+(.+)/);
+            if (kvMatch && !/^(https?|ftp)/i.test(kvMatch[1])) {
                 html += `<div class="rpt-kv"><span class="rpt-key">${esc(kvMatch[1])}</span><span class="rpt-val">${esc(kvMatch[2])}</span></div>`;
                 continue;
             }
@@ -188,7 +282,7 @@ const LessonsLearned = () => {
             // Regular line — preserve as-is
             html += `<div style="line-height:1.7;font-size:12.5px;color:#374151;">${esc(t)}</div>`;
         }
-        flushBullets();
+        flushAll();
         return html;
     }, []);
 
@@ -587,62 +681,50 @@ const LessonsLearned = () => {
             : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
     };
 
-    // Recursively scan React children and replace source file_nm occurrences with clickable buttons
-    const linkifyDocNames = useCallback((children, sources) => {
-        if (!sources?.length) return children;
-        const fnames = sources.map(s => s.file_nm).filter(Boolean).sort((a, b) => b.length - a.length);
-        if (!fnames.length) return children;
+    // Pre-process chat markdown: replace source filenames with markdown links
+    // Escapes _ to \_ so markdown parser doesn't treat them as emphasis
+    const linkDocReferences = useCallback((text, sources) => {
+        if (!text || !sources?.length) return text;
+        const fnames = sources.map(s => s.file_nm).filter(Boolean);
+        if (!fnames.length) return text;
 
-        // Build one regex matching any source filename (longest first)
-        const escaped = fnames.map(fn => fn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-        const re = new RegExp(`(${escaped.join('|')})`, 'g');
+        let result = text;
+        for (const fn of fnames) {
+            const escapedRe = fn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const safeFn = fn.replace(/_/g, '\\_');
+            const href = `docref:${encodeURIComponent(fn)}`;
+            const mdLink = `[${safeFn}](${href})`;
 
-        const processNode = (child) => {
-            if (typeof child === 'string') {
-                const parts = child.split(re);
-                if (parts.length === 1) return child;
-                return parts.map((part, idx) => {
-                    const src = sources.find(s => s.file_nm === part);
-                    if (src) {
-                        return (
-                            <button
-                                key={idx}
-                                onClick={(e) => { e.stopPropagation(); setPreviewDoc(src); }}
-                                className="inline text-purple-600 hover:text-purple-800 underline decoration-purple-300 hover:decoration-purple-500 cursor-pointer font-medium transition-colors"
-                                title="클릭하여 문서 보기"
-                            >
-                                {part}
-                            </button>
-                        );
-                    }
-                    return part;
-                });
-            }
-            if (child?.props?.children) {
-                const newChildren = Array.isArray(child.props.children)
-                    ? child.props.children.map(processNode)
-                    : processNode(child.props.children);
-                return { ...child, props: { ...child.props, children: newChildren } };
-            }
-            return child;
-        };
-
-        if (Array.isArray(children)) return children.map(processNode);
-        return processNode(children);
+            // 1) Replace [filename] (bracketed references) — remove outer []
+            result = result.replace(new RegExp(`\\[${escapedRe}\\](?!\\()`, 'g'), mdLink);
+            // 2) Replace standalone filename not already inside a link
+            result = result.replace(new RegExp(`(?<!\\[)(?<!\\]\\()${escapedRe}(?!\\])(?!\\))`, 'g'), mdLink);
+        }
+        return result;
     }, []);
 
-    // Build chat markdown components with doc-link support per message
-    const getChatComponents = useCallback((sources) => {
-        const wrap = (Tag, baseClass) => ({ node, children, ...props }) => (
-            <Tag className={baseClass} {...props}>{linkifyDocNames(children, sources)}</Tag>
-        );
-        return {
-            ...baseMarkdownComponents,
-            p: wrap('p', 'mb-2 last:mb-0 leading-relaxed'),
-            td: wrap('td', 'border border-gray-300 px-3 py-2'),
-            li: wrap('li', 'leading-relaxed'),
-        };
-    }, [linkifyDocNames, baseMarkdownComponents]);
+    // Chat markdown components with docref: link handler
+    const getChatComponents = useCallback((sources) => ({
+        ...baseMarkdownComponents,
+        a: ({ href, children }) => {
+            if (href?.startsWith('docref:')) {
+                const filename = decodeURIComponent(href.replace('docref:', ''));
+                const source = sources?.find(s => s.file_nm === filename);
+                if (source) {
+                    return (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setPreviewDoc(source); }}
+                            className="inline text-purple-600 hover:text-purple-800 underline decoration-purple-300 hover:decoration-purple-500 cursor-pointer font-medium transition-colors"
+                            title="클릭하여 문서 보기"
+                        >
+                            {children}
+                        </button>
+                    );
+                }
+            }
+            return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{children}</a>;
+        },
+    }), [baseMarkdownComponents]);
 
     // =============================================
     // RENDER
@@ -1038,7 +1120,7 @@ const LessonsLearned = () => {
                                     }`}>
                                         {msg.role === 'assistant' ? (
                                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={getChatComponents(msg.sources)}>
-                                                {msg.content}
+                                                {linkDocReferences(msg.content, msg.sources)}
                                             </ReactMarkdown>
                                         ) : (
                                             <p className="whitespace-pre-wrap">{msg.content}</p>
