@@ -611,16 +611,20 @@ class LessonsSearchService:
             logger.error(f"Documents by category failed: {e}")
             return []
 
-    def get_uploaded_files(self, username: str) -> List[Dict]:
-        """Get list of uploaded source files for a user with project code."""
+    def get_uploaded_files(self, username: Optional[str] = None) -> List[Dict]:
+        """Get list of uploaded source files. If username is None, return all users' files."""
         if not self.client:
             return []
 
-        safe_user = username.replace("'", "''")
+        filter_str = None
+        if username:
+            safe_user = username.replace("'", "''")
+            filter_str = f"username eq '{safe_user}'"
+
         try:
             results = self.client.search(
                 search_text="*",
-                filter=f"username eq '{safe_user}'",
+                filter=filter_str,
                 facets=["source_file"],
                 top=0,
             )
@@ -630,15 +634,20 @@ class LessonsSearchService:
                 filename = facet["value"]
                 # Fetch pjt_cd from the first document of this source file
                 pjt_cd = ""
+                pjt_nm = ""
                 try:
+                    detail_filter = f"source_file eq '{filename.replace(chr(39), chr(39)+chr(39))}'"
+                    if filter_str:
+                        detail_filter = f"{filter_str} and {detail_filter}"
                     doc_results = self.client.search(
                         search_text="*",
-                        filter=f"username eq '{safe_user}' and source_file eq '{filename.replace(chr(39), chr(39)+chr(39))}'",
-                        select=["pjt_cd"],
+                        filter=detail_filter,
+                        select=["pjt_cd", "pjt_nm"],
                         top=1,
                     )
                     for doc in doc_results:
                         pjt_cd = doc.get("pjt_cd", "") or ""
+                        pjt_nm = doc.get("pjt_nm", "") or ""
                         break
                 except Exception:
                     pass
@@ -646,6 +655,7 @@ class LessonsSearchService:
                     "filename": filename,
                     "document_count": facet["count"],
                     "pjt_cd": pjt_cd,
+                    "pjt_nm": pjt_nm,
                 })
             return files
 

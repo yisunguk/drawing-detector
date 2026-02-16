@@ -430,12 +430,16 @@ async def get_documents(
 
 @router.get("/files")
 async def get_files(
+    all: bool = Query(False, alias="all"),
     authorization: Optional[str] = Header(None)
 ):
-    """Get list of uploaded source files for the current user."""
+    """Get list of uploaded source files. Use all=true for all users' projects."""
     username = _get_username(authorization)
 
-    files = lessons_search_service.get_uploaded_files(username)
+    if all:
+        files = lessons_search_service.get_uploaded_files(username=None)
+    else:
+        files = lessons_search_service.get_uploaded_files(username)
     return {"files": files, "username": username}
 
 

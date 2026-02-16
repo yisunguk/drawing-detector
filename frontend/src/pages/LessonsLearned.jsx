@@ -26,6 +26,7 @@ const LessonsLearned = () => {
     const navigate = useNavigate();
     const { currentUser } = useAuth();
     const username = currentUser?.displayName || currentUser?.email?.split('@')[0];
+    const isAdmin = currentUser?.email === 'admin@poscoenc.com';
 
     // Restore saved state once
     const saved = useRef(_loadSS()).current;
@@ -60,6 +61,11 @@ const LessonsLearned = () => {
 
     // === Search Scope State ===
     const [selectedSourceFile, setSelectedSourceFile] = useState(saved.selectedSourceFile || null);
+
+    // === Project Modal State ===
+    const [showProjectModal, setShowProjectModal] = useState(false);
+    const [allProjects, setAllProjects] = useState([]);
+    const [loadingAllProjects, setLoadingAllProjects] = useState(false);
 
     // === Right Panel State ===
     const [previewDoc, setPreviewDoc] = useState(saved.previewDoc || null);
@@ -316,6 +322,40 @@ const LessonsLearned = () => {
         } catch (e) {
             console.error('Failed to load uploaded files:', e);
         }
+    };
+
+    // =============================================
+    // OPEN PROJECT MODAL — load all registered projects
+    // =============================================
+    const handleOpenProjectModal = async () => {
+        setShowProjectModal(true);
+        setLoadingAllProjects(true);
+        try {
+            const token = await getIdToken();
+            const res = await fetch(getLessonsApiUrl('files?all=true'), {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error('Failed to load all projects');
+            const data = await res.json();
+            setAllProjects(data.files || []);
+        } catch (e) {
+            console.error('Failed to load all projects:', e);
+            setAllProjects([]);
+        } finally {
+            setLoadingAllProjects(false);
+        }
+    };
+
+    const handleSelectProject = (project) => {
+        setSelectedSourceFile(project.filename);
+        setSelectedCategory(null);
+        setCategoryDocs([]);
+        setShowProjectModal(false);
+        // Add to uploadedFiles if not already present (for sidebar display)
+        setUploadedFiles(prev => {
+            if (prev.some(f => f.filename === project.filename)) return prev;
+            return [...prev, project];
+        });
     };
 
     // =============================================
@@ -647,14 +687,14 @@ const LessonsLearned = () => {
                         onChange={handleFileUpload}
                     />
                     <button
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={handleOpenProjectModal}
                         disabled={isUploading}
                         className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition-colors"
                     >
                         {isUploading ? (
                             <><Loader2 className="w-4 h-4 animate-spin" /> 처리 중...</>
                         ) : (
-                            <><Upload className="w-4 h-4" /> DOC-Master 프로젝트 검색</>
+                            <><SearchIcon className="w-4 h-4" /> DOC-Master 프로젝트 검색</>
                         )}
                     </button>
                     {uploadProgress && (
@@ -697,6 +737,7 @@ const LessonsLearned = () => {
                                     <span className="truncate">{displayName}</span>
                                     <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">{f.document_count}</span>
                                 </button>
+                                {isAdmin && (
                                 <button
                                     onClick={() => handleDeleteFile(f.filename)}
                                     className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:text-red-600 transition-opacity flex-shrink-0"
@@ -704,6 +745,7 @@ const LessonsLearned = () => {
                                 >
                                     <Trash2 className="w-3 h-3" />
                                 </button>
+                                )}
                             </div>
                             );
                         })}
@@ -1027,6 +1069,104 @@ const LessonsLearned = () => {
                     </div>
                 </div>
             </div>
+
+            {/* ===== PROJECT MODAL ===== */}
+            {showProjectModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center">
+                    {/* Overlay */}
+                    <div className="absolute inset-0 bg-black/40" onClick={() => setShowProjectModal(false)} />
+                    {/* Modal */}
+                    <div className="relative bg-white rounded-xl shadow-2xl w-[520px] max-h-[70vh] flex flex-col overflow-hidden">
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+                            <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
+                                <FolderTree className="w-5 h-5 text-purple-600" />
+                                DOC-Master 프로젝트
+                            </h2>
+                            <button
+                                onClick={() => setShowProjectModal(false)}
+                                className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="flex-1 overflow-y-auto px-5 py-4">
+                            {/* Admin-only: Upload new project */}
+                            {isAdmin && (
+                                <div className="mb-5">
+                                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">신규 프로젝트 등록</div>
+                                    <button
+                                        onClick={() => { fileInputRef.current?.click(); }}
+                                        disabled={isUploading}
+                                        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 border-2 border-dashed border-purple-300 hover:border-purple-500 hover:bg-purple-50 disabled:border-gray-300 disabled:bg-gray-50 rounded-lg text-sm text-purple-600 hover:text-purple-700 disabled:text-gray-400 font-medium transition-colors"
+                                    >
+                                        {isUploading ? (
+                                            <><Loader2 className="w-4 h-4 animate-spin" /> 처리 중...</>
+                                        ) : (
+                                            <><Upload className="w-4 h-4" /> TXT / JSON 파일 업로드</>
+                                        )}
+                                    </button>
+                                    {uploadProgress && (
+                                        <p className={`text-xs mt-1.5 ${uploadProgress.includes('실패') ? 'text-red-500' : 'text-green-600'}`}>
+                                            {uploadProgress}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Registered projects list */}
+                            <div>
+                                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                    등록된 프로젝트 {allProjects.length > 0 && `(${allProjects.length})`}
+                                </div>
+                                {loadingAllProjects ? (
+                                    <div className="flex items-center justify-center gap-2 py-8 text-gray-400">
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                        <span className="text-sm">프로젝트 목록 로딩 중...</span>
+                                    </div>
+                                ) : allProjects.length === 0 ? (
+                                    <div className="text-sm text-gray-400 text-center py-8">
+                                        등록된 프로젝트가 없습니다.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-1">
+                                        {allProjects.map((p) => {
+                                            const displayName = p.filename.replace(/\.(txt|json)$/i, '');
+                                            const isSelected = selectedSourceFile === p.filename;
+                                            return (
+                                                <button
+                                                    key={p.filename}
+                                                    onClick={() => handleSelectProject(p)}
+                                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors text-left ${
+                                                        isSelected
+                                                            ? 'bg-purple-100 text-purple-700 font-medium ring-1 ring-purple-300'
+                                                            : 'hover:bg-gray-100 text-gray-700'
+                                                    }`}
+                                                >
+                                                    <FileText className={`w-4 h-4 flex-shrink-0 ${isSelected ? 'text-purple-600' : 'text-gray-400'}`} />
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="font-medium truncate">{displayName}</div>
+                                                        <div className="text-[11px] text-gray-400 truncate">
+                                                            {p.pjt_cd && <span className="mr-2">{p.pjt_cd}</span>}
+                                                            {p.pjt_nm && <span>{p.pjt_nm}</span>}
+                                                        </div>
+                                                    </div>
+                                                    <span className={`text-xs flex-shrink-0 ${isSelected ? 'text-purple-500' : 'text-gray-400'}`}>
+                                                        {p.document_count}건
+                                                    </span>
+                                                    {isSelected && <Check className="w-4 h-4 text-purple-600 flex-shrink-0" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ===== RIGHT PANEL (Document Viewer) ===== */}
             {previewDoc && (() => {
