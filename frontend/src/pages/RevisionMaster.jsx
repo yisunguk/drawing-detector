@@ -1347,9 +1347,15 @@ const RevisionMaster = () => {
                                                                     <div className="flex items-center justify-between">
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-xs text-slate-400">{rev.engineer_name || '-'}</span>
-                                                                            {rev.total_pages > 0 && (
-                                                                                <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{rev.total_pages}p</span>
-                                                                            )}
+                                                                            {rev.total_pages > 0 ? (
+                                                                                <span className="text-xs bg-green-50 text-green-600 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                                                    <CheckCircle2 className="w-2.5 h-2.5" />{rev.total_pages}p
+                                                                                </span>
+                                                                            ) : rev.blob_path ? (
+                                                                                <span className="text-xs bg-orange-50 text-orange-500 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                                                    <AlertCircle className="w-2.5 h-2.5" />미인덱싱
+                                                                                </span>
+                                                                            ) : null}
                                                                         </div>
                                                                         {rev.download_url && (
                                                                             <a href={rev.download_url} target="_blank" rel="noreferrer"
