@@ -418,6 +418,11 @@ async def get_documents(
         username=None,
     )
 
+    # Clean confidential footer from content
+    for doc in documents:
+        if "content" in doc:
+            doc["content"] = _clean_content(doc["content"])
+
     return {"category": category, "documents": documents, "total": len(documents)}
 
 
