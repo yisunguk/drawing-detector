@@ -271,6 +271,9 @@ async def _handle_search(request: SearchRequest, username: str) -> SearchRespons
         source_file=request.source_file,
     )
 
+    # Filter out zero-score results (no keyword or vector match)
+    results = [r for r in results if r.get("score", 0) > 0.005]
+
     # Clean confidential footer + build highlight text
     search_keywords = _extract_search_keywords(request.query)
     for r in results:
