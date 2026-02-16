@@ -893,24 +893,6 @@ const RevisionMaster = () => {
 
                     {/* User Profile & Admin Menu */}
                     <div className="border-t border-slate-200 shrink-0">
-                        {isAdmin && (
-                            <div className="px-2 pt-2 pb-1 space-y-0.5">
-                                <button
-                                    onClick={() => navigate('/admin/notice')}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                                >
-                                    <Bell className="w-4 h-4" />
-                                    공지사항 관리
-                                </button>
-                                <button
-                                    onClick={() => navigate('/admin/users')}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                                >
-                                    <Users className="w-4 h-4" />
-                                    사용자 관리
-                                </button>
-                            </div>
-                        )}
                         <div className="p-3 flex items-center gap-2.5">
                             <Link
                                 to="/profile"
