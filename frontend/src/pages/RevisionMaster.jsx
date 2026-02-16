@@ -75,6 +75,7 @@ const RevisionMaster = () => {
     const [showRegisterRev, setShowRegisterRev] = useState(false);
     const [showEditDoc, setShowEditDoc] = useState(false);
     const [showEditProject, setShowEditProject] = useState(false);
+    const [showReanalyze, setShowReanalyze] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState('');
 
@@ -188,6 +189,45 @@ const RevisionMaster = () => {
             setSelectedProject(data.project_id);
             setShowUploadSpec(false);
             loadProjects();
+        } catch (err) {
+            setUploadProgress(`오류: ${err.message}`);
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    // ── Re-analyze Spec ──
+    const reanalyzeFileRef = useRef(null);
+    const handleReanalyzeSpec = async (e) => {
+        e.preventDefault();
+        if (!selectedProject) return;
+
+        setIsUploading(true);
+        setUploadProgress('사양서 재분석 중...');
+        try {
+            const headers = await getAuthHeaders();
+            const formData = new FormData();
+            formData.append('project_id', selectedProject);
+            const file = reanalyzeFileRef.current?.files?.[0];
+            if (file) {
+                formData.append('file', file);
+            }
+
+            setUploadProgress('Azure DI 분석 + GPT 문서 추출 + 병합 중... (1-2분 소요)');
+            const res = await fetch(getRevisionApiUrl('reanalyze-spec'), {
+                method: 'POST', headers, body: formData,
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Re-analysis failed');
+
+            const mr = data.merge_result || {};
+            setUploadProgress(`완료! 총 ${data.documents_count}개 문서 (업데이트: ${mr.updated || 0}, 신규: ${mr.added || 0}, 유지: ${mr.kept || 0})`);
+            setTimeout(() => {
+                setShowReanalyze(false);
+                setUploadProgress('');
+                loadProjectDetail(selectedProject);
+                loadProjects();
+            }, 2000);
         } catch (err) {
             setUploadProgress(`오류: ${err.message}`);
         } finally {
@@ -639,6 +679,9 @@ const RevisionMaster = () => {
                                     <>
                                         <button onClick={() => setShowAddDoc(true)} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition">
                                             <Plus className="w-3.5 h-3.5" /> 문서 추가
+                                        </button>
+                                        <button onClick={() => { setShowReanalyze(true); setUploadProgress(''); }} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-cyan-300 text-cyan-700 rounded-lg hover:bg-cyan-50 transition">
+                                            <RefreshCcw className="w-3.5 h-3.5" /> 사양서 재분석
                                         </button>
                                         {selectedDocId && (
                                             <>
@@ -1100,6 +1143,45 @@ const RevisionMaster = () => {
                                 </select>
                             </div>
                             <button type="submit" className="w-full py-2.5 bg-cyan-600 text-white rounded-lg font-medium hover:bg-cyan-700 transition">저장</button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Re-analyze Spec Modal */}
+            {showReanalyze && selectedProject && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl w-[480px]">
+                        <div className="flex items-center justify-between p-5 border-b border-slate-200">
+                            <div>
+                                <h3 className="font-bold text-lg text-slate-800">사양서 재분석</h3>
+                                <p className="text-sm text-slate-500 mt-0.5">기존 문서를 유지하면서 문서번호를 자동 채번합니다</p>
+                            </div>
+                            <button onClick={() => { setShowReanalyze(false); setUploadProgress(''); }} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+                        </div>
+                        <form onSubmit={handleReanalyzeSpec} className="p-5 space-y-4">
+                            <div className="bg-cyan-50 rounded-lg p-3 border border-cyan-200">
+                                <p className="text-sm text-cyan-800 font-medium">병합 방식</p>
+                                <ul className="text-xs text-cyan-700 mt-1 space-y-0.5 list-disc list-inside">
+                                    <li>기존 문서의 리비전 이력은 모두 보존됩니다</li>
+                                    <li>빈 문서번호만 자동 채번됩니다</li>
+                                    <li>사양서에서 새로 발견된 문서가 추가됩니다</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">사양서 PDF (선택)</label>
+                                <input ref={reanalyzeFileRef} type="file" accept=".pdf" className="w-full text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-cyan-50 file:text-cyan-700 file:font-medium file:cursor-pointer" />
+                                <p className="text-xs text-slate-400 mt-1">새 사양서를 업로드하거나, 비워두면 기존 사양서로 재분석합니다</p>
+                            </div>
+                            {uploadProgress && (
+                                <div className={`text-sm p-3 rounded-lg ${uploadProgress.startsWith('오류') ? 'bg-red-50 text-red-600' : uploadProgress.startsWith('완료') ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                                    {!uploadProgress.startsWith('오류') && !uploadProgress.startsWith('완료') && <Loader2 className="w-4 h-4 animate-spin inline mr-2" />}
+                                    {uploadProgress}
+                                </div>
+                            )}
+                            <button type="submit" disabled={isUploading} className="w-full py-2.5 bg-cyan-600 text-white rounded-lg font-medium hover:bg-cyan-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                                {isUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> 분석 중...</> : <><RefreshCcw className="w-4 h-4" /> 재분석 시작</>}
+                            </button>
                         </form>
                     </div>
                 </div>

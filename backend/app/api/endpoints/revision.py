@@ -254,6 +254,130 @@ async def upload_spec(
     }
 
 
+# ── Re-analyze Spec (merge with existing documents) ──
+
+@router.post("/reanalyze-spec")
+async def reanalyze_spec(
+    project_id: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    authorization: Optional[str] = Header(None)
+):
+    """Re-analyze spec PDF and merge with existing documents.
+    - If file is provided, use new spec; otherwise re-analyze existing spec.
+    - Merge: match by title → fill empty doc_no, add new docs, preserve revisions.
+    """
+    username = _get_username(authorization)
+    container = _get_container()
+
+    # Load existing project
+    json_path = f"{username}/revision/{project_id}/project.json"
+    project = _load_project_json(container, json_path)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project_code = project.get("project_code", "")
+    project_name = project.get("project_name", "")
+
+    print(f"[Revision] Re-analyze spec for project '{project_name}' ({project_id})", flush=True)
+
+    # Determine spec source: new upload or existing blob
+    spec_blob_path = project.get("spec_blob_path", "")
+    if file and file.filename:
+        # New spec uploaded — save to blob
+        file_content = await file.read()
+        filename = file.filename
+        spec_blob_path = f"{username}/revision/{project_id}/spec/{filename}"
+        container.upload_blob(name=spec_blob_path, data=file_content, overwrite=True)
+        project["spec_filename"] = filename
+        project["spec_blob_path"] = spec_blob_path
+        print(f"[Revision] New spec uploaded: {spec_blob_path}", flush=True)
+
+    if not spec_blob_path:
+        raise HTTPException(status_code=400, detail="No spec file found for this project")
+
+    # Azure DI text extraction
+    extracted_text = ""
+    try:
+        from app.services.azure_di import azure_di_service
+        from app.services.blob_storage import generate_sas_url
+        spec_url = generate_sas_url(spec_blob_path)
+        di_result = azure_di_service.analyze_document_from_url(spec_url)
+        extracted_text = "\n\n".join([p.get("content", "") for p in di_result])
+        print(f"[Revision] DI extracted {len(extracted_text)} chars from spec", flush=True)
+    except Exception as e:
+        print(f"[Revision] DI extraction failed: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Document analysis failed: {e}")
+
+    # GPT extraction with improved prompt
+    new_docs = []
+    try:
+        new_docs = _extract_documents_from_spec(extracted_text, project_code, project_name)
+        print(f"[Revision] GPT re-extracted {len(new_docs)} documents", flush=True)
+    except Exception as e:
+        print(f"[Revision] GPT extraction failed: {e}", flush=True)
+
+    if len(new_docs) < 20:
+        new_docs = _ensure_standard_documents(new_docs, project_code)
+
+    # === Merge Logic ===
+    existing_docs = project.get("documents", [])
+    merged_count = {"updated": 0, "added": 0, "kept": 0}
+
+    # Build lookup by normalized title
+    def _normalize(title: str) -> str:
+        return title.strip().lower().replace("  ", " ")
+
+    existing_by_title = {}
+    for doc in existing_docs:
+        key = _normalize(doc.get("title", ""))
+        if key:
+            existing_by_title[key] = doc
+
+    matched_existing_keys = set()
+
+    for new_doc in new_docs:
+        new_title_key = _normalize(new_doc.get("title", ""))
+        if not new_title_key:
+            continue
+
+        if new_title_key in existing_by_title:
+            # Match found — update empty fields only
+            ex = existing_by_title[new_title_key]
+            matched_existing_keys.add(new_title_key)
+            updated = False
+            if (not ex.get("doc_no") or ex["doc_no"].strip() in ("", "-")) and new_doc.get("doc_no"):
+                ex["doc_no"] = new_doc["doc_no"]
+                updated = True
+            if (not ex.get("tag_no") or ex["tag_no"].strip() in ("", "-")) and new_doc.get("tag_no"):
+                ex["tag_no"] = new_doc["tag_no"]
+                updated = True
+            if updated:
+                merged_count["updated"] += 1
+            else:
+                merged_count["kept"] += 1
+        else:
+            # New document — add to list
+            existing_docs.append(new_doc)
+            merged_count["added"] += 1
+
+    # Auto-fill any remaining empty doc_no
+    _auto_fill_doc_no(existing_docs, project_code)
+
+    project["documents"] = existing_docs
+    _recalculate_summary(project)
+    _save_project_json(container, json_path, project)
+
+    print(f"[Revision] Merge complete: {merged_count}", flush=True)
+
+    return {
+        "status": "success",
+        "project_id": project_id,
+        "documents_count": len(existing_docs),
+        "merge_result": merged_count,
+        "summary": project["summary"],
+    }
+
+
 def _extract_documents_from_spec(spec_text: str, project_code: str, project_name: str) -> list:
     """Use GPT to extract required document checklist from spec text."""
     if not _openai_client:
