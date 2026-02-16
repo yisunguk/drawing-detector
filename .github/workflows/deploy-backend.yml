@@ -30,6 +30,15 @@ jobs:
       - name: 'Set up Cloud SDK'
         uses: 'google-github-actions/setup-gcloud@v1'
 
+      # Remove GCP Secret Manager references (saves ~₩7,000/month)
+      # All secrets now managed via GitHub Secrets → env vars
+      - name: 'Remove Secret Manager refs from Cloud Run'
+        continue-on-error: true
+        run: |
+          gcloud run services update drawing-detector-backend \
+            --region=us-central1 \
+            --remove-secrets=AZURE_SEARCH_INDEX_NAME,FIREBASE_SERVICE_ACCOUNT_JSON
+
       # Deploy to Cloud Run
       # Maps GitHub Secrets to Environment Variables
       - name: 'Deploy to Cloud Run'
@@ -54,4 +63,16 @@ jobs:
             AZURE_SEARCH_KEY=${{ secrets.AZURE_SEARCH_KEY }}
             AZURE_DOC_INTEL_ENDPOINT=${{ secrets.AZURE_DOC_INTEL_ENDPOINT }}
             AZURE_DOC_INTEL_KEY=${{ secrets.AZURE_DOC_INTEL_KEY }}
+            AZURE_SEARCH_INDEX_NAME=${{ secrets.AZURE_SEARCH_INDEX_NAME }}
             CRON_SECRET=${{ secrets.CRON_SECRET }}
+
+      # FIREBASE_SERVICE_ACCOUNT_JSON contains commas/special chars,
+      # so set via gcloud with custom delimiter after deploy
+      - name: 'Set Firebase SA env var'
+        env:
+          FIREBASE_SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          MINIFIED=$(echo "$FIREBASE_SA_JSON" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin),separators=(',',':')))")
+          gcloud run services update drawing-detector-backend \
+            --region=us-central1 \
+            --update-env-vars "^|||^FIREBASE_SERVICE_ACCOUNT_JSON=${MINIFIED}"
