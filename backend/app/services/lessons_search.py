@@ -540,6 +540,54 @@ class LessonsSearchService:
             logger.error(f"Search failed: {e}")
             return []
 
+    def search_by_filename(self, query: str, category: Optional[str] = None,
+                           source_file: Optional[str] = None, top: int = 5) -> List[Dict]:
+        """Search documents specifically by file_nm field to catch filename matches."""
+        if not self.client:
+            return []
+
+        filters = []
+        if category:
+            safe_cat = category.replace("'", "''")
+            filters.append(f"category eq '{safe_cat}'")
+        if source_file:
+            safe_sf = source_file.replace("'", "''")
+            filters.append(f"source_file eq '{safe_sf}'")
+        filter_str = " and ".join(filters) if filters else None
+
+        try:
+            select_fields = "doc_id,file_nm,mclass,dclass,category,content,pjt_nm,pjt_cd,creator_name,reg_date,username,source_file,file_path"
+            results = self.client.search(
+                search_text=query,
+                search_fields=["file_nm"],
+                filter=filter_str,
+                top=top,
+                select=select_fields,
+            )
+            final = []
+            for r in results:
+                final.append({
+                    "doc_id": r.get("doc_id", ""),
+                    "file_nm": r.get("file_nm", ""),
+                    "mclass": r.get("mclass", ""),
+                    "dclass": r.get("dclass", ""),
+                    "category": r.get("category", ""),
+                    "content_preview": (r.get("content") or "")[:500],
+                    "content": r.get("content", ""),
+                    "pjt_nm": r.get("pjt_nm", ""),
+                    "pjt_cd": r.get("pjt_cd", ""),
+                    "creator_name": r.get("creator_name", ""),
+                    "reg_date": r.get("reg_date", ""),
+                    "source_file": r.get("source_file", ""),
+                    "file_path": r.get("file_path", ""),
+                    "score": r.get("@search.score", 0),
+                    "azure_highlights": [],
+                })
+            return final
+        except Exception as e:
+            logger.error(f"Filename search failed: {e}")
+            return []
+
     # ── Category Facets ──
 
     def get_category_counts(self, username: Optional[str] = None) -> Dict[str, int]:

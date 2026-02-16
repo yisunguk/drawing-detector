@@ -271,6 +271,19 @@ async def _handle_search(request: SearchRequest, username: str) -> SearchRespons
         source_file=request.source_file,
     )
 
+    # Supplement: filename-targeted search to catch docs matched by name
+    fn_results = lessons_search_service.search_by_filename(
+        query=request.query,
+        category=request.category,
+        source_file=request.source_file,
+        top=5,
+    )
+    seen_ids = {r.get("doc_id") for r in results}
+    for fr in fn_results:
+        if fr.get("doc_id") not in seen_ids:
+            results.append(fr)
+            seen_ids.add(fr.get("doc_id"))
+
     # Post-filter & re-rank: Azure Search scores poorly for Korean keywords,
     # so boost results where keywords appear in file_nm or content.
     search_keywords = _extract_search_keywords(request.query)
@@ -321,6 +334,19 @@ async def _handle_chat(request: SearchRequest, username: str) -> SearchResponse:
         top=15,
         source_file=request.source_file,
     )
+
+    # Supplement: filename-targeted search to catch docs matched by name
+    fn_results = lessons_search_service.search_by_filename(
+        query=request.query,
+        category=request.category,
+        source_file=request.source_file,
+        top=5,
+    )
+    seen_ids = {r.get("doc_id") for r in results}
+    for fr in fn_results:
+        if fr.get("doc_id") not in seen_ids:
+            results.insert(0, fr)  # Prepend so filename matches appear first in context
+            seen_ids.add(fr.get("doc_id"))
 
     # Build context from search results
     if not results:
