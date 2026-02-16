@@ -1067,8 +1067,29 @@ const RevisionMaster = () => {
                                             </span>
                                             <button onClick={() => setComparisonResult(null)} className="text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>
                                         </div>
-                                        <div className="text-xs text-slate-700 prose prose-xs max-w-none overflow-auto max-h-64">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{comparisonResult.comparison}</ReactMarkdown>
+                                        <div className="revision-compare-result text-xs text-slate-700 max-w-none overflow-auto max-h-[60vh]">
+                                            <ReactMarkdown
+                                                remarkPlugins={[remarkGfm]}
+                                                components={{
+                                                    table: ({ children }) => (
+                                                        <div className="overflow-x-auto my-2">
+                                                            <table className="w-full border-collapse border border-slate-300 text-xs">{children}</table>
+                                                        </div>
+                                                    ),
+                                                    thead: ({ children }) => <thead className="bg-slate-100">{children}</thead>,
+                                                    th: ({ children }) => <th className="border border-slate-300 px-2 py-1.5 text-left font-semibold text-slate-700 whitespace-nowrap">{children}</th>,
+                                                    td: ({ children }) => <td className="border border-slate-300 px-2 py-1.5 text-slate-600">{children}</td>,
+                                                    h1: ({ children }) => <h3 className="text-sm font-bold text-slate-800 mt-3 mb-1">{children}</h3>,
+                                                    h2: ({ children }) => <h4 className="text-sm font-bold text-slate-800 mt-3 mb-1">{children}</h4>,
+                                                    h3: ({ children }) => <h5 className="text-xs font-bold text-slate-700 mt-2 mb-1">{children}</h5>,
+                                                    p: ({ children }) => <p className="mb-1.5 leading-relaxed">{children}</p>,
+                                                    ul: ({ children }) => <ul className="list-disc list-inside mb-1.5 space-y-0.5">{children}</ul>,
+                                                    ol: ({ children }) => <ol className="list-decimal list-inside mb-1.5 space-y-0.5">{children}</ol>,
+                                                    strong: ({ children }) => <strong className="font-semibold text-slate-800">{children}</strong>,
+                                                }}
+                                            >
+                                                {comparisonResult.comparison}
+                                            </ReactMarkdown>
                                         </div>
                                     </div>
                                 )}
