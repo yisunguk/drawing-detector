@@ -700,8 +700,8 @@ const LessonsLearned = () => {
             const displayName = base.length > 28 ? base.slice(0, 28) + '..' + ext : fn;
             // Safe display: escape underscores for markdown
             const safeDisplay = displayName.replace(/_/g, '\\_');
-            // Use numeric index as href — no special chars to break markdown
-            const mdLink = `[${safeDisplay}](docref:${i})`;
+            // Use hash-based href — always safe from URL sanitization
+            const mdLink = `[${safeDisplay}](#doc-${i})`;
 
             // 1) Replace [filename] (bracketed references)
             result = result.replace(new RegExp(`\\[${escapedRe}\\](?!\\()`, 'g'), mdLink);
@@ -711,17 +711,18 @@ const LessonsLearned = () => {
         return result;
     }, []);
 
-    // Chat markdown components with docref: link handler → opens right sidebar viewer
+    // Chat markdown components with doc link handler → opens right sidebar viewer
     const getChatComponents = useCallback((sources) => ({
         ...baseMarkdownComponents,
         a: ({ href, children }) => {
-            if (href?.startsWith('docref:')) {
-                const idx = parseInt(href.replace('docref:', ''), 10);
+            const docMatch = href?.match(/^#doc-(\d+)$/);
+            if (docMatch) {
+                const idx = parseInt(docMatch[1], 10);
                 const source = sources?.[idx];
                 if (source) {
                     return (
                         <button
-                            onClick={(e) => { e.stopPropagation(); setPreviewDoc(source); }}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPreviewDoc(source); }}
                             className="inline text-purple-600 hover:text-purple-800 underline decoration-purple-300 hover:decoration-purple-500 cursor-pointer font-medium transition-colors"
                             title={source.file_nm}
                         >
@@ -1301,7 +1302,18 @@ const LessonsLearned = () => {
                 const viewerEmpty = fullContent.replace(/\.\.PAGE:\d+/g, '').trim().length < 10;
                 const pages = parseContentPages(fullContent);
                 const currentPage = pages[viewerPage] || pages[0];
-                const searchKeywords = query.trim() ? query.trim().split(/\s+/).filter(w => w.length >= 2) : [];
+                const searchKeywords = (() => {
+                    // In search mode: use search query
+                    if (mode === 'search' && query.trim()) {
+                        return query.trim().split(/\s+/).filter(w => w.length >= 2);
+                    }
+                    // In chat mode: use last user message as keywords
+                    if (mode === 'chat') {
+                        const lastUserMsg = chatMessages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+                        return lastUserMsg.trim() ? lastUserMsg.trim().split(/\s+/).filter(w => w.length >= 2) : [];
+                    }
+                    return query.trim() ? query.trim().split(/\s+/).filter(w => w.length >= 2) : [];
+                })();
                 const reportHtml = formatContentForViewer(currentPage?.text || '');
                 const highlightedContent = searchKeywords.length > 0
                     ? highlightTextInViewer(reportHtml, searchKeywords)
