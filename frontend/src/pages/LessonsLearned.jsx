@@ -328,6 +328,7 @@ const LessonsLearned = () => {
             return;
         }
         setSelectedCategory(categoryName);
+        setSelectedSourceFile(null);
         setLoadingDocs(true);
         try {
             const token = await getIdToken();
@@ -668,7 +669,7 @@ const LessonsLearned = () => {
                     <div className="px-3 py-2 border-b border-gray-200">
                         <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">프로젝트</div>
                         <button
-                            onClick={() => setSelectedSourceFile(null)}
+                            onClick={() => { setSelectedSourceFile(null); setSelectedCategory(null); setCategoryDocs([]); }}
                             className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors ${
                                 !selectedSourceFile
                                     ? 'bg-purple-100 text-purple-700 font-medium'
@@ -677,14 +678,14 @@ const LessonsLearned = () => {
                         >
                             {!selectedSourceFile && <Check className="w-3 h-3 flex-shrink-0" />}
                             {selectedSourceFile && <div className="w-3 h-3 flex-shrink-0" />}
-                            <span>전체 문서</span>
+                            <span>전체 프로젝트 ({uploadedFiles.reduce((s, f) => s + f.document_count, 0)}건)</span>
                         </button>
                         {uploadedFiles.map((f) => {
                             const displayName = f.filename.replace(/\.(txt|json)$/i, '') + (f.pjt_cd ? ` (${f.pjt_cd})` : '');
                             return (
                             <div key={f.filename} className="flex items-center group">
                                 <button
-                                    onClick={() => setSelectedSourceFile(f.filename)}
+                                    onClick={() => { setSelectedSourceFile(f.filename); setSelectedCategory(null); setCategoryDocs([]); }}
                                     className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors min-w-0 ${
                                         selectedSourceFile === f.filename
                                             ? 'bg-purple-100 text-purple-700 font-medium'
