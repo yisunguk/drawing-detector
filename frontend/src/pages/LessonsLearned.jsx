@@ -663,33 +663,10 @@ const LessonsLearned = () => {
                     )}
                 </div>
 
-                {/* Uploaded Files */}
-                {uploadedFiles.length > 0 && (
-                    <div className="px-3 py-2 border-b border-gray-200 max-h-32 overflow-y-auto">
-                        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">프로젝트</div>
-                        {uploadedFiles.map((f) => {
-                            const displayName = f.filename.replace(/\.(txt|json)$/i, '') + (f.pjt_cd ? ` (${f.pjt_cd})` : '');
-                            return (
-                            <div key={f.filename} className="flex items-center justify-between px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded group">
-                                <span className="truncate flex-1" title={displayName}>{displayName}</span>
-                                <span className="text-gray-400 mx-2 flex-shrink-0">{f.document_count}건</span>
-                                <button
-                                    onClick={() => handleDeleteFile(f.filename)}
-                                    className="opacity-0 group-hover:opacity-100 p-0.5 text-red-400 hover:text-red-600 transition-opacity"
-                                    title="삭제"
-                                >
-                                    <Trash2 className="w-3 h-3" />
-                                </button>
-                            </div>
-                            );
-                        })}
-                    </div>
-                )}
-
-                {/* Search Scope */}
+                {/* Project List (Search Scope) */}
                 {uploadedFiles.length > 0 && (
                     <div className="px-3 py-2 border-b border-gray-200">
-                        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">검색 범위</div>
+                        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">프로젝트</div>
                         <button
                             onClick={() => setSelectedSourceFile(null)}
                             className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors ${
@@ -703,22 +680,30 @@ const LessonsLearned = () => {
                             <span>전체 문서</span>
                         </button>
                         {uploadedFiles.map((f) => {
-                            const scopeName = f.filename.replace(/\.(txt|json)$/i, '') + (f.pjt_cd ? ` (${f.pjt_cd})` : '');
+                            const displayName = f.filename.replace(/\.(txt|json)$/i, '') + (f.pjt_cd ? ` (${f.pjt_cd})` : '');
                             return (
-                            <button
-                                key={f.filename}
-                                onClick={() => setSelectedSourceFile(f.filename)}
-                                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors ${
-                                    selectedSourceFile === f.filename
-                                        ? 'bg-purple-100 text-purple-700 font-medium'
-                                        : 'text-gray-600 hover:bg-gray-200'
-                                }`}
-                            >
-                                {selectedSourceFile === f.filename && <Check className="w-3 h-3 flex-shrink-0" />}
-                                {selectedSourceFile !== f.filename && <div className="w-3 h-3 flex-shrink-0" />}
-                                <span className="truncate">{scopeName}</span>
-                                <span className="text-[10px] text-gray-400 ml-auto">{f.document_count}</span>
-                            </button>
+                            <div key={f.filename} className="flex items-center group">
+                                <button
+                                    onClick={() => setSelectedSourceFile(f.filename)}
+                                    className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors min-w-0 ${
+                                        selectedSourceFile === f.filename
+                                            ? 'bg-purple-100 text-purple-700 font-medium'
+                                            : 'text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    {selectedSourceFile === f.filename && <Check className="w-3 h-3 flex-shrink-0" />}
+                                    {selectedSourceFile !== f.filename && <div className="w-3 h-3 flex-shrink-0" />}
+                                    <span className="truncate">{displayName}</span>
+                                    <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">{f.document_count}</span>
+                                </button>
+                                <button
+                                    onClick={() => handleDeleteFile(f.filename)}
+                                    className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:text-red-600 transition-opacity flex-shrink-0"
+                                    title="삭제"
+                                >
+                                    <Trash2 className="w-3 h-3" />
+                                </button>
+                            </div>
                             );
                         })}
                     </div>
