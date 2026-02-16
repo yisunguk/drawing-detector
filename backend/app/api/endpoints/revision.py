@@ -831,6 +831,7 @@ async def register_revision(
 
     # Azure DI text extraction
     extracted_text = ""
+    di_json_path = ""
     try:
         from app.services.azure_di import azure_di_service
         from app.services.blob_storage import generate_sas_url
@@ -838,10 +839,26 @@ async def register_revision(
         di_result = azure_di_service.analyze_document_from_url(file_url)
         extracted_text = "\n\n".join([p.get("content", "") for p in di_result])
         print(f"[Revision] DI extracted {len(extracted_text)} chars", flush=True)
+
+        # Save DI result as JSON to blob
+        di_json_path = f"{username}/revision/{project_id}/docs/{doc_id}/{revision}_di_result.json"
+        di_data = json.dumps({
+            "doc_id": doc_id,
+            "doc_no": doc.get("doc_no", ""),
+            "title": doc.get("title", ""),
+            "revision": revision,
+            "filename": rev_filename,
+            "extracted_at": datetime.now(timezone.utc).isoformat(),
+            "pages": di_result,
+            "full_text": extracted_text,
+            "text_length": len(extracted_text),
+        }, ensure_ascii=False, indent=2).encode('utf-8')
+        container.upload_blob(name=di_json_path, data=di_data, overwrite=True)
+        print(f"[Revision] Saved DI JSON: {di_json_path}", flush=True)
     except Exception as e:
         print(f"[Revision] DI extraction failed (non-fatal): {e}", flush=True)
 
-    # Index in Azure AI Search
+    # Index in Azure AI Search (embedding + indexing)
     phase_name = PHASES.get(doc.get("phase", ""), {}).get("name", "")
     try:
         revision_search_service.index_revision_document(
@@ -874,6 +891,8 @@ async def register_revision(
         "date": now.strftime("%Y-%m-%d"),
         "blob_path": blob_path,
         "filename": rev_filename,
+        "di_json_path": di_json_path,
+        "text_length": len(extracted_text),
         "uploaded_at": now.isoformat(),
     }
     doc["revisions"].append(revision_entry)
@@ -1062,9 +1081,9 @@ async def compare_revisions(
 
     print(f"[Revision] Comparing {rev_a['revision']} vs {rev_b['revision']} for doc {doc.get('doc_no')}", flush=True)
 
-    # Extract text from both revisions via Azure DI (from blob)
-    text_a = await _extract_text_from_blob(rev_a.get("blob_path", ""))
-    text_b = await _extract_text_from_blob(rev_b.get("blob_path", ""))
+    # Extract text: prefer saved DI JSON, fallback to live DI extraction
+    text_a = _load_di_text(container, rev_a.get("di_json_path", "")) or await _extract_text_from_blob(rev_a.get("blob_path", ""))
+    text_b = _load_di_text(container, rev_b.get("di_json_path", "")) or await _extract_text_from_blob(rev_b.get("blob_path", ""))
 
     if not text_a and not text_b:
         return {"comparison": "두 리비전 모두 텍스트를 추출할 수 없습니다.", "rev_a": rev_a["revision"], "rev_b": rev_b["revision"]}
@@ -1118,6 +1137,21 @@ async def compare_revisions(
         "text_a_length": len(text_a),
         "text_b_length": len(text_b),
     }
+
+
+def _load_di_text(container, di_json_path: str) -> str:
+    """Load pre-extracted text from DI JSON file in blob storage."""
+    if not di_json_path:
+        return ""
+    try:
+        blob = container.get_blob_client(di_json_path)
+        data = json.loads(blob.download_blob().readall().decode('utf-8'))
+        text = data.get("full_text", "")
+        if text:
+            print(f"[Revision] Loaded DI text from cache: {di_json_path} ({len(text)} chars)", flush=True)
+        return text
+    except Exception:
+        return ""
 
 
 async def _extract_text_from_blob(blob_path: str) -> str:
