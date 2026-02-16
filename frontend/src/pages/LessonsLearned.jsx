@@ -539,6 +539,8 @@ const LessonsLearned = () => {
     const handleResetChat = () => {
         if (!confirm('대화 내용을 초기화 하시겠습니까?')) return;
         setChatMessages([{ role: 'assistant', content: '안녕하세요! Lessons Learned에 대해 궁금한 점을 물어보세요.' }]);
+        setQuery('');
+        setPreviewDoc(null);
     };
 
     // =============================================
@@ -854,6 +856,16 @@ const LessonsLearned = () => {
                         </div>
                     )}
 
+                    {mode === 'search' && hasSearched && (
+                        <button
+                            onClick={() => { setSearchResults([]); setHasSearched(false); setQuery(''); setSearchError(null); setPreviewDoc(null); }}
+                            className="ml-auto flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                            title="검색 초기화"
+                        >
+                            <RefreshCcw className="w-3 h-3" />
+                            초기화
+                        </button>
+                    )}
                     {mode === 'chat' && chatMessages.length > 1 && (
                         <button
                             onClick={handleResetChat}
