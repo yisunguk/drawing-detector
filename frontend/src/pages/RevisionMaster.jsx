@@ -5,7 +5,7 @@ import {
     ChevronRight, ChevronDown, X, Upload, Trash2, Plus, Edit3,
     FileText, FolderOpen, CheckCircle2, Clock, AlertCircle, XCircle,
     Download, MessageSquare, BarChart3, LogOut, ClipboardCheck, RefreshCcw,
-    Users, Bell, Settings
+    Users, Bell, Settings, Copy
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -189,6 +189,7 @@ const RevisionMaster = () => {
     const [editRevData, setEditRevData] = useState({});
     const [revSelection, setRevSelection] = useState([]);
     const [comparisonResult, setComparisonResult] = useState(null);
+    const [copiedId, setCopiedId] = useState(null);
     const [isComparing, setIsComparing] = useState(false);
 
     // === Modal State ===
@@ -690,6 +691,15 @@ const RevisionMaster = () => {
     }) || [];
 
     const selectedDoc = projectData?.documents?.find(d => d.doc_id === selectedDocId);
+
+    // ── Clipboard Copy ──
+    const handleCopy = async (text, id) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopiedId(id);
+            setTimeout(() => setCopiedId(null), 2000);
+        } catch { /* ignore */ }
+    };
 
     // ── Excel Download ──
     const handleExcelDownload = () => {
@@ -1242,7 +1252,13 @@ const RevisionMaster = () => {
                                             <span className="text-xs font-semibold text-cyan-700">
                                                 AI 비교 분석: {comparisonResult.rev_a} vs {comparisonResult.rev_b}
                                             </span>
-                                            <button onClick={() => setComparisonResult(null)} className="text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>
+                                            <div className="flex items-center gap-1">
+                                                <button onClick={() => handleCopy(comparisonResult.comparison, 'ai-compare')}
+                                                    className="text-slate-400 hover:text-cyan-600 transition" title="복사">
+                                                    {copiedId === 'ai-compare' ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                                                </button>
+                                                <button onClick={() => setComparisonResult(null)} className="text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>
+                                            </div>
                                         </div>
                                         <div className="revision-compare-result text-xs text-slate-700 max-w-none overflow-auto max-h-[60vh]">
                                             <ReactMarkdown
@@ -1330,6 +1346,12 @@ const RevisionMaster = () => {
                                                                         <span className="font-mono font-bold text-sm text-slate-800">{rev.revision}</span>
                                                                         <div className="flex items-center gap-2">
                                                                             <span className="text-xs text-slate-400">{rev.date}</span>
+                                                                            <button onClick={() => handleCopy(
+                                                                                `${rev.revision} (${rev.date})\n${rev.change_description || ''}\n담당: ${rev.engineer_name || '-'}`.trim(),
+                                                                                `rev-${rev.revision_id}`
+                                                                            )} className="text-slate-300 hover:text-cyan-600 transition" title="복사">
+                                                                                {copiedId === `rev-${rev.revision_id}` ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+                                                                            </button>
                                                                             <button onClick={() => { setEditingRevId(rev.revision_id); setEditRevData({ revision: rev.revision, change_description: rev.change_description || '', engineer_name: rev.engineer_name || '' }); }}
                                                                                 className="text-slate-300 hover:text-cyan-600 transition" title="수정">
                                                                                 <Edit3 className="w-3 h-3" />
