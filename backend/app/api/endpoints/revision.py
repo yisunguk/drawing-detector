@@ -12,9 +12,11 @@ Revision Master - API Endpoints
 - POST /search             : AI hybrid search
 """
 
+import asyncio
 import json
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -786,6 +788,121 @@ def _suggest_next_revision(existing_revs: list) -> str:
     return "Rev.A"
 
 
+# ── DI Page-level Helpers ──
+
+async def _extract_pages_with_di(blob_path: str) -> list:
+    """Extract pages from a document using Azure DI.
+    Tries full analysis first, falls back to chunked processing for large docs.
+    Returns list of page dicts from Azure DI (each with page_number, content, etc.)
+    """
+    from app.services.azure_di import azure_di_service
+    from app.services.blob_storage import generate_sas_url
+
+    file_url = generate_sas_url(blob_path)
+    loop = asyncio.get_event_loop()
+
+    try:
+        # Try full document analysis (works for most docs, up to ~500 pages)
+        di_result = await loop.run_in_executor(
+            None,
+            lambda: azure_di_service.analyze_document_from_url(file_url)
+        )
+        print(f"[Revision] Full DI analysis: {len(di_result)} pages extracted", flush=True)
+        return di_result
+    except Exception as e:
+        error_msg = str(e).lower()
+        # If timeout or size issue, try chunked processing
+        if any(k in error_msg for k in ["timeout", "timed out", "too large", "413", "exceeded"]):
+            print(f"[Revision] Full DI timed out, switching to chunked processing: {e}", flush=True)
+            return await _chunked_di_extraction(file_url)
+        raise
+
+
+async def _chunked_di_extraction(file_url: str) -> list:
+    """Process large document in chunks (100 pages per chunk) when full DI times out."""
+    from app.services.azure_di import azure_di_service
+
+    loop = asyncio.get_event_loop()
+    all_pages = []
+    chunk_size = 100
+    start_page = 1
+    max_pages = 5000  # Safety limit
+
+    while start_page < max_pages:
+        end_page = start_page + chunk_size - 1
+        page_range = f"{start_page}-{end_page}"
+
+        try:
+            chunk_result = await loop.run_in_executor(
+                None,
+                lambda pr=page_range: azure_di_service.analyze_document_from_url(file_url, pages=pr)
+            )
+
+            if not chunk_result:
+                break
+
+            all_pages.extend(chunk_result)
+            print(f"[Revision] Chunk {page_range}: {len(chunk_result)} pages extracted", flush=True)
+
+            # If fewer pages than requested, we've reached the end
+            if len(chunk_result) < chunk_size:
+                break
+
+            start_page = end_page + 1
+        except Exception as e:
+            print(f"[Revision] Chunk {page_range} failed: {e}", flush=True)
+            break
+
+    print(f"[Revision] Chunked DI complete: {len(all_pages)} total pages", flush=True)
+    return all_pages
+
+
+def _save_page_jsons(container, di_folder_path: str, pages: list, doc_meta: dict, revision: str):
+    """Save DI results as individual page JSON files + meta.json."""
+    if not pages:
+        return
+
+    def _upload_page(page_data, page_num):
+        page_blob = f"{di_folder_path}page_{page_num}.json"
+        data = json.dumps(page_data, ensure_ascii=False).encode('utf-8')
+        container.upload_blob(name=page_blob, data=data, overwrite=True)
+        return page_num
+
+    # Parallel upload (10 workers)
+    uploaded = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {}
+        for page in pages:
+            pn = page.get("page_number", 1)
+            futures[executor.submit(_upload_page, page, pn)] = pn
+
+        for future in as_completed(futures):
+            try:
+                uploaded.append(future.result())
+            except Exception as e:
+                logger.warning(f"Page JSON upload failed: {e}")
+
+    # Save meta.json
+    meta = {
+        "total_pages": len(pages),
+        "pages": sorted(uploaded),
+        "doc_id": doc_meta.get("doc_id", ""),
+        "doc_no": doc_meta.get("doc_no", ""),
+        "title": doc_meta.get("title", ""),
+        "revision": revision,
+        "format": "split",
+        "version": 2,
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    meta_blob = f"{di_folder_path}meta.json"
+    container.upload_blob(
+        name=meta_blob,
+        data=json.dumps(meta, ensure_ascii=False).encode('utf-8'),
+        overwrite=True
+    )
+    print(f"[Revision] Saved {len(uploaded)} page JSONs + meta.json to {di_folder_path}", flush=True)
+
+
 # ── Register Revision ──
 
 @router.post("/register-revision")
@@ -798,7 +915,7 @@ async def register_revision(
     engineer_name: str = Form(""),
     authorization: Optional[str] = Header(None)
 ):
-    """Upload a revision file → DI → index → update project.json."""
+    """Upload a revision file → DI (page-level) → index → update project.json."""
     username = _get_username(authorization)
     filename = file.filename or "document.pdf"
 
@@ -829,55 +946,54 @@ async def register_revision(
     container.upload_blob(name=blob_path, data=file_content, overwrite=True)
     print(f"[Revision] Saved revision file: {blob_path}", flush=True)
 
-    # Azure DI text extraction
-    extracted_text = ""
-    di_json_path = ""
-    try:
-        from app.services.azure_di import azure_di_service
-        from app.services.blob_storage import generate_sas_url
-        file_url = generate_sas_url(blob_path)
-        di_result = azure_di_service.analyze_document_from_url(file_url)
-        extracted_text = "\n\n".join([p.get("content", "") for p in di_result])
-        print(f"[Revision] DI extracted {len(extracted_text)} chars", flush=True)
+    # Azure DI page-level extraction (with chunked fallback for large docs)
+    di_pages = []
+    di_folder_path = ""
+    total_pages = 0
+    full_text = ""
 
-        # Save DI result as JSON to blob
-        di_json_path = f"{username}/revision/{project_id}/docs/{doc_id}/{revision}_di_result.json"
-        di_data = json.dumps({
+    try:
+        di_pages = await _extract_pages_with_di(blob_path)
+        total_pages = len(di_pages)
+        full_text = "\n\n".join([p.get("content", "") for p in di_pages])
+        print(f"[Revision] DI extracted {total_pages} pages, {len(full_text)} chars total", flush=True)
+
+        # Save page-level JSONs to blob
+        di_folder_path = f"{username}/revision/{project_id}/docs/{doc_id}/{revision}_di/"
+        _save_page_jsons(container, di_folder_path, di_pages, {
             "doc_id": doc_id,
             "doc_no": doc.get("doc_no", ""),
             "title": doc.get("title", ""),
-            "revision": revision,
-            "filename": rev_filename,
-            "extracted_at": datetime.now(timezone.utc).isoformat(),
-            "pages": di_result,
-            "full_text": extracted_text,
-            "text_length": len(extracted_text),
-        }, ensure_ascii=False, indent=2).encode('utf-8')
-        container.upload_blob(name=di_json_path, data=di_data, overwrite=True)
-        print(f"[Revision] Saved DI JSON: {di_json_path}", flush=True)
+        }, revision)
     except Exception as e:
         print(f"[Revision] DI extraction failed (non-fatal): {e}", flush=True)
 
-    # Index in Azure AI Search (embedding + indexing)
+    # Index pages in Azure AI Search (page-level embedding + indexing)
     phase_name = PHASES.get(doc.get("phase", ""), {}).get("name", "")
     try:
-        revision_search_service.index_revision_document(
-            project_id=project_id,
-            project_name=project.get("project_name", ""),
-            doc_id=doc_id,
-            doc_no=doc.get("doc_no", ""),
-            tag_no=doc.get("tag_no", ""),
-            title=doc.get("title", ""),
-            phase=doc.get("phase", ""),
-            phase_name=phase_name,
-            revision=revision,
-            engineer_name=engineer_name,
-            revision_date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-            change_description=change_description,
-            content=extracted_text,
-            blob_path=blob_path,
-            username=username,
-        )
+        if di_pages:
+            pages_for_index = [
+                {"page_number": p.get("page_number", i + 1), "content": p.get("content", "")}
+                for i, p in enumerate(di_pages)
+            ]
+            metadata = {
+                "project_id": project_id,
+                "project_name": project.get("project_name", ""),
+                "doc_id": doc_id,
+                "doc_no": doc.get("doc_no", ""),
+                "tag_no": doc.get("tag_no", ""),
+                "title": doc.get("title", ""),
+                "phase": doc.get("phase", ""),
+                "phase_name": phase_name,
+                "revision": revision,
+                "engineer_name": engineer_name,
+                "revision_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "change_description": change_description,
+                "blob_path": blob_path,
+                "username": username,
+            }
+            indexed = revision_search_service.index_revision_pages(pages_for_index, metadata)
+            print(f"[Revision] Indexed {indexed}/{total_pages} pages", flush=True)
     except Exception as e:
         print(f"[Revision] Search indexing failed (non-fatal): {e}", flush=True)
 
@@ -891,8 +1007,9 @@ async def register_revision(
         "date": now.strftime("%Y-%m-%d"),
         "blob_path": blob_path,
         "filename": rev_filename,
-        "di_json_path": di_json_path,
-        "text_length": len(extracted_text),
+        "di_folder_path": di_folder_path,
+        "total_pages": total_pages,
+        "text_length": len(full_text),
         "uploaded_at": now.isoformat(),
     }
     doc["revisions"].append(revision_entry)
@@ -923,6 +1040,7 @@ async def register_revision(
         "revision": revision,
         "doc_id": doc_id,
         "doc_status": doc["status"],
+        "total_pages": total_pages,
         "summary": project["summary"],
     }
 
@@ -1081,9 +1199,17 @@ async def compare_revisions(
 
     print(f"[Revision] Comparing {rev_a['revision']} vs {rev_b['revision']} for doc {doc.get('doc_no')}", flush=True)
 
-    # Extract text: prefer saved DI JSON, fallback to live DI extraction
-    text_a = _load_di_text(container, rev_a.get("di_json_path", "")) or await _extract_text_from_blob(rev_a.get("blob_path", ""))
-    text_b = _load_di_text(container, rev_b.get("di_json_path", "")) or await _extract_text_from_blob(rev_b.get("blob_path", ""))
+    # Extract text: prefer saved DI results (page-level or legacy), fallback to live DI extraction
+    text_a = _load_di_text(
+        container,
+        di_json_path=rev_a.get("di_json_path", ""),
+        di_folder_path=rev_a.get("di_folder_path", ""),
+    ) or await _extract_text_from_blob(rev_a.get("blob_path", ""))
+    text_b = _load_di_text(
+        container,
+        di_json_path=rev_b.get("di_json_path", ""),
+        di_folder_path=rev_b.get("di_folder_path", ""),
+    ) or await _extract_text_from_blob(rev_b.get("blob_path", ""))
 
     if not text_a and not text_b:
         return {"comparison": "두 리비전 모두 텍스트를 추출할 수 없습니다.", "rev_a": rev_a["revision"], "rev_b": rev_b["revision"]}
@@ -1139,19 +1265,46 @@ async def compare_revisions(
     }
 
 
-def _load_di_text(container, di_json_path: str) -> str:
-    """Load pre-extracted text from DI JSON file in blob storage."""
-    if not di_json_path:
-        return ""
-    try:
-        blob = container.get_blob_client(di_json_path)
-        data = json.loads(blob.download_blob().readall().decode('utf-8'))
-        text = data.get("full_text", "")
-        if text:
-            print(f"[Revision] Loaded DI text from cache: {di_json_path} ({len(text)} chars)", flush=True)
-        return text
-    except Exception:
-        return ""
+def _load_di_text(container, di_json_path: str = "", di_folder_path: str = "") -> str:
+    """Load pre-extracted text from DI results.
+    Supports both new page-level format (di_folder_path) and legacy single-file (di_json_path).
+    """
+    # New format: page-level JSONs in folder
+    if di_folder_path:
+        try:
+            meta_blob = container.get_blob_client(f"{di_folder_path}meta.json")
+            meta = json.loads(meta_blob.download_blob().readall().decode('utf-8'))
+            page_numbers = meta.get("pages", [])
+
+            texts = []
+            for pn in sorted(page_numbers):
+                try:
+                    page_blob = container.get_blob_client(f"{di_folder_path}page_{pn}.json")
+                    page_data = json.loads(page_blob.download_blob().readall().decode('utf-8'))
+                    texts.append(page_data.get("content", ""))
+                except Exception:
+                    pass
+
+            full_text = "\n\n".join(texts)
+            if full_text:
+                print(f"[Revision] Loaded DI text from {len(page_numbers)} page JSONs ({len(full_text)} chars)", flush=True)
+                return full_text
+        except Exception as e:
+            logger.warning(f"Failed to load page-level DI from {di_folder_path}: {e}")
+
+    # Legacy format: single DI JSON file
+    if di_json_path:
+        try:
+            blob = container.get_blob_client(di_json_path)
+            data = json.loads(blob.download_blob().readall().decode('utf-8'))
+            text = data.get("full_text", "")
+            if text:
+                print(f"[Revision] Loaded DI text from cache: {di_json_path} ({len(text)} chars)", flush=True)
+            return text
+        except Exception:
+            return ""
+
+    return ""
 
 
 async def _extract_text_from_blob(blob_path: str) -> str:

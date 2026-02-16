@@ -1002,6 +1002,9 @@ const RevisionMaster = () => {
                                                         <span className="text-xs font-mono text-cyan-600">{r.doc_no}</span>
                                                         <span className="text-xs text-slate-400">{r.phase_name}</span>
                                                         <span className="text-xs text-slate-400">Rev.{r.revision}</span>
+                                                        {r.page_number > 0 && (
+                                                            <span className="text-xs bg-cyan-50 text-cyan-600 px-1.5 py-0.5 rounded">p.{r.page_number}{r.total_pages ? `/${r.total_pages}` : ''}</span>
+                                                        )}
                                                     </div>
                                                     <h4 className="font-medium text-slate-800 mb-1">{r.title}</h4>
                                                     <p className="text-sm text-slate-500" dangerouslySetInnerHTML={{ __html: r.highlight || r.content_preview || '' }} />
@@ -1253,7 +1256,12 @@ const RevisionMaster = () => {
                                                                         <p className="text-xs text-slate-600 mb-1">{rev.change_description}</p>
                                                                     )}
                                                                     <div className="flex items-center justify-between">
-                                                                        <span className="text-xs text-slate-400">{rev.engineer_name || '-'}</span>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-xs text-slate-400">{rev.engineer_name || '-'}</span>
+                                                                            {rev.total_pages > 0 && (
+                                                                                <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{rev.total_pages}p</span>
+                                                                            )}
+                                                                        </div>
                                                                         {rev.download_url && (
                                                                             <a href={rev.download_url} target="_blank" rel="noreferrer"
                                                                                 className="text-xs text-cyan-600 hover:text-cyan-800 flex items-center gap-1">
