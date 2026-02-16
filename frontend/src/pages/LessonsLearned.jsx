@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Search as SearchIcon, Send, Bot, User, Loader2,
     ChevronRight, ChevronDown, ChevronLeft, X, Upload, Trash2,
-    BookOpen, MessageSquare, FileText, FolderTree, RefreshCcw, Check, ExternalLink
+    BookOpen, MessageSquare, FileText, FolderTree, RefreshCcw, Check, ExternalLink, LogOut
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -24,7 +24,7 @@ const _loadSS = () => { try { return JSON.parse(sessionStorage.getItem(SS_KEY)) 
 
 const LessonsLearned = () => {
     const navigate = useNavigate();
-    const { currentUser } = useAuth();
+    const { currentUser, logout } = useAuth();
     const username = currentUser?.displayName || currentUser?.email?.split('@')[0];
     const isAdmin = currentUser?.email === 'admin@poscoenc.com';
 
@@ -752,8 +752,8 @@ const LessonsLearned = () => {
                     </div>
                 )}
 
-                {/* Category Tree */}
-                <div className="flex-1 overflow-y-auto px-3 py-2">
+                {/* Category Tree — scrollable middle section */}
+                <div className="flex-1 overflow-y-auto px-3 py-2 min-h-0">
                     <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">분류 (Categories)</div>
                     {categoryTree.length === 0 ? (
                         <div className="text-xs text-gray-400 italic px-3 py-4">
@@ -841,6 +841,37 @@ const LessonsLearned = () => {
                             ))}
                         </div>
                     )}
+                </div>
+
+                {/* User Profile (bottom) */}
+                <div className="px-3 py-3 border-t border-gray-200 flex-shrink-0">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                            {currentUser?.photoURL ? (
+                                <img src={currentUser.photoURL} alt="" className="w-8 h-8 rounded-full object-cover" />
+                            ) : (
+                                <User className="w-4 h-4 text-purple-600" />
+                            )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-800 truncate">
+                                {currentUser?.displayName || currentUser?.email?.split('@')[0] || '사용자'}
+                            </div>
+                            <div className="text-[10px] text-gray-400 truncate">
+                                {currentUser?.email || ''}
+                            </div>
+                        </div>
+                        <button
+                            onClick={async () => {
+                                if (!confirm('로그아웃 하시겠습니까?')) return;
+                                try { await logout(); navigate('/'); } catch {}
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
+                            title="로그아웃"
+                        >
+                            <LogOut className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
             </div>
 
