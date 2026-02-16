@@ -264,6 +264,8 @@ def reindex_from_json(req: ReindexRequest):
                 raise HTTPException(status_code=404, detail=f"No JSON analysis found for {req.filename}")
 
             json_content = json.loads(data)
+            print(f"[reindex] JSON type={type(json_content).__name__}, "
+                  f"keys={list(json_content.keys()) if isinstance(json_content, dict) else f'len={len(json_content)}'}", flush=True)
             # Legacy format may have pages_data as a list or wrapped in an object
             if isinstance(json_content, list):
                 pages_data = json_content
@@ -275,6 +277,7 @@ def reindex_from_json(req: ReindexRequest):
                 pages_data = [json_content]
 
         if not pages_data:
+            print(f"[reindex] ERROR: pages_data is empty for {req.filename}", flush=True)
             raise HTTPException(status_code=404, detail=f"No page data found for {req.filename}")
 
         print(f"[reindex] Loaded {len(pages_data)} pages, starting indexing...", flush=True)

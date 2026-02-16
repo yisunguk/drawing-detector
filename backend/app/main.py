@@ -5,6 +5,7 @@ from app.api.endpoints import upload, chat
 
 azure_routes_error = None
 azure_routes = None
+analysis_router_error = None
 try:
     from app.api.endpoints import azure_routes
 except Exception as e:
