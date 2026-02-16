@@ -291,8 +291,24 @@ Phase 정의 (EPCC 준공 프로세스 기준):
    - Commissioning Spare Parts List
    - Job Card Form / Job Card Item List
 
+문서번호(doc_no) 규칙 — 반드시 모든 문서에 doc_no를 부여하세요:
+1. 사양서에 문서번호가 명시된 경우 그대로 사용 (예: GMTP-FEED-PR-RPT-013)
+2. 사양서에 문서번호가 없는 경우, 아래 분류별 접두어 + 순번으로 자동 생성:
+   - 계획서/절차서: {project_code}-CMS-PRC-NNN (Commissioning Procedure)
+   - 스케줄: {project_code}-CMS-SCH-NNN (Schedule)
+   - 시험성적서/보고서: {project_code}-CMS-RPT-NNN (Report)
+   - 인증서: {project_code}-CMS-CRT-NNN (Certificate)
+   - 목록/리스트: {project_code}-CMS-LST-NNN (List)
+   - 매뉴얼/교육: {project_code}-CMS-MNL-NNN (Manual)
+   - 기타: {project_code}-CMS-DOC-NNN (Document)
+3. NNN은 001부터 순번 (같은 접두어 내에서 순서대로)
+
+태그번호(tag_no) 규칙:
+1. 장비별 시험/성적서에만 해당 장비 tag_no 기입 (예: P-1001A, V-2001)
+2. 일반 문서(계획서, 스케줄, 인증서 등)는 tag_no를 빈 문자열("")로 설정
+
 반드시 아래 JSON 형식으로 응답하세요:
-{{"documents": [{{"doc_no": "...", "tag_no": "...", "title": "...", "phase": "phase_1"}}]}}
+{{"documents": [{{"doc_no": "문서번호", "tag_no": "태그번호 또는 빈문자열", "title": "문서제목", "phase": "phase_1"}}]}}
 
 사양서 내용:
 {spec_text}"""
@@ -321,10 +337,52 @@ Phase 정의 (EPCC 준공 프로세스 기준):
                 "latest_date": "",
                 "revisions": [],
             })
+
+        # Post-process: auto-fill empty doc_no
+        _auto_fill_doc_no(documents, project_code)
         return documents
     except Exception as e:
         logger.error(f"GPT extraction failed: {e}")
         return []
+
+
+def _auto_fill_doc_no(documents: list, project_code: str):
+    """Auto-fill empty doc_no for documents that GPT didn't assign a number."""
+    prefix = project_code or "DOC"
+
+    # Classify document by title keywords → category prefix
+    def _classify(title: str) -> str:
+        t = title.lower()
+        if any(k in t for k in ["certificate", "인증서", "acceptance"]):
+            return "CRT"
+        if any(k in t for k in ["schedule", "스케줄", "일정"]):
+            return "SCH"
+        if any(k in t for k in ["plan", "procedure", "계획", "절차"]):
+            return "PRC"
+        if any(k in t for k in ["list", "목록", "리스트", "inventory"]):
+            return "LST"
+        if any(k in t for k in ["manual", "training", "매뉴얼", "교육"]):
+            return "MNL"
+        if any(k in t for k in ["report", "test", "record", "보고", "시험", "성적", "check"]):
+            return "RPT"
+        return "DOC"
+
+    # Count existing numbers per category to avoid collision
+    cat_counters = {}
+    for doc in documents:
+        if doc.get("doc_no"):
+            # Parse existing number to track used indices
+            parts = doc["doc_no"].split("-")
+            if len(parts) >= 4 and parts[-1].isdigit():
+                cat_key = parts[-2] if len(parts) >= 3 else "DOC"
+                cat_counters[cat_key] = max(cat_counters.get(cat_key, 0), int(parts[-1]))
+
+    # Fill empty doc_no
+    for doc in documents:
+        if not doc.get("doc_no") or doc["doc_no"].strip() in ("", "-"):
+            cat = _classify(doc.get("title", ""))
+            cat_counters[cat] = cat_counters.get(cat, 0) + 1
+            doc["doc_no"] = f"{prefix}-CMS-{cat}-{cat_counters[cat]:03d}"
 
 
 def _ensure_standard_documents(documents: list, project_code: str) -> list:
@@ -386,13 +444,11 @@ def _ensure_standard_documents(documents: list, project_code: str) -> list:
         {"title": "Certificate of Final Acceptance (FA)", "phase": "phase_4"},
     ]
 
-    idx = len(documents) + 1
     for sd in standard_docs:
         if sd["title"].lower() not in existing_titles:
-            prefix = project_code or "DOC"
             documents.append({
                 "doc_id": str(uuid.uuid4()),
-                "doc_no": f"{prefix}-{idx:03d}",
+                "doc_no": "",  # Will be auto-filled below
                 "tag_no": "",
                 "title": sd["title"],
                 "phase": sd["phase"],
@@ -401,8 +457,9 @@ def _ensure_standard_documents(documents: list, project_code: str) -> list:
                 "latest_date": "",
                 "revisions": [],
             })
-            idx += 1
 
+    # Auto-fill empty doc_no for all documents (including newly added standard docs)
+    _auto_fill_doc_no(documents, project_code)
     return documents
 
 
@@ -660,6 +717,12 @@ async def add_document(
         "revisions": [],
     }
     project["documents"].append(new_doc)
+
+    # Auto-fill doc_no if empty (considers existing documents to avoid collision)
+    if not request.doc_no or request.doc_no.strip() in ("", "-"):
+        project_code = project.get("project_code", "DOC")
+        _auto_fill_doc_no(project["documents"], project_code)
+
     _recalculate_summary(project)
     _save_project_json(container, json_path, project)
 

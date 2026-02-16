@@ -974,11 +974,13 @@ const RevisionMaster = () => {
                         <form onSubmit={handleAddDocument} className="p-5 space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">문서번호</label>
-                                <input name="doc_no" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                                <input name="doc_no" placeholder="비워두면 자동 채번됩니다" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                                <p className="text-xs text-slate-400 mt-1">예: GMTP-CMS-RPT-001 (비워두면 제목 기반 자동 생성)</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">태그번호</label>
-                                <input name="tag_no" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                                <input name="tag_no" placeholder="장비 태그 (예: P-1001A)" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                                <p className="text-xs text-slate-400 mt-1">장비별 시험/성적서에만 해당. 일반 문서는 비워두세요.</p>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">제목 *</label>
