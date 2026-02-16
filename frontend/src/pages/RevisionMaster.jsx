@@ -36,6 +36,121 @@ const STATUS_CONFIG = {
 const SS_KEY = 'revision-master-state';
 const _loadSS = () => { try { return JSON.parse(sessionStorage.getItem(SS_KEY)) || {}; } catch { return {}; } };
 
+// ── Resizable Table Component ──
+const COL_DEFAULTS = [80, 130, 100, 350, 60, 70, 90];
+const COL_KEYS = ['상태', '문서번호', '태그번호', '제목', 'Phase', '리비전', '날짜'];
+
+const ResizableTable = ({ docs, selectedDocId, onSelectDoc, onStatusChange, projectData }) => {
+    const [colWidths, setColWidths] = useState(() => {
+        try { const s = JSON.parse(sessionStorage.getItem('rev-col-widths')); return s || [...COL_DEFAULTS]; }
+        catch { return [...COL_DEFAULTS]; }
+    });
+    const draggingCol = useRef(null);
+    const startX = useRef(0);
+    const startW = useRef(0);
+
+    const handleMouseDown = (colIdx, e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        draggingCol.current = colIdx;
+        startX.current = e.clientX;
+        startW.current = colWidths[colIdx];
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    };
+
+    const handleMouseMove = useCallback((e) => {
+        if (draggingCol.current === null) return;
+        const diff = e.clientX - startX.current;
+        const newWidth = Math.max(40, startW.current + diff);
+        setColWidths(prev => {
+            const next = [...prev];
+            next[draggingCol.current] = newWidth;
+            return next;
+        });
+    }, []);
+
+    const handleMouseUp = useCallback(() => {
+        draggingCol.current = null;
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        setColWidths(prev => {
+            sessionStorage.setItem('rev-col-widths', JSON.stringify(prev));
+            return prev;
+        });
+    }, [handleMouseMove]);
+
+    const [statusDropdown, setStatusDropdown] = useState(null);
+
+    return (
+        <table className="text-sm" style={{ tableLayout: 'fixed', width: colWidths.reduce((a, b) => a + b, 0) }}>
+            <thead className="bg-slate-100 sticky top-0 z-10">
+                <tr className="text-left text-slate-500">
+                    {COL_KEYS.map((label, i) => (
+                        <th key={label} className="relative px-3 py-2.5 font-medium select-none" style={{ width: colWidths[i] }}>
+                            {label}
+                            <div
+                                onMouseDown={(e) => handleMouseDown(i, e)}
+                                className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-cyan-400/50 active:bg-cyan-500/50 z-20"
+                            />
+                        </th>
+                    ))}
+                </tr>
+            </thead>
+            <tbody>
+                {docs.map(doc => {
+                    const st = STATUS_CONFIG[doc.status] || STATUS_CONFIG.not_started;
+                    const isSelected = selectedDocId === doc.doc_id;
+                    return (
+                        <tr
+                            key={doc.doc_id}
+                            onClick={() => onSelectDoc(doc.doc_id)}
+                            className={`cursor-pointer border-b border-slate-100 transition ${isSelected ? 'bg-cyan-50' : 'hover:bg-slate-50'}`}
+                        >
+                            <td className="px-3 py-2.5 relative" style={{ width: colWidths[0] }}>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setStatusDropdown(statusDropdown === doc.doc_id ? null : doc.doc_id); }}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${st.color} hover:ring-2 hover:ring-offset-1 hover:ring-cyan-300 transition`}
+                                    title="상태 변경"
+                                >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                                    {st.label}
+                                </button>
+                                {statusDropdown === doc.doc_id && (
+                                    <div className="absolute left-3 top-full mt-1 z-30 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[120px]"
+                                        onClick={e => e.stopPropagation()}>
+                                        {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                                            <button key={key}
+                                                onClick={() => { onStatusChange(doc.doc_id, key); setStatusDropdown(null); }}
+                                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2 ${doc.status === key ? 'font-bold' : ''}`}>
+                                                <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+                                                {cfg.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </td>
+                            <td className="px-3 py-2.5 font-mono text-slate-700 truncate" style={{ width: colWidths[1] }}>{doc.doc_no || '-'}</td>
+                            <td className="px-3 py-2.5 text-slate-600 truncate" style={{ width: colWidths[2] }}>{doc.tag_no || '-'}</td>
+                            <td className="px-3 py-2.5 text-slate-800 font-medium truncate" style={{ width: colWidths[3] }} title={doc.title}>{doc.title}</td>
+                            <td className="px-3 py-2.5 text-xs text-slate-500" style={{ width: colWidths[4] }}>{doc.phase?.replace('phase_', 'P')}</td>
+                            <td className="px-3 py-2.5 font-mono text-slate-600" style={{ width: colWidths[5] }}>{doc.latest_revision || '-'}</td>
+                            <td className="px-3 py-2.5 text-xs text-slate-400" style={{ width: colWidths[6] }}>{doc.latest_date || '-'}</td>
+                        </tr>
+                    );
+                })}
+                {docs.length === 0 && (
+                    <tr>
+                        <td colSpan={7} className="text-center py-12 text-slate-400">
+                            {projectData ? '해당 Phase에 문서가 없습니다' : '데이터 로딩 중...'}
+                        </td>
+                    </tr>
+                )}
+            </tbody>
+        </table>
+    );
+};
+
 const RevisionMaster = () => {
     const navigate = useNavigate();
     const { currentUser, logout } = useAuth();
@@ -843,55 +958,23 @@ const RevisionMaster = () => {
                                         <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
                                     </div>
                                 ) : (
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-slate-100 sticky top-0 z-10">
-                                            <tr className="text-left text-slate-500">
-                                                <th className="px-4 py-2.5 font-medium w-24">상태</th>
-                                                <th className="px-4 py-2.5 font-medium w-32">문서번호</th>
-                                                <th className="px-4 py-2.5 font-medium w-28">태그번호</th>
-                                                <th className="px-4 py-2.5 font-medium">제목</th>
-                                                <th className="px-4 py-2.5 font-medium w-20">Phase</th>
-                                                <th className="px-4 py-2.5 font-medium w-20">리비전</th>
-                                                <th className="px-4 py-2.5 font-medium w-24">날짜</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {filteredDocs.map(doc => {
-                                                const st = STATUS_CONFIG[doc.status] || STATUS_CONFIG.not_started;
-                                                const isSelected = selectedDocId === doc.doc_id;
-                                                return (
-                                                    <tr
-                                                        key={doc.doc_id}
-                                                        onClick={() => { setSelectedDocId(doc.doc_id); setCompareSelection([]); setComparisonResult(null); setEditingRevId(null); }}
-                                                        className={`cursor-pointer border-b border-slate-100 transition
-                                                            ${isSelected ? 'bg-cyan-50' : 'hover:bg-slate-50'}`}
-                                                    >
-                                                        <td className="px-4 py-2.5">
-                                                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${st.color}`}>
-                                                                <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
-                                                                {st.label}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-2.5 font-mono text-slate-700">{doc.doc_no || '-'}</td>
-                                                        <td className="px-4 py-2.5 text-slate-600">{doc.tag_no || '-'}</td>
-                                                        <td className="px-4 py-2.5 text-slate-800 font-medium truncate max-w-[300px]">{doc.title}</td>
-                                                        <td className="px-4 py-2.5 text-xs text-slate-500">
-                                                            {doc.phase?.replace('phase_', 'P')}
-                                                        </td>
-                                                        <td className="px-4 py-2.5 font-mono text-slate-600">{doc.latest_revision || '-'}</td>
-                                                        <td className="px-4 py-2.5 text-xs text-slate-400">{doc.latest_date || '-'}</td>
-                                                    </tr>
-                                                );
-                                            })}
-                                            {filteredDocs.length === 0 && (
-                                                <tr>
-                                                    <td colSpan={7} className="text-center py-12 text-slate-400">
-                                                        {projectData ? '해당 Phase에 문서가 없습니다' : '데이터 로딩 중...'}
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
+                                    <ResizableTable
+                                        docs={filteredDocs}
+                                        selectedDocId={selectedDocId}
+                                        onSelectDoc={(docId) => { setSelectedDocId(docId); setCompareSelection([]); setComparisonResult(null); setEditingRevId(null); }}
+                                        onStatusChange={async (docId, newStatus) => {
+                                            try {
+                                                const headers = await getAuthHeaders();
+                                                headers['Content-Type'] = 'application/json';
+                                                await fetch(getRevisionApiUrl('update-document'), {
+                                                    method: 'PUT', headers,
+                                                    body: JSON.stringify({ project_id: selectedProject, doc_id: docId, status: newStatus }),
+                                                });
+                                                loadProjectDetail(selectedProject);
+                                            } catch (err) { console.error(err); }
+                                        }}
+                                        projectData={projectData}
+                                    />
                                 )}
                             </div>
                         </div>
