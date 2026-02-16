@@ -633,7 +633,7 @@ const LessonsLearned = () => {
                             <ArrowLeft className="w-4 h-4" />
                         </button>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">총 {totalDocs}건의 교훈 문서</p>
+                    <p className="text-xs text-gray-400 mt-1">DOC-Master 문서를 검색해서 답변을 제공합니다.</p>
                 </div>
 
                 {/* Upload Section */}
@@ -653,7 +653,7 @@ const LessonsLearned = () => {
                         {isUploading ? (
                             <><Loader2 className="w-4 h-4 animate-spin" /> 처리 중...</>
                         ) : (
-                            <><Upload className="w-4 h-4" /> 파일 업로드 (TXT/JSON)</>
+                            <><Upload className="w-4 h-4" /> DOC-Master 프로젝트 검색</>
                         )}
                     </button>
                     {uploadProgress && (
@@ -666,10 +666,12 @@ const LessonsLearned = () => {
                 {/* Uploaded Files */}
                 {uploadedFiles.length > 0 && (
                     <div className="px-3 py-2 border-b border-gray-200 max-h-32 overflow-y-auto">
-                        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">업로드된 파일</div>
-                        {uploadedFiles.map((f) => (
+                        <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5 px-1">프로젝트</div>
+                        {uploadedFiles.map((f) => {
+                            const displayName = f.filename.replace(/\.(txt|json)$/i, '') + (f.pjt_cd ? ` (${f.pjt_cd})` : '');
+                            return (
                             <div key={f.filename} className="flex items-center justify-between px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded group">
-                                <span className="truncate flex-1" title={f.filename}>{f.filename}</span>
+                                <span className="truncate flex-1" title={displayName}>{displayName}</span>
                                 <span className="text-gray-400 mx-2 flex-shrink-0">{f.document_count}건</span>
                                 <button
                                     onClick={() => handleDeleteFile(f.filename)}
@@ -679,7 +681,8 @@ const LessonsLearned = () => {
                                     <Trash2 className="w-3 h-3" />
                                 </button>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
 
@@ -699,7 +702,9 @@ const LessonsLearned = () => {
                             {selectedSourceFile && <div className="w-3 h-3 flex-shrink-0" />}
                             <span>전체 문서</span>
                         </button>
-                        {uploadedFiles.map((f) => (
+                        {uploadedFiles.map((f) => {
+                            const scopeName = f.filename.replace(/\.(txt|json)$/i, '') + (f.pjt_cd ? ` (${f.pjt_cd})` : '');
+                            return (
                             <button
                                 key={f.filename}
                                 onClick={() => setSelectedSourceFile(f.filename)}
@@ -711,10 +716,11 @@ const LessonsLearned = () => {
                             >
                                 {selectedSourceFile === f.filename && <Check className="w-3 h-3 flex-shrink-0" />}
                                 {selectedSourceFile !== f.filename && <div className="w-3 h-3 flex-shrink-0" />}
-                                <span className="truncate">{f.filename}</span>
+                                <span className="truncate">{scopeName}</span>
                                 <span className="text-[10px] text-gray-400 ml-auto">{f.document_count}</span>
                             </button>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
 
@@ -846,15 +852,19 @@ const LessonsLearned = () => {
                         </div>
                     )}
 
-                    {selectedSourceFile && (
+                    {selectedSourceFile && (() => {
+                        const sf = uploadedFiles.find(f => f.filename === selectedSourceFile);
+                        const sfDisplay = selectedSourceFile.replace(/\.(txt|json)$/i, '') + (sf?.pjt_cd ? ` (${sf.pjt_cd})` : '');
+                        return (
                         <div className="flex items-center gap-1 ml-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs">
                             <FileText className="w-3 h-3" />
-                            <span className="font-medium truncate max-w-[150px]">{selectedSourceFile}</span>
+                            <span className="font-medium truncate max-w-[200px]">{sfDisplay}</span>
                             <button onClick={() => setSelectedSourceFile(null)} className="p-0.5 hover:bg-blue-100 rounded">
                                 <X className="w-3 h-3" />
                             </button>
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {mode === 'search' && hasSearched && (
                         <button

@@ -612,7 +612,7 @@ class LessonsSearchService:
             return []
 
     def get_uploaded_files(self, username: str) -> List[Dict]:
-        """Get list of uploaded source files for a user."""
+        """Get list of uploaded source files for a user with project code."""
         if not self.client:
             return []
 
@@ -627,9 +627,25 @@ class LessonsSearchService:
 
             files = []
             for facet in results.get_facets().get("source_file", []):
+                filename = facet["value"]
+                # Fetch pjt_cd from the first document of this source file
+                pjt_cd = ""
+                try:
+                    doc_results = self.client.search(
+                        search_text="*",
+                        filter=f"username eq '{safe_user}' and source_file eq '{filename.replace(chr(39), chr(39)+chr(39))}'",
+                        select=["pjt_cd"],
+                        top=1,
+                    )
+                    for doc in doc_results:
+                        pjt_cd = doc.get("pjt_cd", "") or ""
+                        break
+                except Exception:
+                    pass
                 files.append({
-                    "filename": facet["value"],
+                    "filename": filename,
                     "document_count": facet["count"],
+                    "pjt_cd": pjt_cd,
                 })
             return files
 
