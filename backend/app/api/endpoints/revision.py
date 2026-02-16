@@ -161,6 +161,12 @@ class UpdateDocumentRequest(BaseModel):
     status: Optional[str] = None
 
 
+class UpdateProjectRequest(BaseModel):
+    project_id: str
+    project_name: Optional[str] = None
+    project_code: Optional[str] = None
+
+
 class SearchRequest(BaseModel):
     query: str
     project_id: Optional[str] = None
@@ -699,6 +705,36 @@ async def update_document(
     _save_project_json(container, json_path, project)
 
     return {"status": "success", "summary": project["summary"]}
+
+
+# ── Update Project ──
+
+@router.put("/update-project")
+async def update_project(
+    request: UpdateProjectRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Update project name and/or code. Blob paths use UUID so no folder rename needed."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    json_path = f"{username}/revision/{request.project_id}/project.json"
+    project = _load_project_json(container, json_path)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if request.project_name is not None:
+        project["project_name"] = request.project_name
+    if request.project_code is not None:
+        project["project_code"] = request.project_code
+
+    _save_project_json(container, json_path, project)
+
+    return {
+        "status": "success",
+        "project_name": project["project_name"],
+        "project_code": project["project_code"],
+    }
 
 
 # ── Delete Project ──

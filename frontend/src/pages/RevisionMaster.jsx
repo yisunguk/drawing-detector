@@ -74,6 +74,7 @@ const RevisionMaster = () => {
     const [showAddDoc, setShowAddDoc] = useState(false);
     const [showRegisterRev, setShowRegisterRev] = useState(false);
     const [showEditDoc, setShowEditDoc] = useState(false);
+    const [showEditProject, setShowEditProject] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState('');
 
@@ -282,6 +283,30 @@ const RevisionMaster = () => {
         }
     };
 
+    // ── Update Project ──
+    const handleUpdateProject = async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        try {
+            const headers = await getAuthHeaders();
+            headers['Content-Type'] = 'application/json';
+            const res = await fetch(getRevisionApiUrl('update-project'), {
+                method: 'PUT', headers,
+                body: JSON.stringify({
+                    project_id: selectedProject,
+                    project_name: form.project_name.value,
+                    project_code: form.project_code.value,
+                }),
+            });
+            if (!res.ok) throw new Error('Failed');
+            setShowEditProject(false);
+            loadProjects();
+            loadProjectDetail(selectedProject);
+        } catch (err) {
+            alert('프로젝트 수정 실패: ' + err.message);
+        }
+    };
+
     // ── Delete Project ──
     const handleDeleteProject = async () => {
         if (!selectedProject) return;
@@ -423,11 +448,15 @@ const RevisionMaster = () => {
                             </button>
                         </div>
                         {selectedProject && (
-                            <div className="flex gap-1">
+                            <div className="flex gap-1 flex-wrap">
                                 <button onClick={() => loadProjectDetail(selectedProject)} className="text-xs text-cyan-600 hover:text-cyan-800 flex items-center gap-1">
                                     <RefreshCcw className="w-3 h-3" /> 새로고침
                                 </button>
-                                <span className="text-slate-300 mx-1">|</span>
+                                <span className="text-slate-300 mx-0.5">|</span>
+                                <button onClick={() => setShowEditProject(true)} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1">
+                                    <Edit3 className="w-3 h-3" /> 수정
+                                </button>
+                                <span className="text-slate-300 mx-0.5">|</span>
                                 <button onClick={handleDeleteProject} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
                                     <Trash2 className="w-3 h-3" /> 삭제
                                 </button>
@@ -1005,6 +1034,37 @@ const RevisionMaster = () => {
                             <button type="submit" disabled={isUploading} className="w-full py-2.5 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 disabled:opacity-50 transition">
                                 {isUploading ? '처리 중...' : '리비전 등록'}
                             </button>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Project Modal */}
+            {showEditProject && projectData && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl w-[440px]">
+                        <div className="flex items-center justify-between p-5 border-b border-slate-200">
+                            <h3 className="font-bold text-lg text-slate-800">프로젝트 정보 수정</h3>
+                            <button onClick={() => setShowEditProject(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+                        </div>
+                        <form onSubmit={handleUpdateProject} className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">프로젝트명 *</label>
+                                <input name="project_name" defaultValue={projectData.project_name} required className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">프로젝트 코드</label>
+                                <input name="project_code" defaultValue={projectData.project_code} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500" />
+                            </div>
+                            <div className="bg-slate-50 rounded-lg p-3">
+                                <p className="text-xs text-slate-500">
+                                    <span className="font-medium">Project ID:</span> {projectData.project_id}
+                                </p>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    Blob 경로는 UUID 기반이므로 이름/코드 변경 시 파일 이동이 필요 없습니다.
+                                </p>
+                            </div>
+                            <button type="submit" className="w-full py-2.5 bg-cyan-600 text-white rounded-lg font-medium hover:bg-cyan-700 transition">저장</button>
                         </form>
                     </div>
                 </div>
