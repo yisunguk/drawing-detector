@@ -99,11 +99,26 @@ const LessonsLearned = () => {
     // =============================================
     const parseContentPages = useCallback((content) => {
         if (!content) return [{ pageNum: 1, text: '' }];
-        const parts = content.split(/\.\.PAGE:\d+/);
-        const pages = parts.map((text, i) => ({
-            pageNum: i + 1,
-            text: text.trim(),
-        })).filter(p => p.text.length > 0);
+
+        const regex = /\.\.PAGE:(\d+)/g;
+        const markers = [];
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+            markers.push({ pageNum: parseInt(match[1], 10), end: match.index + match[0].length, start: match.index });
+        }
+        if (markers.length === 0) return [{ pageNum: 1, text: content }];
+
+        const pages = [];
+        // Text before the first marker → page 1
+        const before = content.substring(0, markers[0].start).trim();
+        if (before.length > 0) pages.push({ pageNum: 1, text: before });
+
+        for (let i = 0; i < markers.length; i++) {
+            const textStart = markers[i].end;
+            const textEnd = i + 1 < markers.length ? markers[i + 1].start : content.length;
+            const text = content.substring(textStart, textEnd).trim();
+            if (text.length > 0) pages.push({ pageNum: markers[i].pageNum, text });
+        }
         return pages.length > 0 ? pages : [{ pageNum: 1, text: content }];
     }, []);
 
