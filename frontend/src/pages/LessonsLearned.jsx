@@ -1112,7 +1112,7 @@ const LessonsLearned = () => {
                         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
                             <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                                 <FolderTree className="w-5 h-5 text-purple-600" />
-                                DOC-Master 프로젝트
+                                DOC-Master의 프로젝트 검색
                             </h2>
                             <button
                                 onClick={() => setShowProjectModal(false)}
