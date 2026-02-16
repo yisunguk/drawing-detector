@@ -928,21 +928,34 @@ const RevisionMaster = () => {
                     <div className="bg-white border-b border-slate-200 px-4 flex items-center gap-1 shrink-0">
                         <button
                             onClick={() => setActivePhaseTab('all')}
-                            className={`px-3 py-2.5 text-sm font-medium border-b-2 transition
+                            className={`px-3 py-2.5 text-sm font-medium border-b-2 transition flex items-center gap-1.5
                                 ${activePhaseTab === 'all' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                         >
                             전체
+                            {projectData?.summary?.total > 0 && (
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full ${activePhaseTab === 'all' ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-400'}`}>
+                                    {projectData.summary.total}
+                                </span>
+                            )}
                         </button>
-                        {Object.entries(PHASES).map(([key, phase]) => (
-                            <button
-                                key={key}
-                                onClick={() => setActivePhaseTab(key)}
-                                className={`px-3 py-2.5 text-sm font-medium border-b-2 transition
-                                    ${activePhaseTab === key ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                            >
-                                {phase.name_ko}
-                            </button>
-                        ))}
+                        {Object.entries(PHASES).map(([key, phase]) => {
+                            const count = projectData?.summary?.[key]?.total || 0;
+                            return (
+                                <button
+                                    key={key}
+                                    onClick={() => setActivePhaseTab(key)}
+                                    className={`px-3 py-2.5 text-sm font-medium border-b-2 transition flex items-center gap-1.5
+                                        ${activePhaseTab === key ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    {phase.name_ko}
+                                    {count > 0 && (
+                                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${activePhaseTab === key ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-400'}`}>
+                                            {count}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
                         <div className="flex-1" />
                         <button
                             onClick={() => setSearchMode(!searchMode)}
