@@ -187,7 +187,7 @@ const RevisionMaster = () => {
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [editingRevId, setEditingRevId] = useState(null);
     const [editRevData, setEditRevData] = useState({});
-    const [compareSelection, setCompareSelection] = useState([]);
+    const [revSelection, setRevSelection] = useState([]);
     const [comparisonResult, setComparisonResult] = useState(null);
     const [isComparing, setIsComparing] = useState(false);
 
@@ -534,7 +534,7 @@ const RevisionMaster = () => {
 
     // ── Compare Revisions (AI) ──
     const handleCompareRevisions = async () => {
-        if (compareSelection.length !== 2) return;
+        if (revSelection.length !== 2) return;
         setIsComparing(true);
         setComparisonResult(null);
         try {
@@ -545,8 +545,8 @@ const RevisionMaster = () => {
                 body: JSON.stringify({
                     project_id: selectedProject,
                     doc_id: selectedDocId,
-                    revision_id_a: compareSelection[0],
-                    revision_id_b: compareSelection[1],
+                    revision_id_a: revSelection[0],
+                    revision_id_b: revSelection[1],
                 }),
             });
             const data = await res.json();
@@ -559,13 +559,54 @@ const RevisionMaster = () => {
         }
     };
 
-    const toggleCompareSelection = (revisionId) => {
-        setCompareSelection(prev => {
-            if (prev.includes(revisionId)) return prev.filter(id => id !== revisionId);
-            if (prev.length >= 2) return [prev[1], revisionId];
-            return [...prev, revisionId];
-        });
-        setComparisonResult(null);
+    const toggleRevSelection = (revisionId) => {
+        setRevSelection(prev =>
+            prev.includes(revisionId) ? prev.filter(id => id !== revisionId) : [...prev, revisionId]
+        );
+    };
+
+    const handleReindexRevisions = async () => {
+        if (!revSelection.length || !selectedProject || !selectedDocId) return;
+        if (!window.confirm(`선택한 리비전 ${revSelection.length}건을 리인덱싱합니다.\nDI 분석 + 임베딩이 실행됩니다. 진행하시겠습니까?`)) return;
+        setIsReindexing(true);
+        setReindexResult(null);
+        try {
+            const headers = await getAuthHeaders();
+            headers['Content-Type'] = 'application/json';
+            const res = await fetch(getRevisionApiUrl('reindex-revisions'), {
+                method: 'POST', headers,
+                body: JSON.stringify({ project_id: selectedProject, doc_id: selectedDocId, revision_ids: revSelection }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Reindex failed');
+            setReindexResult(data);
+            setRevSelection([]);
+            loadRevisionHistory(selectedDocId);
+        } catch (err) {
+            alert('리인덱싱 실패: ' + err.message);
+        } finally {
+            setIsReindexing(false);
+        }
+    };
+
+    const handleDeleteRevisions = async () => {
+        if (!revSelection.length || !selectedProject || !selectedDocId) return;
+        if (!window.confirm(`선택한 리비전 ${revSelection.length}건을 삭제합니다.\n파일, DI 데이터, 검색 인덱스가 모두 삭제됩니다.\n\n정말 삭제하시겠습니까?`)) return;
+        try {
+            const headers = await getAuthHeaders();
+            headers['Content-Type'] = 'application/json';
+            const res = await fetch(getRevisionApiUrl('delete-revisions'), {
+                method: 'POST', headers,
+                body: JSON.stringify({ project_id: selectedProject, doc_id: selectedDocId, revision_ids: revSelection }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Delete failed');
+            setRevSelection([]);
+            loadRevisionHistory(selectedDocId);
+            loadProjectDetail(selectedProject);
+        } catch (err) {
+            alert('삭제 실패: ' + err.message);
+        }
     };
 
     // ── Delete Project ──
@@ -580,28 +621,6 @@ const RevisionMaster = () => {
             loadProjects();
         } catch (err) {
             alert('삭제 실패: ' + err.message);
-        }
-    };
-
-    // ── Reindex Project ──
-    const handleReindexProject = async () => {
-        if (!selectedProject) return;
-        const revCount = projectData?.documents?.reduce((acc, d) => acc + (d.revisions?.length || 0), 0) || 0;
-        if (!revCount) { alert('등록된 리비전이 없습니다.'); return; }
-        if (!window.confirm(`이 프로젝트의 리비전 ${revCount}건을 모두 재처리합니다.\nDI 분석 + 임베딩 + 인덱싱이 실행되며 시간이 걸릴 수 있습니다.\n\n진행하시겠습니까?`)) return;
-        setIsReindexing(true);
-        setReindexResult(null);
-        try {
-            const headers = await getAuthHeaders();
-            const res = await fetch(getRevisionApiUrl(`reindex-project/${selectedProject}`), { method: 'POST', headers });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Reindex failed');
-            setReindexResult(data);
-            loadProjectDetail(selectedProject);
-        } catch (err) {
-            alert('리인덱싱 실패: ' + err.message);
-        } finally {
-            setIsReindexing(false);
         }
     };
 
@@ -770,7 +789,7 @@ const RevisionMaster = () => {
                                 <Plus className="w-4 h-4" />
                             </button>
                         </div>
-                        {selectedProject && (<>
+                        {selectedProject && (
                             <div className="flex gap-1 flex-wrap">
                                 <button onClick={() => loadProjectDetail(selectedProject)} className="text-xs text-cyan-600 hover:text-cyan-800 flex items-center gap-1">
                                     <RefreshCcw className="w-3 h-3" /> 새로고침
@@ -783,21 +802,8 @@ const RevisionMaster = () => {
                                 <button onClick={handleDeleteProject} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
                                     <Trash2 className="w-3 h-3" /> 삭제
                                 </button>
-                                <span className="text-slate-300 mx-0.5">|</span>
-                                <button onClick={handleReindexProject} disabled={isReindexing}
-                                    className="text-xs text-orange-600 hover:text-orange-800 disabled:opacity-50 flex items-center gap-1">
-                                    {isReindexing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
-                                    {isReindexing ? '리인덱싱 중...' : '리인덱싱'}
-                                </button>
                             </div>
-                            {reindexResult && (
-                                <div className="mt-1 px-2 py-1.5 bg-green-50 rounded-lg text-xs text-green-700 flex items-center gap-2">
-                                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                    <span>리인덱싱 완료: {reindexResult.success}/{reindexResult.total_revisions}건 성공, {reindexResult.total_pages_indexed}페이지 인덱싱</span>
-                                    <button onClick={() => setReindexResult(null)} className="ml-auto"><X className="w-3 h-3" /></button>
-                                </div>
-                            )}
-                        </>)}
+                        )}
                     </div>
 
                     {/* Phase Tree */}
@@ -1035,7 +1041,7 @@ const RevisionMaster = () => {
                                     <ResizableTable
                                         docs={filteredDocs}
                                         selectedDocId={selectedDocId}
-                                        onSelectDoc={(docId) => { setSelectedDocId(docId); setCompareSelection([]); setComparisonResult(null); setEditingRevId(null); }}
+                                        onSelectDoc={(docId) => { setSelectedDocId(docId); setRevSelection([]); setComparisonResult(null); setEditingRevId(null); }}
                                         onStatusChange={async (docId, newStatus) => {
                                             try {
                                                 const headers = await getAuthHeaders();
@@ -1192,29 +1198,45 @@ const RevisionMaster = () => {
                                     </button>
                                 </div>
 
-                                {/* AI Compare bar */}
-                                {revisionHistory?.revisions?.length >= 2 && (
+                                {/* Revision Action Bar */}
+                                {revisionHistory?.revisions?.length > 0 && (
                                     <div className="mb-3 p-2 bg-slate-50 rounded-lg border border-slate-200">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs text-slate-500">
-                                                {compareSelection.length === 0 ? '리비전 2개를 선택하여 AI 비교 분석'
-                                                    : compareSelection.length === 1 ? '1개 선택됨 — 비교할 리비전 1개 더 선택'
-                                                    : '2개 선택 완료'}
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="text-xs text-slate-500 mr-1">
+                                                {revSelection.length === 0 ? '리비전 선택' : `${revSelection.length}개 선택`}
                                             </span>
-                                            <div className="flex items-center gap-2">
-                                                {compareSelection.length > 0 && (
-                                                    <button onClick={() => { setCompareSelection([]); setComparisonResult(null); }} className="text-xs text-slate-400 hover:text-slate-600">초기화</button>
-                                                )}
-                                                <button
-                                                    onClick={handleCompareRevisions}
-                                                    disabled={compareSelection.length !== 2 || isComparing}
-                                                    className="text-xs px-2.5 py-1 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-                                                >
-                                                    {isComparing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
-                                                    AI 비교
-                                                </button>
-                                            </div>
+                                            {revSelection.length > 0 && (
+                                                <button onClick={() => { setRevSelection([]); setComparisonResult(null); setReindexResult(null); }}
+                                                    className="text-xs text-slate-400 hover:text-slate-600 px-1.5 py-0.5 rounded hover:bg-slate-200">초기화</button>
+                                            )}
+                                            <div className="flex-1" />
+                                            <button onClick={handleReindexRevisions}
+                                                disabled={revSelection.length === 0 || isReindexing}
+                                                className="text-xs px-2 py-1 border border-orange-300 text-orange-600 rounded-md hover:bg-orange-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                                            >
+                                                {isReindexing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
+                                                리인덱싱
+                                            </button>
+                                            <button onClick={handleDeleteRevisions}
+                                                disabled={revSelection.length === 0}
+                                                className="text-xs px-2 py-1 border border-red-300 text-red-600 rounded-md hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                                            >
+                                                <Trash2 className="w-3 h-3" /> 삭제
+                                            </button>
+                                            <button onClick={handleCompareRevisions}
+                                                disabled={revSelection.length !== 2 || isComparing}
+                                                className="text-xs px-2 py-1 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                                            >
+                                                {isComparing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
+                                                AI 비교
+                                            </button>
                                         </div>
+                                        {reindexResult && (
+                                            <div className="mt-2 text-xs text-green-700 bg-green-50 rounded p-1.5 flex items-center gap-1">
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                리인덱싱 완료: {reindexResult.success}건 성공, {reindexResult.total_pages_indexed}p 인덱싱
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
@@ -1269,26 +1291,19 @@ const RevisionMaster = () => {
                                                 const revNum = rev.revision?.toUpperCase().replace('REV.', '').replace('REV ', '').trim();
                                                 const isApproved = /^\d+$/.test(revNum);
                                                 const isEditing = editingRevId === rev.revision_id;
-                                                const isSelected = compareSelection.includes(rev.revision_id);
+                                                const isSelected = revSelection.includes(rev.revision_id);
                                                 return (
                                                     <div key={rev.revision_id} className="relative pl-8">
-                                                        {/* Compare checkbox */}
-                                                        {revisionHistory.revisions.length >= 2 && (
-                                                            <button
-                                                                onClick={() => toggleCompareSelection(rev.revision_id)}
-                                                                className={`absolute left-0 top-1 w-6 h-6 rounded-full flex items-center justify-center transition-colors ${isSelected ? 'bg-cyan-600 ring-2 ring-cyan-300' : isLatest ? 'bg-cyan-600' : isApproved ? 'bg-green-500' : 'bg-slate-300'} hover:ring-2 hover:ring-cyan-200`}
-                                                                title="비교 선택"
-                                                            >
-                                                                {isSelected ? <span className="text-white text-xs font-bold">{compareSelection.indexOf(rev.revision_id) + 1}</span>
-                                                                    : isApproved ? <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                                                                    : <Clock className="w-3.5 h-3.5 text-white" />}
-                                                            </button>
-                                                        )}
-                                                        {revisionHistory.revisions.length < 2 && (
-                                                            <div className={`absolute left-0 top-1 w-6 h-6 rounded-full flex items-center justify-center ${isLatest ? 'bg-cyan-600' : isApproved ? 'bg-green-500' : 'bg-slate-300'}`}>
-                                                                {isApproved ? <CheckCircle2 className="w-3.5 h-3.5 text-white" /> : <Clock className="w-3.5 h-3.5 text-white" />}
-                                                            </div>
-                                                        )}
+                                                        {/* Selection circle */}
+                                                        <button
+                                                            onClick={() => toggleRevSelection(rev.revision_id)}
+                                                            className={`absolute left-0 top-1 w-6 h-6 rounded-full flex items-center justify-center transition-colors ${isSelected ? 'bg-cyan-600 ring-2 ring-cyan-300' : isLatest ? 'bg-cyan-600' : isApproved ? 'bg-green-500' : 'bg-slate-300'} hover:ring-2 hover:ring-cyan-200`}
+                                                            title="선택"
+                                                        >
+                                                            {isSelected ? <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                                                                : isApproved ? <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                                                                : <Clock className="w-3.5 h-3.5 text-white" />}
+                                                        </button>
                                                         <div className={`bg-white border rounded-lg p-3 ${isSelected ? 'border-cyan-400 shadow-md ring-1 ring-cyan-200' : isLatest ? 'border-cyan-200 shadow-sm' : 'border-slate-200'}`}>
                                                             {isEditing ? (
                                                                 /* Edit mode */

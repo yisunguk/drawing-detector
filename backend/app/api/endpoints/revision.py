@@ -1578,6 +1578,216 @@ async def reindex_project(
     return result
 
 
+# ── Reindex Selected Revisions ──
+
+class ReindexRevisionsRequest(BaseModel):
+    project_id: str
+    doc_id: str
+    revision_ids: List[str]
+
+
+@router.post("/reindex-revisions")
+async def reindex_revisions(
+    request: ReindexRevisionsRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Re-index selected revisions for a document."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    json_path = f"{username}/revision/{request.project_id}/project.json"
+    project = _load_project_json(container, json_path)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    doc = None
+    for d in project.get("documents", []):
+        if d["doc_id"] == request.doc_id:
+            doc = d
+            break
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    revision_ids_set = set(request.revision_ids)
+    success_count = 0
+    error_count = 0
+    total_pages_indexed = 0
+
+    for rev in doc.get("revisions", []):
+        if rev.get("revision_id") not in revision_ids_set:
+            continue
+        blob_path = rev.get("blob_path", "")
+        if not blob_path:
+            continue
+
+        revision = rev.get("revision", "")
+        print(f"[Revision] Reindexing {doc.get('doc_no', '')} {revision}", flush=True)
+
+        try:
+            # Delete old index for this revision
+            revision_search_service.delete_by_revision(request.project_id, request.doc_id, revision)
+
+            # DI page-level extraction
+            di_pages = await _extract_pages_with_di(blob_path)
+            total_pages = len(di_pages)
+            full_text = "\n\n".join([p.get("content", "") for p in di_pages])
+
+            # Save page-level JSONs
+            di_folder_path = f"{username}/revision/{request.project_id}/docs/{request.doc_id}/{revision}_di/"
+            _save_page_jsons(container, di_folder_path, di_pages, {
+                "doc_id": request.doc_id,
+                "doc_no": doc.get("doc_no", ""),
+                "title": doc.get("title", ""),
+            }, revision)
+
+            # Index pages
+            phase_name = PHASES.get(doc.get("phase", ""), {}).get("name", "")
+            pages_for_index = [
+                {"page_number": p.get("page_number", i + 1), "content": p.get("content", "")}
+                for i, p in enumerate(di_pages)
+            ]
+            metadata = {
+                "project_id": request.project_id,
+                "project_name": project.get("project_name", ""),
+                "doc_id": request.doc_id,
+                "doc_no": doc.get("doc_no", ""),
+                "tag_no": doc.get("tag_no", ""),
+                "title": doc.get("title", ""),
+                "phase": doc.get("phase", ""),
+                "phase_name": phase_name,
+                "revision": revision,
+                "engineer_name": rev.get("engineer_name", ""),
+                "revision_date": rev.get("date", ""),
+                "change_description": rev.get("change_description", ""),
+                "blob_path": blob_path,
+                "username": username,
+            }
+            indexed = revision_search_service.index_revision_pages(pages_for_index, metadata)
+            total_pages_indexed += indexed
+
+            rev["di_folder_path"] = di_folder_path
+            rev["total_pages"] = total_pages
+            rev["text_length"] = len(full_text)
+            success_count += 1
+            print(f"[Revision] ✓ {revision}: {total_pages} pages", flush=True)
+        except Exception as e:
+            error_count += 1
+            print(f"[Revision] ✗ {revision} failed: {e}", flush=True)
+
+    _save_project_json(container, json_path, project)
+
+    return {
+        "status": "success",
+        "success": success_count,
+        "errors": error_count,
+        "total_pages_indexed": total_pages_indexed,
+    }
+
+
+# ── Delete Revision ──
+
+class DeleteRevisionRequest(BaseModel):
+    project_id: str
+    doc_id: str
+    revision_ids: List[str]
+
+
+@router.post("/delete-revisions")
+async def delete_revisions(
+    request: DeleteRevisionRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Delete selected revisions: remove blobs, index entries, and project.json entries."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    json_path = f"{username}/revision/{request.project_id}/project.json"
+    project = _load_project_json(container, json_path)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    doc = None
+    for d in project.get("documents", []):
+        if d["doc_id"] == request.doc_id:
+            doc = d
+            break
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    revision_ids_set = set(request.revision_ids)
+    deleted_count = 0
+
+    remaining_revisions = []
+    for rev in doc.get("revisions", []):
+        if rev.get("revision_id") not in revision_ids_set:
+            remaining_revisions.append(rev)
+            continue
+
+        revision = rev.get("revision", "")
+        print(f"[Revision] Deleting revision {doc.get('doc_no', '')} {revision}", flush=True)
+
+        # Delete blob file
+        blob_path = rev.get("blob_path", "")
+        if blob_path:
+            try:
+                container.delete_blob(blob_path)
+            except Exception:
+                pass
+
+        # Delete DI folder blobs
+        di_folder = rev.get("di_folder_path", "")
+        if di_folder:
+            try:
+                for blob in container.list_blobs(name_starts_with=di_folder):
+                    container.delete_blob(blob.name)
+            except Exception:
+                pass
+
+        # Delete legacy DI JSON
+        di_json = rev.get("di_json_path", "")
+        if di_json:
+            try:
+                container.delete_blob(di_json)
+            except Exception:
+                pass
+
+        # Delete from search index
+        try:
+            revision_search_service.delete_by_revision(request.project_id, request.doc_id, revision)
+        except Exception:
+            pass
+
+        deleted_count += 1
+
+    # Update document
+    doc["revisions"] = remaining_revisions
+    if remaining_revisions:
+        doc["latest_revision"] = remaining_revisions[-1].get("revision", "-")
+        doc["latest_date"] = remaining_revisions[-1].get("date", "")
+        # Recalculate status from latest revision
+        rev_upper = doc["latest_revision"].upper().replace("REV.", "").replace("REV ", "").strip()
+        if rev_upper.startswith("Z"):
+            doc["status"] = "cancelled"
+        elif rev_upper.isdigit():
+            doc["status"] = "approved"
+        elif rev_upper.isalpha() and rev_upper in "ABCDEFGHIJKLMNOPQRSTUVWXY":
+            doc["status"] = "in_progress"
+    else:
+        doc["latest_revision"] = "-"
+        doc["latest_date"] = ""
+        doc["status"] = "not_started"
+
+    _recalculate_summary(project)
+    _save_project_json(container, json_path, project)
+
+    return {
+        "status": "success",
+        "deleted": deleted_count,
+        "remaining": len(remaining_revisions),
+        "summary": project["summary"],
+    }
+
+
 # ── Search ──
 
 @router.post("/search")
