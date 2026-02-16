@@ -953,6 +953,188 @@ async def get_revision_history(
     }
 
 
+# ── Update Revision ──
+
+class UpdateRevisionRequest(BaseModel):
+    project_id: str
+    doc_id: str
+    revision_id: str
+    revision: Optional[str] = None
+    change_description: Optional[str] = None
+    engineer_name: Optional[str] = None
+
+
+@router.put("/update-revision")
+async def update_revision(
+    request: UpdateRevisionRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Update revision metadata (revision number, description, engineer)."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    json_path = f"{username}/revision/{request.project_id}/project.json"
+    project = _load_project_json(container, json_path)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    doc = None
+    for d in project.get("documents", []):
+        if d["doc_id"] == request.doc_id:
+            doc = d
+            break
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    rev = None
+    for r in doc.get("revisions", []):
+        if r["revision_id"] == request.revision_id:
+            rev = r
+            break
+    if not rev:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    if request.revision is not None:
+        rev["revision"] = request.revision
+    if request.change_description is not None:
+        rev["change_description"] = request.change_description
+    if request.engineer_name is not None:
+        rev["engineer_name"] = request.engineer_name
+
+    # Update latest_revision on doc if this is the last revision
+    if doc["revisions"] and doc["revisions"][-1]["revision_id"] == request.revision_id:
+        doc["latest_revision"] = rev["revision"]
+        # Recalculate status from revision name
+        rev_upper = rev["revision"].upper().replace("REV.", "").replace("REV ", "").strip()
+        if rev_upper.startswith("Z"):
+            doc["status"] = "cancelled"
+        elif rev_upper.isdigit() and int(rev_upper) >= 0:
+            doc["status"] = "approved"
+        elif rev_upper.isalpha() and rev_upper in "ABCDEFGHIJKLMNOPQRSTUVWXY":
+            doc["status"] = "in_progress"
+
+    _recalculate_summary(project)
+    _save_project_json(container, json_path, project)
+
+    return {"status": "success", "summary": project["summary"]}
+
+
+# ── Compare Revisions (AI) ──
+
+class CompareRevisionsRequest(BaseModel):
+    project_id: str
+    doc_id: str
+    revision_id_a: str
+    revision_id_b: str
+
+
+@router.post("/compare-revisions")
+async def compare_revisions(
+    request: CompareRevisionsRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """AI-powered comparison between two revisions using indexed content."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    json_path = f"{username}/revision/{request.project_id}/project.json"
+    project = _load_project_json(container, json_path)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    doc = None
+    for d in project.get("documents", []):
+        if d["doc_id"] == request.doc_id:
+            doc = d
+            break
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Find both revisions
+    rev_a = rev_b = None
+    for r in doc.get("revisions", []):
+        if r["revision_id"] == request.revision_id_a:
+            rev_a = r
+        if r["revision_id"] == request.revision_id_b:
+            rev_b = r
+    if not rev_a or not rev_b:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    print(f"[Revision] Comparing {rev_a['revision']} vs {rev_b['revision']} for doc {doc.get('doc_no')}", flush=True)
+
+    # Extract text from both revisions via Azure DI (from blob)
+    text_a = await _extract_text_from_blob(rev_a.get("blob_path", ""))
+    text_b = await _extract_text_from_blob(rev_b.get("blob_path", ""))
+
+    if not text_a and not text_b:
+        return {"comparison": "두 리비전 모두 텍스트를 추출할 수 없습니다.", "rev_a": rev_a["revision"], "rev_b": rev_b["revision"]}
+
+    # Truncate for GPT context
+    max_len = 25000
+    text_a_trunc = text_a[:max_len] if len(text_a) > max_len else text_a
+    text_b_trunc = text_b[:max_len] if len(text_b) > max_len else text_b
+
+    # GPT comparison
+    try:
+        prompt = f"""당신은 EPC 프로젝트 준공도서 리비전 비교 분석 전문가입니다.
+아래 두 리비전의 문서 내용을 비교 분석하세요.
+
+문서 제목: {doc.get('title', '')}
+문서번호: {doc.get('doc_no', '')}
+
+=== 리비전 {rev_a['revision']} ({rev_a.get('date', '')}) ===
+담당자: {rev_a.get('engineer_name', '-')}
+변경내용: {rev_a.get('change_description', '-')}
+문서 내용:
+{text_a_trunc}
+
+=== 리비전 {rev_b['revision']} ({rev_b.get('date', '')}) ===
+담당자: {rev_b.get('engineer_name', '-')}
+변경내용: {rev_b.get('change_description', '-')}
+문서 내용:
+{text_b_trunc}
+
+다음 항목을 마크다운 형식으로 분석해 주세요:
+1. **변경 요약**: 두 리비전 간 핵심 변경사항 (3-5줄)
+2. **상세 비교**: 추가/삭제/수정된 주요 내용을 표 또는 리스트로 정리
+3. **기술적 의미**: 변경이 프로젝트에 미치는 영향
+4. **주의사항**: 리뷰어가 확인해야 할 포인트
+
+한국어로 답변하세요."""
+
+        response = _openai_client.chat.completions.create(
+            model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+        comparison = response.choices[0].message.content
+    except Exception as e:
+        comparison = f"AI 비교 분석 중 오류 발생: {e}"
+
+    return {
+        "comparison": comparison,
+        "rev_a": rev_a["revision"],
+        "rev_b": rev_b["revision"],
+        "text_a_length": len(text_a),
+        "text_b_length": len(text_b),
+    }
+
+
+async def _extract_text_from_blob(blob_path: str) -> str:
+    """Extract text from a blob file using Azure DI."""
+    if not blob_path:
+        return ""
+    try:
+        from app.services.azure_di import azure_di_service
+        from app.services.blob_storage import generate_sas_url
+        file_url = generate_sas_url(blob_path)
+        di_result = azure_di_service.analyze_document_from_url(file_url)
+        return "\n\n".join([p.get("content", "") for p in di_result])
+    except Exception as e:
+        print(f"[Revision] Text extraction failed for {blob_path}: {e}", flush=True)
+        return ""
+
+
 # ── Add Document ──
 
 @router.post("/add-document")

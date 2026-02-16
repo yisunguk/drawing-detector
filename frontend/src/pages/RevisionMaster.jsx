@@ -69,6 +69,11 @@ const RevisionMaster = () => {
     // === Right Panel State ===
     const [revisionHistory, setRevisionHistory] = useState(null);
     const [loadingHistory, setLoadingHistory] = useState(false);
+    const [editingRevId, setEditingRevId] = useState(null);
+    const [editRevData, setEditRevData] = useState({});
+    const [compareSelection, setCompareSelection] = useState([]);
+    const [comparisonResult, setComparisonResult] = useState(null);
+    const [isComparing, setIsComparing] = useState(false);
 
     // === Modal State ===
     const [showUploadSpec, setShowUploadSpec] = useState(false);
@@ -383,6 +388,66 @@ const RevisionMaster = () => {
         } catch (err) {
             alert('프로젝트 수정 실패: ' + err.message);
         }
+    };
+
+    // ── Update Revision ──
+    const handleUpdateRevision = async () => {
+        if (!editingRevId || !editRevData) return;
+        try {
+            const headers = await getAuthHeaders();
+            headers['Content-Type'] = 'application/json';
+            const res = await fetch(getRevisionApiUrl('update-revision'), {
+                method: 'PUT', headers,
+                body: JSON.stringify({
+                    project_id: selectedProject,
+                    doc_id: selectedDocId,
+                    revision_id: editingRevId,
+                    ...editRevData,
+                }),
+            });
+            if (!res.ok) throw new Error('Failed');
+            setEditingRevId(null);
+            loadRevisionHistory(selectedDocId);
+            loadProjectDetail(selectedProject);
+        } catch (err) {
+            alert('리비전 수정 실패: ' + err.message);
+        }
+    };
+
+    // ── Compare Revisions (AI) ──
+    const handleCompareRevisions = async () => {
+        if (compareSelection.length !== 2) return;
+        setIsComparing(true);
+        setComparisonResult(null);
+        try {
+            const headers = await getAuthHeaders();
+            headers['Content-Type'] = 'application/json';
+            const res = await fetch(getRevisionApiUrl('compare-revisions'), {
+                method: 'POST', headers,
+                body: JSON.stringify({
+                    project_id: selectedProject,
+                    doc_id: selectedDocId,
+                    revision_id_a: compareSelection[0],
+                    revision_id_b: compareSelection[1],
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Comparison failed');
+            setComparisonResult(data);
+        } catch (err) {
+            setComparisonResult({ comparison: `오류: ${err.message}` });
+        } finally {
+            setIsComparing(false);
+        }
+    };
+
+    const toggleCompareSelection = (revisionId) => {
+        setCompareSelection(prev => {
+            if (prev.includes(revisionId)) return prev.filter(id => id !== revisionId);
+            if (prev.length >= 2) return [prev[1], revisionId];
+            return [...prev, revisionId];
+        });
+        setComparisonResult(null);
     };
 
     // ── Delete Project ──
@@ -797,7 +862,7 @@ const RevisionMaster = () => {
                                                 return (
                                                     <tr
                                                         key={doc.doc_id}
-                                                        onClick={() => setSelectedDocId(doc.doc_id)}
+                                                        onClick={() => { setSelectedDocId(doc.doc_id); setCompareSelection([]); setComparisonResult(null); setEditingRevId(null); }}
                                                         className={`cursor-pointer border-b border-slate-100 transition
                                                             ${isSelected ? 'bg-cyan-50' : 'hover:bg-slate-50'}`}
                                                     >
@@ -967,6 +1032,47 @@ const RevisionMaster = () => {
                                     </button>
                                 </div>
 
+                                {/* AI Compare bar */}
+                                {revisionHistory?.revisions?.length >= 2 && (
+                                    <div className="mb-3 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs text-slate-500">
+                                                {compareSelection.length === 0 ? '리비전 2개를 선택하여 AI 비교 분석'
+                                                    : compareSelection.length === 1 ? '1개 선택됨 — 비교할 리비전 1개 더 선택'
+                                                    : '2개 선택 완료'}
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                {compareSelection.length > 0 && (
+                                                    <button onClick={() => { setCompareSelection([]); setComparisonResult(null); }} className="text-xs text-slate-400 hover:text-slate-600">초기화</button>
+                                                )}
+                                                <button
+                                                    onClick={handleCompareRevisions}
+                                                    disabled={compareSelection.length !== 2 || isComparing}
+                                                    className="text-xs px-2.5 py-1 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                                                >
+                                                    {isComparing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
+                                                    AI 비교
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* AI Comparison Result */}
+                                {comparisonResult && (
+                                    <div className="mb-3 p-3 bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200 rounded-lg">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-xs font-semibold text-cyan-700">
+                                                AI 비교 분석: {comparisonResult.rev_a} vs {comparisonResult.rev_b}
+                                            </span>
+                                            <button onClick={() => setComparisonResult(null)} className="text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>
+                                        </div>
+                                        <div className="text-xs text-slate-700 prose prose-xs max-w-none overflow-auto max-h-64">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{comparisonResult.comparison}</ReactMarkdown>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {loadingHistory ? (
                                     <div className="flex justify-center py-8">
                                         <Loader2 className="w-6 h-6 text-cyan-600 animate-spin" />
@@ -981,28 +1087,78 @@ const RevisionMaster = () => {
                                                 const isLatest = i === 0;
                                                 const revNum = rev.revision?.toUpperCase().replace('REV.', '').replace('REV ', '').trim();
                                                 const isApproved = /^\d+$/.test(revNum);
+                                                const isEditing = editingRevId === rev.revision_id;
+                                                const isSelected = compareSelection.includes(rev.revision_id);
                                                 return (
                                                     <div key={rev.revision_id} className="relative pl-8">
-                                                        <div className={`absolute left-0 top-1 w-6 h-6 rounded-full flex items-center justify-center ${isLatest ? 'bg-cyan-600' : isApproved ? 'bg-green-500' : 'bg-slate-300'}`}>
-                                                            {isApproved ? <CheckCircle2 className="w-3.5 h-3.5 text-white" /> : <Clock className="w-3.5 h-3.5 text-white" />}
-                                                        </div>
-                                                        <div className={`bg-white border rounded-lg p-3 ${isLatest ? 'border-cyan-200 shadow-sm' : 'border-slate-200'}`}>
-                                                            <div className="flex items-center justify-between mb-1">
-                                                                <span className="font-mono font-bold text-sm text-slate-800">{rev.revision}</span>
-                                                                <span className="text-xs text-slate-400">{rev.date}</span>
+                                                        {/* Compare checkbox */}
+                                                        {revisionHistory.revisions.length >= 2 && (
+                                                            <button
+                                                                onClick={() => toggleCompareSelection(rev.revision_id)}
+                                                                className={`absolute left-0 top-1 w-6 h-6 rounded-full flex items-center justify-center transition-colors ${isSelected ? 'bg-cyan-600 ring-2 ring-cyan-300' : isLatest ? 'bg-cyan-600' : isApproved ? 'bg-green-500' : 'bg-slate-300'} hover:ring-2 hover:ring-cyan-200`}
+                                                                title="비교 선택"
+                                                            >
+                                                                {isSelected ? <span className="text-white text-xs font-bold">{compareSelection.indexOf(rev.revision_id) + 1}</span>
+                                                                    : isApproved ? <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                                                                    : <Clock className="w-3.5 h-3.5 text-white" />}
+                                                            </button>
+                                                        )}
+                                                        {revisionHistory.revisions.length < 2 && (
+                                                            <div className={`absolute left-0 top-1 w-6 h-6 rounded-full flex items-center justify-center ${isLatest ? 'bg-cyan-600' : isApproved ? 'bg-green-500' : 'bg-slate-300'}`}>
+                                                                {isApproved ? <CheckCircle2 className="w-3.5 h-3.5 text-white" /> : <Clock className="w-3.5 h-3.5 text-white" />}
                                                             </div>
-                                                            {rev.change_description && (
-                                                                <p className="text-xs text-slate-600 mb-1">{rev.change_description}</p>
+                                                        )}
+                                                        <div className={`bg-white border rounded-lg p-3 ${isSelected ? 'border-cyan-400 shadow-md ring-1 ring-cyan-200' : isLatest ? 'border-cyan-200 shadow-sm' : 'border-slate-200'}`}>
+                                                            {isEditing ? (
+                                                                /* Edit mode */
+                                                                <div className="space-y-2">
+                                                                    <div>
+                                                                        <label className="text-xs text-slate-500">리비전 번호</label>
+                                                                        <input value={editRevData.revision || ''} onChange={e => setEditRevData(p => ({ ...p, revision: e.target.value }))}
+                                                                            className="w-full border border-slate-300 rounded px-2 py-1 text-sm font-mono focus:ring-1 focus:ring-cyan-500" />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-xs text-slate-500">변경 내용</label>
+                                                                        <textarea value={editRevData.change_description || ''} onChange={e => setEditRevData(p => ({ ...p, change_description: e.target.value }))}
+                                                                            rows={2} className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-cyan-500" />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-xs text-slate-500">담당자</label>
+                                                                        <input value={editRevData.engineer_name || ''} onChange={e => setEditRevData(p => ({ ...p, engineer_name: e.target.value }))}
+                                                                            className="w-full border border-slate-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-cyan-500" />
+                                                                    </div>
+                                                                    <div className="flex gap-2">
+                                                                        <button onClick={handleUpdateRevision} className="px-3 py-1 text-xs bg-cyan-600 text-white rounded hover:bg-cyan-700">저장</button>
+                                                                        <button onClick={() => setEditingRevId(null)} className="px-3 py-1 text-xs border border-slate-300 text-slate-600 rounded hover:bg-slate-100">취소</button>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                /* View mode */
+                                                                <>
+                                                                    <div className="flex items-center justify-between mb-1">
+                                                                        <span className="font-mono font-bold text-sm text-slate-800">{rev.revision}</span>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-xs text-slate-400">{rev.date}</span>
+                                                                            <button onClick={() => { setEditingRevId(rev.revision_id); setEditRevData({ revision: rev.revision, change_description: rev.change_description || '', engineer_name: rev.engineer_name || '' }); }}
+                                                                                className="text-slate-300 hover:text-cyan-600 transition" title="수정">
+                                                                                <Edit3 className="w-3 h-3" />
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                    {rev.change_description && (
+                                                                        <p className="text-xs text-slate-600 mb-1">{rev.change_description}</p>
+                                                                    )}
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs text-slate-400">{rev.engineer_name || '-'}</span>
+                                                                        {rev.download_url && (
+                                                                            <a href={rev.download_url} target="_blank" rel="noreferrer"
+                                                                                className="text-xs text-cyan-600 hover:text-cyan-800 flex items-center gap-1">
+                                                                                <Download className="w-3 h-3" /> 다운로드
+                                                                            </a>
+                                                                        )}
+                                                                    </div>
+                                                                </>
                                                             )}
-                                                            <div className="flex items-center justify-between">
-                                                                <span className="text-xs text-slate-400">{rev.engineer_name || '-'}</span>
-                                                                {rev.download_url && (
-                                                                    <a href={rev.download_url} target="_blank" rel="noreferrer"
-                                                                        className="text-xs text-cyan-600 hover:text-cyan-800 flex items-center gap-1">
-                                                                        <Download className="w-3 h-3" /> 다운로드
-                                                                    </a>
-                                                                )}
-                                                            </div>
                                                         </div>
                                                     </div>
                                                 );
