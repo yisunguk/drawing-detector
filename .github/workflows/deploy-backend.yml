@@ -47,7 +47,7 @@ jobs:
           service: 'drawing-detector-backend'
           region: 'us-central1'
           source: 'backend'
-          flags: '--min-instances=0 --memory=2Gi --cpu=1 --timeout=300 --concurrency=80 --execution-environment=gen2'
+          flags: '--min-instances=0 --memory=2Gi --cpu=1 --timeout=300 --concurrency=80 --execution-environment=gen2 --cpu-throttling'
           # AZURE_BLOB_CONNECTION_STRING, AZURE_BLOB_SAS_TOKEN are set directly
           # via gcloud (contain commas that break env_vars parsing)
           env_vars: |
