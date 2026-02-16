@@ -572,7 +572,7 @@ const LessonsLearned = () => {
     // =============================================
     // MARKDOWN COMPONENTS (for chat)
     // =============================================
-    const markdownComponents = {
+    const baseMarkdownComponents = {
         table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
         thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
         th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
@@ -586,6 +586,40 @@ const LessonsLearned = () => {
             ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
             : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
     };
+
+    // Convert [문서명] references to clickable markdown links
+    const linkDocReferences = useCallback((text, sources) => {
+        if (!text || !sources?.length) return text;
+        const fnames = sources.map(s => s.file_nm).filter(Boolean);
+        if (!fnames.length) return text;
+        // Match [text] that is NOT already a markdown link [text](url)
+        return text.replace(/\[([^\]]+)\](?!\()/g, (match, inner) => {
+            const found = fnames.find(fn => inner.includes(fn) || fn.includes(inner));
+            if (found) return `[${inner}](docref:${encodeURIComponent(found)})`;
+            return match;
+        });
+    }, []);
+
+    // Build chat markdown components with doc-link support per message
+    const getChatComponents = useCallback((sources) => ({
+        ...baseMarkdownComponents,
+        a: ({ href, children }) => {
+            if (href?.startsWith('docref:')) {
+                const filename = decodeURIComponent(href.replace('docref:', ''));
+                const source = sources?.find(s => s.file_nm === filename);
+                return (
+                    <button
+                        onClick={(e) => { e.preventDefault(); source && setPreviewDoc(source); }}
+                        className="inline text-purple-600 hover:text-purple-800 underline decoration-purple-300 hover:decoration-purple-500 cursor-pointer font-medium transition-colors"
+                        title={`문서 보기: ${filename}`}
+                    >
+                        {children}
+                    </button>
+                );
+            }
+            return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{children}</a>;
+        },
+    }), []);
 
     // =============================================
     // RENDER
@@ -980,8 +1014,8 @@ const LessonsLearned = () => {
                                                 : 'bg-white border border-gray-200 text-gray-800'
                                     }`}>
                                         {msg.role === 'assistant' ? (
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                                                {msg.content}
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={getChatComponents(msg.sources)}>
+                                                {linkDocReferences(msg.content, msg.sources)}
                                             </ReactMarkdown>
                                         ) : (
                                             <p className="whitespace-pre-wrap">{msg.content}</p>
