@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
     ArrowLeft, Search as SearchIcon, Send, Bot, User, Loader2,
     ChevronRight, ChevronDown, X, Upload, Trash2, Plus, Edit3,
     FileText, FolderOpen, CheckCircle2, Clock, AlertCircle, XCircle,
-    Download, MessageSquare, BarChart3, LogOut, ClipboardCheck, RefreshCcw
+    Download, MessageSquare, BarChart3, LogOut, ClipboardCheck, RefreshCcw,
+    Users, Bell, Settings
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -39,6 +40,7 @@ const RevisionMaster = () => {
     const navigate = useNavigate();
     const { currentUser, logout } = useAuth();
     const username = currentUser?.displayName || currentUser?.email?.split('@')[0];
+    const isAdmin = currentUser?.email === 'admin@poscoenc.com';
 
     const saved = useRef(_loadSS()).current;
     const defaultChat = [{ role: 'assistant', content: '안녕하세요! 리비전 문서에 대해 궁금한 점을 물어보세요.' }];
@@ -396,10 +398,6 @@ const RevisionMaster = () => {
                 <ClipboardCheck className="w-5 h-5 text-cyan-200 mr-2" />
                 <h1 className="text-white font-bold text-lg">Revision Master</h1>
                 <div className="flex-1" />
-                <span className="text-cyan-200 text-sm mr-4">{username}</span>
-                <button onClick={() => { logout(); navigate('/login'); }} className="text-white/60 hover:text-white">
-                    <LogOut className="w-4 h-4" />
-                </button>
             </div>
 
             <div className="flex flex-1 overflow-hidden">
@@ -521,6 +519,51 @@ const RevisionMaster = () => {
                             })}
                         </div>
                     )}
+
+                    {/* User Profile & Admin Menu */}
+                    <div className="border-t border-slate-200 shrink-0">
+                        {isAdmin && (
+                            <div className="px-2 pt-2 pb-1 space-y-0.5">
+                                <button
+                                    onClick={() => navigate('/admin/notice')}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                >
+                                    <Bell className="w-4 h-4" />
+                                    공지사항 관리
+                                </button>
+                                <button
+                                    onClick={() => navigate('/admin/users')}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                >
+                                    <Users className="w-4 h-4" />
+                                    사용자 관리
+                                </button>
+                            </div>
+                        )}
+                        <div className="p-3 flex items-center gap-2.5">
+                            <Link
+                                to="/profile"
+                                className="flex items-center gap-2.5 flex-1 min-w-0 hover:bg-slate-100 p-1.5 -m-1.5 rounded-lg transition-colors group"
+                            >
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-teal-500 flex items-center justify-center text-white font-bold text-xs shrink-0 group-hover:scale-105 transition-transform">
+                                    {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-slate-800 truncate">{currentUser?.displayName || username || 'User'}</p>
+                                    <p className="text-[10px] text-slate-400 truncate">{currentUser?.email}</p>
+                                </div>
+                            </Link>
+                            <button
+                                onClick={async () => {
+                                    try { await logout(); navigate('/login'); } catch {}
+                                }}
+                                className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+                                title="로그아웃"
+                            >
+                                <LogOut className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Left resize handle */}
