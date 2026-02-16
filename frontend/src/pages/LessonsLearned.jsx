@@ -991,6 +991,10 @@ const LessonsLearned = () => {
                                     const badge = getScoreBadge(r.score);
                                     const rawText = (r.content || r.content_preview || '').replace(/\.\.PAGE:\d+/g, '').trim();
                                     const isEmptyContent = rawText.length < 10;
+                                    const searchKws = query.trim() ? query.trim().split(/\s+/).filter(w => w.length >= 2) : [];
+                                    const highlightedName = searchKws.length > 0
+                                        ? highlightTextInViewer(r.file_nm?.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') || '', searchKws)
+                                        : null;
                                     return (
                                         <div
                                             key={r.doc_id || i}
@@ -998,7 +1002,11 @@ const LessonsLearned = () => {
                                             onClick={() => setPreviewDoc(r)}
                                         >
                                             <div className="flex items-start justify-between mb-1.5">
-                                                <h3 className="font-semibold text-sm text-gray-800 flex-1 truncate">{r.file_nm}</h3>
+                                                {highlightedName ? (
+                                                    <h3 className="font-semibold text-sm text-gray-800 flex-1 truncate [&_mark]:bg-yellow-200 [&_mark]:px-0.5 [&_mark]:rounded" dangerouslySetInnerHTML={{ __html: highlightedName }} />
+                                                ) : (
+                                                    <h3 className="font-semibold text-sm text-gray-800 flex-1 truncate">{r.file_nm}</h3>
+                                                )}
                                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ml-2 flex-shrink-0 ${badge.bg} ${badge.text}`}>
                                                     {badge.label} {r.score?.toFixed(1)}
                                                 </span>
@@ -1225,6 +1233,12 @@ const LessonsLearned = () => {
                 const highlightedContent = searchKeywords.length > 0
                     ? highlightTextInViewer(reportHtml, searchKeywords)
                     : reportHtml;
+                const highlightedTitle = searchKeywords.length > 0
+                    ? highlightTextInViewer(
+                        (previewDoc.file_nm || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),
+                        searchKeywords
+                      )
+                    : null;
 
                 return (
                     <div className="border-l border-gray-200 bg-white flex flex-col flex-shrink-0 h-full relative" style={{ width: rightWidth }}>
@@ -1236,9 +1250,13 @@ const LessonsLearned = () => {
                         {/* Preview Header */}
                         <div className="p-4 border-b border-gray-200 flex items-start gap-2">
                             <div className="flex-1 min-w-0">
-                                <h2 className="font-bold text-sm text-gray-800 truncate" title={previewDoc.file_nm}>
-                                    {previewDoc.file_nm}
-                                </h2>
+                                {highlightedTitle ? (
+                                    <h2 className="font-bold text-sm text-gray-800 truncate [&_mark]:bg-yellow-200 [&_mark]:px-0.5 [&_mark]:rounded" title={previewDoc.file_nm} dangerouslySetInnerHTML={{ __html: highlightedTitle }} />
+                                ) : (
+                                    <h2 className="font-bold text-sm text-gray-800 truncate" title={previewDoc.file_nm}>
+                                        {previewDoc.file_nm}
+                                    </h2>
+                                )}
                                 <div className="flex items-center gap-2 mt-1">
                                     <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-[10px] rounded font-medium">{previewDoc.category}</span>
                                     <span className="text-[10px] text-gray-400">{previewDoc.mclass} / {previewDoc.dclass}</span>

@@ -271,11 +271,29 @@ async def _handle_search(request: SearchRequest, username: str) -> SearchRespons
         source_file=request.source_file,
     )
 
-    # Filter out zero-score results (no keyword or vector match)
-    results = [r for r in results if r.get("score", 0) > 0.005]
+    # Post-filter & re-rank: Azure Search scores poorly for Korean keywords,
+    # so boost results where keywords appear in file_nm or content.
+    search_keywords = _extract_search_keywords(request.query)
+    kws_lower = [kw.lower() for kw in search_keywords]
+
+    filtered = []
+    for r in results:
+        score = r.get("score", 0)
+        file_nm_lower = (r.get("file_nm", "") or "").lower()
+        content_lower = (r.get("content", "") or "").lower()
+        has_kw_in_name = any(kw in file_nm_lower for kw in kws_lower) if kws_lower else False
+        has_kw_in_content = any(kw in content_lower for kw in kws_lower) if kws_lower else False
+
+        # Keep results with meaningful score OR keyword match
+        if score > 0.005 or has_kw_in_name or has_kw_in_content:
+            bonus = (100 if has_kw_in_name else 0) + (50 if has_kw_in_content else 0)
+            r["_rank"] = score + bonus
+            filtered.append(r)
+
+    filtered.sort(key=lambda r: r.pop("_rank", 0), reverse=True)
+    results = filtered
 
     # Clean confidential footer + build highlight text
-    search_keywords = _extract_search_keywords(request.query)
     for r in results:
         r["content"] = _clean_content(r.get("content", ""))
         r["content_preview"] = _clean_content(r.get("content_preview", ""))
