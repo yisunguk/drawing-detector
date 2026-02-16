@@ -133,59 +133,15 @@ const LessonsLearned = () => {
     }, []);
 
     // =============================================
-    // UTILITY: Format content as professional report HTML
+    // UTILITY: Format content for document viewer HTML
+    // Preserves line breaks, handles SHEET markers, bullets, and basic structure
     // =============================================
-    const formatContentAsReport = useCallback((text) => {
+    const formatContentForViewer = useCallback((text) => {
         if (!text) return '<p class="text-gray-400 italic">내용 없음</p>';
 
         const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-        // ── Step 1: Merge short OCR-fragmented lines ──
-        const rawLines = text.split('\n');
-        const merged = [];
-        let buf = '';
-        for (const line of rawLines) {
-            const t = line.trim();
-            if (!t) {
-                if (buf) { merged.push(buf); buf = ''; }
-                merged.push('');
-                continue;
-            }
-            // Very short line (< 4 chars, not a bullet) = OCR fragment → merge
-            if (t.length < 4 && !/^[-·•●]/.test(t)) {
-                buf += t;
-                continue;
-            }
-            if (buf) {
-                // If current line is also short-ish, keep merging
-                if (t.length < 10 && !/^[-·•●]/.test(t)) {
-                    buf += ' ' + t;
-                    continue;
-                }
-                merged.push(buf);
-                buf = '';
-            }
-            merged.push(t);
-        }
-        if (buf) merged.push(buf);
-
-        // ── Step 2: Classify each line and build HTML ──
-        const partRe = /^PART\s*[IⅠⅡ]+\s*.*/i;
-        const sectionHeaders = [
-            '부적합 내용', '부적합내용', 'NCR 내용', 'NCR내용',
-            '조치내용', '조치 내용', '조치결과', '조치 결과',
-            '재발방지대책', '재발 방지 대책', '재발방지 대책',
-            '시정조치', '시정 조치', '원인분석', '원인 분석',
-            '첨 부 파 일', '첨부파일', '첨부 파일',
-        ];
-        const kvRe = /^(NCR번호|NCR 번호|제\s*목|발\s*행\s*자|조치\s*담당자|작성일자|도면\s*개정번호|공종분류|보관\s*상태)\s*[:：]?\s*(.+)/;
-        const companyRe = /^(POSCO|삼성|현대|대우|GS|SK|한화|두산|대림|롯데)/i;
-        const reportTitleRe = /^(NONCONFORMANCE|품질개선활동|NCR\s*REPORT|CORRECTIVE|시정조치|품질부적합)/i;
-        const dateSignRe = /^\S+\s*\/\s*\d{4}-\d{2}-\d{2}\s/;
-        const resultLineRe = /^(조치결과\s*확인|조치결과\s*승인)/;
-        const bulletRe = /^[-·•●]\s*/;
-        const quoteRe = /^["""].*["""]$/;
-
+        const lines = text.split('\n');
         let html = '';
         let bulletBuf = [];
 
@@ -195,77 +151,44 @@ const LessonsLearned = () => {
             bulletBuf = [];
         };
 
-        let paraBuf = [];
-        const flushPara = () => {
-            if (paraBuf.length === 0) return;
-            html += `<div class="rpt-body"><p>${esc(paraBuf.join(' '))}</p></div>`;
-            paraBuf = [];
-        };
+        for (const line of lines) {
+            const t = line.trim();
 
-        for (let i = 0; i < merged.length; i++) {
-            const t = merged[i];
+            // Empty line → spacer
+            if (!t) { flushBullets(); html += '<div class="h-2"></div>'; continue; }
 
-            if (!t) { flushBullets(); flushPara(); continue; }
+            // ..SHEET:N marker → section header
+            const sheetMatch = t.match(/^\.\.SHEET:(\d+)/);
+            if (sheetMatch) {
+                flushBullets();
+                html += `<div style="font-size:13px;font-weight:700;color:#6d28d9;background:#f5f3ff;padding:6px 12px;margin:12px 0 6px;border-left:3px solid #7c3aed;border-radius:0 6px 6px 0;">SHEET ${esc(sheetMatch[1])}</div>`;
+                continue;
+            }
 
             // Bullet line
-            if (bulletRe.test(t)) {
-                flushPara();
-                bulletBuf.push(t.replace(bulletRe, ''));
+            if (/^[-·•●]\s/.test(t)) {
+                bulletBuf.push(t.replace(/^[-·•●]\s*/, ''));
                 continue;
             }
             flushBullets();
 
-            // Company name
-            if (companyRe.test(t) && i < 5) { flushPara(); html += `<div class="rpt-company">${esc(t)}</div>`; continue; }
-
-            // Report title
-            if (reportTitleRe.test(t)) {
-                flushPara();
-                html += `<div class="rpt-title">${esc(t)}</div>`;
-                if (i + 1 < merged.length && merged[i + 1]?.startsWith('(')) { i++; html += `<div class="rpt-subtitle">${esc(merged[i])}</div>`; }
+            // Section-like header (short uppercase or Korean section title)
+            if (/^(PART\s*[IⅠⅡ]+|부적합\s?내용|조치\s?내용|조치\s?결과|재발\s?방지|시정\s?조치|원인\s?분석|첨부\s?파일|NCR\s*(REPORT|내용))/i.test(t)) {
+                html += `<div class="rpt-section">${esc(t)}</div>`;
                 continue;
             }
 
-            // PART header
-            if (partRe.test(t)) { flushPara(); html += `<div class="rpt-part">${esc(t)}</div>`; continue; }
-
-            // Section header
-            if (sectionHeaders.some(h => t.replace(/\s/g, '').startsWith(h.replace(/\s/g, '')))) {
-                flushPara(); html += `<div class="rpt-section">${esc(t)}</div>`; continue;
-            }
-
-            // Key-value
-            const kvMatch = t.match(kvRe);
-            if (kvMatch) { flushPara(); html += `<div class="rpt-kv"><span class="rpt-key">${esc(kvMatch[1])}</span><span class="rpt-val">${esc(kvMatch[2])}</span></div>`; continue; }
-
-            // NCR번호 line
-            if (/^NCR번호|^NCR\s*번호/.test(t)) { flushPara(); html += `<div class="rpt-kv-line">${esc(t)}</div>`; continue; }
-
-            // Lv classification
-            if (/^Lv\d/.test(t)) { flushPara(); html += `<div class="rpt-lv">${esc(t)}</div>`; continue; }
-
-            // Attachment references
-            if (/\.(jpg|jpeg|png|gif|pdf|bmp)$/i.test(t) || /^조치\s*전|^조치\s*후/.test(t)) { flushPara(); html += `<div class="rpt-attach">${esc(t)}</div>`; continue; }
-
-            // Date/signature
-            if (dateSignRe.test(t) || resultLineRe.test(t)) { flushPara(); html += `<div class="rpt-sign">${esc(t)}</div>`; continue; }
-
-            // Quoted text (슬로건 등)
-            if (quoteRe.test(t)) { flushPara(); html += `<div class="rpt-quote">${esc(t)}</div>`; continue; }
-
-            // Header-like: short line (< 25 chars) followed by longer content or bullets
-            const nextLine = merged[i + 1] || '';
-            if (t.length <= 25 && t.length >= 2 && !t.includes(',') && (nextLine.length > 30 || bulletRe.test(nextLine) || !nextLine)) {
-                flushPara();
-                html += `<div class="rpt-heading">${esc(t)}</div>`;
+            // Key: Value pattern
+            const kvMatch = t.match(/^(NCR\s*번호|제\s*목|발\s*행\s*자|조치\s*담당자|작성일자|공종분류)\s*[:：]\s*(.+)/);
+            if (kvMatch) {
+                html += `<div class="rpt-kv"><span class="rpt-key">${esc(kvMatch[1])}</span><span class="rpt-val">${esc(kvMatch[2])}</span></div>`;
                 continue;
             }
 
-            // Regular paragraph content — accumulate
-            paraBuf.push(t);
+            // Regular line — preserve as-is
+            html += `<div style="line-height:1.7;font-size:12.5px;color:#374151;">${esc(t)}</div>`;
         }
         flushBullets();
-        flushPara();
         return html;
     }, []);
 
@@ -597,6 +520,9 @@ const LessonsLearned = () => {
         setChatMessages([{ role: 'assistant', content: '안녕하세요! Lessons Learned에 대해 궁금한 점을 물어보세요.' }]);
         setQuery('');
         setPreviewDoc(null);
+        setSelectedSourceFile(null);
+        setSelectedCategory(null);
+        setCategoryDocs([]);
     };
 
     // =============================================
@@ -942,7 +868,7 @@ const LessonsLearned = () => {
 
                     {mode === 'search' && hasSearched && (
                         <button
-                            onClick={() => { setSearchResults([]); setHasSearched(false); setQuery(''); setSearchError(null); setPreviewDoc(null); }}
+                            onClick={() => { setSearchResults([]); setHasSearched(false); setQuery(''); setSearchError(null); setPreviewDoc(null); setSelectedSourceFile(null); setSelectedCategory(null); setCategoryDocs([]); }}
                             className="ml-auto flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
                             title="검색 초기화"
                         >
@@ -1229,7 +1155,7 @@ const LessonsLearned = () => {
                 const pages = parseContentPages(fullContent);
                 const currentPage = pages[viewerPage] || pages[0];
                 const searchKeywords = query.trim() ? query.trim().split(/\s+/).filter(w => w.length >= 2) : [];
-                const reportHtml = formatContentAsReport(currentPage?.text || '');
+                const reportHtml = formatContentForViewer(currentPage?.text || '');
                 const highlightedContent = searchKeywords.length > 0
                     ? highlightTextInViewer(reportHtml, searchKeywords)
                     : reportHtml;
