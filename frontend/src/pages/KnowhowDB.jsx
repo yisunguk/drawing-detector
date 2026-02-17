@@ -243,26 +243,33 @@ const KnowhowDB = () => {
         setLoadingFiles(true);
         try {
             const path = `${browseUsername}/${folderName}`;
-            const res = await fetch(getListApiUrl(path));
+            const isRecursive = folderName === 'revision';
+            let url = getListApiUrl(path);
+            if (isRecursive) url += '&recursive=true';
+            const res = await fetch(url);
             if (!res.ok) throw new Error('Failed to list files');
             const data = await res.json();
             const items = Array.isArray(data) ? data : (data.items || []);
             const fileItems = items.filter(item => item.type === 'file');
 
             fileItems.forEach(f => {
-                fileMapRef.current[f.name] = {
+                const blobPath = isRecursive ? f.path : `${browseUsername}/${folderName}/${f.name}`;
+                fileMapRef.current[isRecursive ? f.path : f.name] = {
                     category: folderName,
-                    blob_path: `${browseUsername}/${folderName}/${f.name}`,
+                    blob_path: blobPath,
                     user_id: browseUsername
                 };
             });
 
-            const filesWithUrl = fileItems.map(f => ({
-                ...f,
-                folder: folderName,
-                pdfUrl: buildBlobUrl(`${browseUsername}/${folderName}/${f.name}`),
-                id: f.name
-            }));
+            const filesWithUrl = fileItems.map(f => {
+                const blobPath = isRecursive ? f.path : `${browseUsername}/${folderName}/${f.name}`;
+                return {
+                    ...f,
+                    folder: folderName,
+                    pdfUrl: buildBlobUrl(blobPath),
+                    id: isRecursive ? f.path : f.name
+                };
+            });
             setFiles(filesWithUrl);
         } catch (e) {
             console.error('Failed to load files:', e);

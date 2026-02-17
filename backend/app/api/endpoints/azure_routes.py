@@ -36,43 +36,29 @@ def download_options():
     return Response(status_code=200, headers=CORS_HEADERS)
 
 @router.get("/list")
-def list_files(path: str = ""):
+def list_files(path: str = "", recursive: bool = False):
     try:
-        print(f"DEBUG: list_files called with path='{path}'")
+        print(f"DEBUG: list_files called with path='{path}', recursive={recursive}")
         # Use Synchronous Client
         container_client = get_container_client()
-        
+
         # Sanitize path
         path = path.lstrip('/')
         if path and not path.endswith('/'):
             path += '/'
-            
+
         print(f"DEBUG: listing blobs with prefix='{path}'")
-        
+
         items = []
-        
-        # Synchronous walk_blobs
-        blobs = container_client.walk_blobs(name_starts_with=path, delimiter='/')
-        
         count = 0
         MAX_ITEMS = 1000
-        
-        for item in blobs:
-            if count >= MAX_ITEMS:
-                break
-                
-            if item.name.endswith('/'):
-                # Folder
-                folder_name_full = item.name.rstrip('/') 
-                folder_name_display = folder_name_full.split('/')[-1]
-                
-                items.append({
-                    "name": folder_name_display,
-                    "type": "folder",
-                    "path": item.name
-                })
-            else:
-                # File
+
+        if recursive:
+            # Recursive: list all blobs without delimiter (flat list of files only)
+            blobs = container_client.list_blobs(name_starts_with=path)
+            for item in blobs:
+                if count >= MAX_ITEMS:
+                    break
                 file_name_display = item.name.split('/')[-1]
                 items.append({
                     "name": file_name_display,
@@ -81,8 +67,34 @@ def list_files(path: str = ""):
                     "size": item.size,
                     "last_modified": item.last_modified.isoformat() if item.last_modified else None
                 })
-            count += 1
-            
+                count += 1
+        else:
+            # Non-recursive: walk_blobs with delimiter (folders + files at current level)
+            blobs = container_client.walk_blobs(name_starts_with=path, delimiter='/')
+            for item in blobs:
+                if count >= MAX_ITEMS:
+                    break
+                if item.name.endswith('/'):
+                    # Folder
+                    folder_name_full = item.name.rstrip('/')
+                    folder_name_display = folder_name_full.split('/')[-1]
+                    items.append({
+                        "name": folder_name_display,
+                        "type": "folder",
+                        "path": item.name
+                    })
+                else:
+                    # File
+                    file_name_display = item.name.split('/')[-1]
+                    items.append({
+                        "name": file_name_display,
+                        "type": "file",
+                        "path": item.name,
+                        "size": item.size,
+                        "last_modified": item.last_modified.isoformat() if item.last_modified else None
+                    })
+                count += 1
+
         return items
     except Exception as e:
         print(f"Error in list_files: {e}")
