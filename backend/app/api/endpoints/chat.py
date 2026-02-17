@@ -268,16 +268,21 @@ def _search_lessons_revision(search_query: str, username: str | None, is_admin: 
             azure_hl = r.get("azure_highlights", [])
             highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
             score = r.get("score", 0)
+            # Use actual filename from blob_path, with revision label
+            blob_path = r.get("blob_path", "")
+            rev_filename = blob_path.split("/")[-1] if blob_path else r.get("doc_no", "")
+            rev_label = r.get("revision", "")
+            display_name = f"[Rev.{rev_label}] {rev_filename}" if rev_label else rev_filename
             extra_results.append({
-                "filename": r.get("doc_no", ""),
-                "source": r.get("doc_no", ""),
+                "filename": display_name,
+                "source": display_name,
                 "page": r.get("page_number", 0),
                 "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
                 "highlight": highlight_text,
                 "score": score,
                 "@search.score": score,
-                "path": r.get("blob_path", ""),
-                "blob_path": r.get("blob_path", ""),
+                "path": blob_path,
+                "blob_path": blob_path,
                 "coords": None,
                 "type": "revision",
                 "category": r.get("phase_name", ""),
@@ -531,20 +536,26 @@ async def chat(
                         cleaned = _clean_content(raw)
                         azure_hl = r.get("azure_highlights", [])
                         highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+                        blob_path = r.get("blob_path", "")
+                        rev_filename = blob_path.split("/")[-1] if blob_path else r.get("doc_no", "")
+                        rev_label = r.get("revision", "")
+                        display_name = f"[Rev.{rev_label}] {rev_filename}" if rev_label else rev_filename
                         mapped_results.append({
-                            "filename": r.get("doc_no", ""),
+                            "filename": display_name,
+                            "source": display_name,
                             "page": r.get("page_number", 0),
                             "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
                             "highlight": highlight_text,
                             "score": r.get("score", 0),
-                            "path": r.get("blob_path", ""),
-                            "blob_path": r.get("blob_path", ""),
+                            "@search.score": r.get("score", 0),
+                            "path": blob_path,
+                            "blob_path": blob_path,
                             "coords": None,
                             "type": "revision",
                             "category": r.get("phase_name", ""),
                             "user_id": folder_username or "",
                             "title": r.get("title", ""),
-                            "revision": r.get("revision", ""),
+                            "revision": rev_label,
                         })
 
                 print(f"[Chat] Folder search found {len(mapped_results)} results", flush=True)
