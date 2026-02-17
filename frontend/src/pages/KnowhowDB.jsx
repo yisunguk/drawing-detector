@@ -898,10 +898,10 @@ const KnowhowDB = () => {
     // =============================================
     // RESULT / CITATION CLICK → OPEN PDF
     // =============================================
-    const handleResultClick = (result) => {
+    const handleResultClick = (result, overrideKeyword = null) => {
         const filename = result.filename;
         const page = result.page || 1;
-        const keyword = query.trim() || lastQueryRef.current || null;
+        const keyword = overrideKeyword || query.trim() || lastQueryRef.current || null;
         const resultUser = result.user_id || fileMapRef.current[filename]?.user_id || browseUsername || username;
         const meta = { user_id: resultUser, filename, page };
 
@@ -938,9 +938,11 @@ const KnowhowDB = () => {
         // Parse citation: "Keyword|Page X|DocName" or "DocName (Page)"
         let targetPage = 1;
         let targetDocName = null;
+        let searchText = null;
 
         if (keyword.includes('|')) {
             const parts = keyword.split('|');
+            searchText = parts[0].trim() || null;
             if (parts.length > 1) {
                 const pageMatch = parts[1].trim().match(/(\d+)/);
                 if (pageMatch) targetPage = parseInt(pageMatch[1]);
@@ -952,7 +954,7 @@ const KnowhowDB = () => {
             targetPage = parseInt(match[2]);
         }
 
-        console.log('[Citation] parsed:', { targetDocName, targetPage, resultsCount: msgResults.length });
+        console.log('[Citation] parsed:', { searchText, targetDocName, targetPage, resultsCount: msgResults.length });
 
         // Helper: partial filename match (case-insensitive, .pdf-tolerant)
         const nameMatches = (a, b) => {
@@ -977,7 +979,7 @@ const KnowhowDB = () => {
             }
             if (matched) {
                 console.log('[Citation] Resolved from msgResults:', matched.filename, 'blob:', matched.blob_path?.slice(0, 60));
-                handleResultClick({ ...matched, page: targetPage });
+                handleResultClick({ ...matched, page: targetPage }, searchText);
                 return;
             }
         }
@@ -988,7 +990,7 @@ const KnowhowDB = () => {
             if (targetFile) {
                 console.log('[Citation] Found in files:', targetFile.name);
                 const mappedUser = fileMapRef.current[targetFile.name]?.user_id || browseUsername || username;
-                openDocument(targetFile.pdfUrl, targetPage, targetFile.name, null, { user_id: mappedUser, filename: targetFile.name, page: targetPage });
+                openDocument(targetFile.pdfUrl, targetPage, targetFile.name, searchText, { user_id: mappedUser, filename: targetFile.name, page: targetPage });
                 return;
             }
         }
@@ -997,7 +999,7 @@ const KnowhowDB = () => {
         if (activeDoc) {
             console.log('[Citation] Fallback to activeDoc:', activeDoc.name);
             const mappedUser = fileMapRef.current[activeDoc.name]?.user_id || browseUsername || username;
-            openDocument(activeDoc.pdfUrl, targetPage, activeDoc.name, null, { user_id: mappedUser, filename: activeDoc.name, page: targetPage });
+            openDocument(activeDoc.pdfUrl, targetPage, activeDoc.name, searchText, { user_id: mappedUser, filename: activeDoc.name, page: targetPage });
         }
     };
 
@@ -1883,7 +1885,20 @@ const KnowhowDB = () => {
                         documents={[{ id: currentPdfUrlRef.current, name: highlightMetaRef.current?.filename || 'PDF', pdfUrl: currentPdfUrlRef.current }]}
                         onClose={() => { setRightOpen(false); setViewerType(null); }}
                         onCanvasSizeChange={(size) => setCanvasSize(size)}
-                        overlay={(cs) => (highlightRects.length > 0 || highlightPolygons.length > 0) ? (
+                        overlay={(cs) => (highlightRects.length > 0 || highlightPolygons.length > 0) ? (() => {
+                            // Compute center of first highlight for animated target
+                            let cx = 0, cy = 0;
+                            if (highlightRects.length > 0) {
+                                const r = highlightRects[0];
+                                cx = r.x + r.width / 2;
+                                cy = r.y + r.height / 2;
+                            } else if (highlightPolygons.length > 0) {
+                                const pts = highlightPolygons[0].points;
+                                let sumX = 0, sumY = 0, n = pts.length / 2;
+                                for (let j = 0; j < pts.length; j += 2) { sumX += pts[j]; sumY += pts[j+1]; }
+                                cx = sumX / n; cy = sumY / n;
+                            }
+                            return (
                             <svg
                                 className="absolute top-0 left-0 pointer-events-none"
                                 style={{ width: cs.width, height: cs.height, zIndex: 10 }}
@@ -1905,8 +1920,17 @@ const KnowhowDB = () => {
                                             style={{ strokeLinejoin: 'round' }} />
                                     );
                                 })}
+                                {/* Animated pulsing target indicator */}
+                                <circle cx={cx} cy={cy} r="20" fill="none" stroke="#f59e0b" strokeWidth="3" opacity="0.8">
+                                    <animate attributeName="r" values="20;30;20" dur="2s" repeatCount="indefinite" />
+                                    <animate attributeName="opacity" values="0.8;0.4;0.8" dur="2s" repeatCount="indefinite" />
+                                </circle>
+                                {/* Crosshair lines */}
+                                <line x1={cx - 30} y1={cy} x2={cx + 30} y2={cy} stroke="#f59e0b" strokeWidth="2" strokeDasharray="4" />
+                                <line x1={cx} y1={cy - 30} x2={cx} y2={cy + 30} stroke="#f59e0b" strokeWidth="2" strokeDasharray="4" />
                             </svg>
-                        ) : null}
+                            );
+                        })() : null}
                     />
                 ) : (
                     <>
