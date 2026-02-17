@@ -219,6 +219,65 @@ client = AzureOpenAI(
     api_version=settings.AZURE_OPENAI_API_VERSION
 )
 
+def _search_lessons_revision(search_query: str, username: str | None, is_admin: bool, top: int = 20):
+    """Search lessons-learned-index and revision-master-index, return unified results."""
+    extra_results = []
+
+    # Lessons
+    try:
+        lr = lessons_search_service.hybrid_search(
+            query=search_query, username=username, top=top
+        )
+        for r in lr:
+            raw = r.get("content", "") or r.get("content_preview", "")
+            cleaned = _clean_content(raw)
+            azure_hl = r.get("azure_highlights", [])
+            highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+            extra_results.append({
+                "filename": r.get("source_file", ""),
+                "page": None,
+                "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
+                "highlight": highlight_text,
+                "score": r.get("score", 0),
+                "path": r.get("file_path", ""),
+                "blob_path": r.get("file_path", ""),
+                "coords": None,
+                "type": "lessons",
+                "category": r.get("category", ""),
+                "user_id": username or "",
+            })
+    except Exception as e:
+        print(f"[Chat] Lessons cross-search failed: {e}", flush=True)
+
+    # Revision
+    try:
+        rr = revision_search_service.hybrid_search(
+            query=search_query, username=username, top=top
+        )
+        for r in rr:
+            raw = r.get("content_preview", "") or ""
+            cleaned = _clean_content(raw)
+            azure_hl = r.get("azure_highlights", [])
+            highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+            extra_results.append({
+                "filename": r.get("doc_no", ""),
+                "page": r.get("page_number", 0),
+                "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
+                "highlight": highlight_text,
+                "score": r.get("score", 0),
+                "path": r.get("blob_path", ""),
+                "blob_path": r.get("blob_path", ""),
+                "coords": None,
+                "type": "revision",
+                "category": r.get("phase_name", ""),
+                "user_id": username or "",
+            })
+    except Exception as e:
+        print(f"[Chat] Revision cross-search failed: {e}", flush=True)
+
+    return extra_results
+
+
 @router.post("/", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
@@ -568,6 +627,18 @@ async def chat(
                         "user_id": res.get("user_id")
                     })
 
+                # Cross-search: also search lessons + revision indexes (no folder = all indexes)
+                if not request.folder:
+                    cross_user = None
+                    if is_admin:
+                        cross_user = (request.target_users[0] if request.target_users else request.target_user) or None
+                    else:
+                        cross_user = safe_user_id
+                    extra = _search_lessons_revision(search_query, cross_user, is_admin, top=20)
+                    if extra:
+                        print(f"[Chat] Cross-search added {len(extra)} results from lessons/revision", flush=True)
+                        results.extend(extra)
+
                 # Re-rank search results by keyword match density
                 if results and request.query:
                     try:
@@ -662,7 +733,23 @@ async def chat(
 
                         context_text += f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
                         context_text += (result.get('content') or '') + "\n"
-        
+
+                # Cross-search: also include lessons + revision context (no folder = all indexes)
+                if not request.folder:
+                    cross_user = None
+                    if is_admin:
+                        cross_user = (request.target_users[0] if request.target_users else request.target_user) or None
+                    else:
+                        cross_user = safe_user_id
+                    extra = _search_lessons_revision(search_query, cross_user, is_admin, top=10)
+                    if extra:
+                        print(f"[Chat] Cross-search added {len(extra)} context items from lessons/revision", flush=True)
+                        for r in extra:
+                            fname = r.get("filename", "Unknown")
+                            pg = r.get("page", "")
+                            context_text += f"\n=== [{r.get('type','doc')}] Document: {fname} (Page {pg}) ===\n"
+                            context_text += r.get("content", "") + "\n"
+
         # Prepend viewing context (user's current viewport) if provided
         # This ensures the LLM always sees what the user is currently looking at
         if request.viewing_context:
