@@ -602,9 +602,20 @@ const KnowhowDB = () => {
                     let jsonFolder = null;
                     if (meta.blob_path) {
                         const decoded = decodeURIComponent(meta.blob_path);
-                        const folderPattern = /\/(drawings|documents|my-documents|temp)\//i;
-                        if (folderPattern.test(decoded)) {
-                            jsonFolder = decoded.replace(folderPattern, '/json/').replace(/\.[^.]+$/, '');
+
+                        // Revision Master: {user}/revision/.../docs/{doc_id}/{Rev}_file.pdf → {Rev}_di/
+                        const revisionMatch = decoded.match(/\/revision\/[^/]+\/docs\/[^/]+\/([^_]+)_[^/]+$/);
+                        if (revisionMatch) {
+                            const dir = decoded.substring(0, decoded.lastIndexOf('/'));
+                            jsonFolder = `${dir}/${revisionMatch[1]}_di`;
+                        }
+
+                        // 도면분석: drawings|documents|my-documents|temp → json
+                        if (!jsonFolder) {
+                            const folderPattern = /\/(drawings|documents|my-documents|temp)\//i;
+                            if (folderPattern.test(decoded)) {
+                                jsonFolder = decoded.replace(folderPattern, '/json/').replace(/\.[^.]+$/, '');
+                            }
                         }
                     }
                     // fallback: 기존 방식
