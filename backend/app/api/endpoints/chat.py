@@ -743,7 +743,7 @@ async def chat(
                     filter=search_filter,
                     vector_queries=vector_queries if vector_queries else None,
                     top=50,
-                    select=["content", "source", "page", "title", "category", "user_id", "blob_path", "coords", "type"],
+                    select=["content", "source", "page", "title", "category", "user_id", "blob_path", "metadata_storage_path", "coords", "type"],
                 )
 
                 results_list = list(search_results)
@@ -963,7 +963,10 @@ async def chat(
                 return m.group(0).replace('.pdf.pdf', '.pdf')
             response_content = re.sub(r'\[\[.*?\|Page\s*\d+\|.*?\.pdf\.pdf\]\]', fix_double_pdf, response_content, flags=re.IGNORECASE)
 
-            print("[Chat] Post-processed citations with document names.")
+            # Log all citations found in final response
+            all_citations = re.findall(r'\[\[(.*?)\]\]', response_content)
+            print(f"[Chat] Post-processed citations ({len(all_citations)}): {all_citations[:10]}", flush=True)
+            print(f"[Chat] page_doc_map: {dict(list(page_doc_map.items())[:10])}", flush=True)
         except Exception as e:
             print(f"[Chat] Error in citation post-processing: {e}")
 

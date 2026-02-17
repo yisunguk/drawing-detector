@@ -953,9 +953,48 @@ const KnowhowDB = () => {
             targetPage = parseInt(match[2]);
         }
 
+        console.log('[Citation] keyword:', keyword, '→ doc:', targetDocName, 'page:', targetPage);
+        console.log('[Citation] fileMapRef keys:', Object.keys(fileMapRef.current));
+
         // Use citation keyword or last query for highlighting
         const hlKeyword = highlightText || lastQueryRef.current || null;
 
+        // Helper: find document info from fileMapRef (exact or partial match)
+        const findInFileMap = (docName) => {
+            if (!docName) return null;
+            const dn = docName.toLowerCase();
+            // Exact match
+            if (fileMapRef.current[docName]) return { key: docName, ...fileMapRef.current[docName] };
+            // Partial match
+            for (const [k, v] of Object.entries(fileMapRef.current)) {
+                const kl = k.toLowerCase();
+                if (kl.includes(dn) || dn.includes(kl)) return { key: k, ...v };
+            }
+            // Match without .pdf extension
+            const dnBase = dn.replace(/\.pdf$/i, '');
+            for (const [k, v] of Object.entries(fileMapRef.current)) {
+                const kBase = k.toLowerCase().replace(/\.pdf$/i, '');
+                if (kBase.includes(dnBase) || dnBase.includes(kBase)) return { key: k, ...v };
+            }
+            return null;
+        };
+
+        // Helper: open document with blob_path or constructed URL
+        const openFromMapped = (mapped, docName, page) => {
+            const resultUser = mapped?.user_id || browseUsername || username;
+            const meta = { user_id: resultUser, filename: docName, page };
+            if (mapped?.blob_path) {
+                console.log('[Citation] Opening via blob_path:', mapped.blob_path);
+                openDocument(buildBlobUrl(mapped.blob_path), page, docName, hlKeyword, meta);
+            } else {
+                const folder = mapped?.category || 'documents';
+                const url = buildBlobUrl(`${resultUser}/${folder}/${docName}`);
+                console.log('[Citation] Opening via constructed URL:', url);
+                openDocument(url, page, docName, hlKeyword, meta);
+            }
+        };
+
+        // 1. Try files array (current folder's files)
         let targetFile = null;
         if (targetDocName) {
             targetFile = files.find(f =>
@@ -966,37 +1005,42 @@ const KnowhowDB = () => {
         if (!targetFile && activeDoc) targetFile = activeDoc;
 
         if (targetFile) {
+            console.log('[Citation] Found in files array:', targetFile.name);
             const mappedUser = fileMapRef.current[targetFile.name]?.user_id || browseUsername || username;
             const meta = { user_id: mappedUser, filename: targetFile.name, page: targetPage };
             openDocument(targetFile.pdfUrl, targetPage, targetFile.name, hlKeyword, meta);
-        } else if (targetDocName) {
-            // Try fileMapRef for blob_path (works in 전체 mode)
-            const mapped = fileMapRef.current[targetDocName]
-                || Object.entries(fileMapRef.current).find(([k]) =>
-                    k.toLowerCase().includes(targetDocName.toLowerCase()) ||
-                    targetDocName.toLowerCase().includes(k.toLowerCase())
-                )?.[1];
+            return;
+        }
 
-            const resultUser = mapped?.user_id || browseUsername || username;
-            const meta = { user_id: resultUser, filename: targetDocName, page: targetPage };
-
-            if (mapped?.blob_path) {
-                const url = buildBlobUrl(mapped.blob_path);
-                openDocument(url, targetPage, targetDocName, hlKeyword, meta);
-            } else {
-                const folder = (typeof mapped === 'string' ? mapped : mapped?.category) || 'documents';
-                const url = buildBlobUrl(`${resultUser}/${folder}/${targetDocName}`);
-                openDocument(url, targetPage, targetDocName, hlKeyword, meta);
+        // 2. Try fileMapRef (populated from search/chat results)
+        if (targetDocName) {
+            const mapped = findInFileMap(targetDocName);
+            if (mapped) {
+                console.log('[Citation] Found in fileMapRef:', mapped.key);
+                openFromMapped(mapped, mapped.key, targetPage);
+                return;
             }
-        } else if (targetPage > 1) {
-            // Fallback: no document name in citation - try to find by page from fileMapRef
-            const pageMatch = Object.entries(fileMapRef.current).find(([, v]) => v?.blob_path);
-            if (pageMatch) {
-                const [fname, mapped] = pageMatch;
-                const resultUser = mapped?.user_id || browseUsername || username;
-                const meta = { user_id: resultUser, filename: fname, page: targetPage };
-                const url = buildBlobUrl(mapped.blob_path);
-                openDocument(url, targetPage, fname, hlKeyword, meta);
+        }
+
+        // 3. Fallback: find by page number from chat results
+        // Look for any document with matching page in fileMapRef
+        if (targetPage > 0) {
+            // Try the last chat message's results for matching page
+            const lastAssistantMsg = [...chatMessages].reverse().find(m => m.role === 'assistant' && m.results);
+            if (lastAssistantMsg?.results) {
+                const pageResult = lastAssistantMsg.results.find(r => r.page === targetPage && r.blob_path);
+                if (pageResult) {
+                    console.log('[Citation] Found page match in chat results:', pageResult.filename);
+                    openFromMapped(pageResult, pageResult.filename, targetPage);
+                    return;
+                }
+            }
+            // Last resort: any blob_path in fileMapRef
+            const anyEntry = Object.entries(fileMapRef.current).find(([, v]) => v?.blob_path);
+            if (anyEntry) {
+                const [fname, mapped] = anyEntry;
+                console.log('[Citation] Last resort fallback:', fname);
+                openFromMapped(mapped, fname, targetPage);
             }
         }
     };
