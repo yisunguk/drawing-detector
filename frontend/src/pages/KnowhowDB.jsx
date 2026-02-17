@@ -1789,19 +1789,6 @@ const KnowhowDB = () => {
                                                 : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
                                     }`}>
                                         {msg.role === 'user' ? msg.content : (
-                                            <div onClick={(e) => {
-                                                // Event delegation: handle citation clicks at parent level
-                                                // This survives ReactMarkdown re-renders
-                                                const btn = e.target.closest('[data-citation]');
-                                                if (!btn) return;
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                const keyword = btn.getAttribute('data-citation');
-                                                const msgIdx = parseInt(btn.getAttribute('data-msg-idx'));
-                                                const msgData = chatMessages[msgIdx];
-                                                const msgResults = msgData?.results || [];
-                                                handleCitationClick(keyword, msgResults);
-                                            }}>
                                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                                                 table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
                                                 thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
@@ -1819,16 +1806,19 @@ const KnowhowDB = () => {
                                                     if (href?.startsWith('#citation-')) {
                                                         const keyword = decodeURIComponent(href.replace('#citation-', ''));
                                                         return (
-                                                            <span
-                                                                data-citation={keyword}
-                                                                data-msg-idx={idx}
-                                                                role="button"
-                                                                tabIndex={0}
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    console.log(`[Citation] clicked: ${keyword}`);
+                                                                    handleCitationClick(keyword, msg.results || []);
+                                                                }}
                                                                 className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
+                                                                title={`"${keyword}" 위치 찾기`}
                                                             >
                                                                 <Sparkles size={10} />
                                                                 {children}
-                                                            </span>
+                                                            </button>
                                                         );
                                                     }
                                                     return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
@@ -1836,7 +1826,6 @@ const KnowhowDB = () => {
                                             }}>
                                                 {processCitations(msg.content)}
                                             </ReactMarkdown>
-                                            </div>
                                         )}
                                         {msg.role === 'assistant' && msg.results && msg.results.length > 0 && (
                                             <div className="mt-4 pt-3 border-t border-gray-100">
