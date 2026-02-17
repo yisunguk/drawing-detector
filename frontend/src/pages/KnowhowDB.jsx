@@ -152,6 +152,7 @@ const KnowhowDB = () => {
     const fileMapRef = useRef({});
     const lastQueryRef = useRef('');
     const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
+    const citationHandlerRef = useRef(null); // always-latest handleCitationClick (avoids stale closure in ReactMarkdown)
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -1061,6 +1062,9 @@ const KnowhowDB = () => {
         }
     };
 
+    // Keep ref always pointing to latest handleCitationClick (avoids stale closure in ReactMarkdown buttons)
+    citationHandlerRef.current = handleCitationClick;
+
     // =============================================
     // UPLOAD HANDLER
     // =============================================
@@ -1811,7 +1815,7 @@ const KnowhowDB = () => {
                                                                     e.preventDefault();
                                                                     e.stopPropagation();
                                                                     console.log(`[Citation] clicked: ${keyword}`);
-                                                                    handleCitationClick(keyword, msg.results || []);
+                                                                    citationHandlerRef.current(keyword, msg.results || []);
                                                                 }}
                                                                 className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
                                                                 title={`"${keyword}" 위치 찾기`}
