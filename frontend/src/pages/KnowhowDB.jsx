@@ -928,20 +928,19 @@ const KnowhowDB = () => {
         openDocument(url, page, filename, keyword, meta);
     };
 
-    const handleCitationClick = (keyword) => {
+    const handleCitationClick = (keyword, msgResults = []) => {
         if (!keyword || keyword.length < 2) return;
 
         const noiseWords = ['g', 'e', 's', 't', 'c', 'd', 'p', 'i', 'v', 'l', 'r', 'o', 'm', 'n', 'u', 'k'];
         const clean = keyword.toLowerCase().trim();
         if (clean.length < 2 || noiseWords.includes(clean)) return;
 
+        // Parse citation: "Keyword|Page X|DocName" or "DocName (Page)"
         let targetPage = 1;
         let targetDocName = null;
-        let highlightText = null;
 
         if (keyword.includes('|')) {
             const parts = keyword.split('|');
-            highlightText = parts[0].trim();
             if (parts.length > 1) {
                 const pageMatch = parts[1].trim().match(/(\d+)/);
                 if (pageMatch) targetPage = parseInt(pageMatch[1]);
@@ -953,95 +952,52 @@ const KnowhowDB = () => {
             targetPage = parseInt(match[2]);
         }
 
-        console.log('[Citation] keyword:', keyword, '→ doc:', targetDocName, 'page:', targetPage);
-        console.log('[Citation] fileMapRef keys:', Object.keys(fileMapRef.current));
+        console.log('[Citation] parsed:', { targetDocName, targetPage, resultsCount: msgResults.length });
 
-        // Use citation keyword or last query for highlighting
-        const hlKeyword = highlightText || lastQueryRef.current || null;
-
-        // Helper: find document info from fileMapRef (exact or partial match)
-        const findInFileMap = (docName) => {
-            if (!docName) return null;
-            const dn = docName.toLowerCase();
-            // Exact match
-            if (fileMapRef.current[docName]) return { key: docName, ...fileMapRef.current[docName] };
-            // Partial match
-            for (const [k, v] of Object.entries(fileMapRef.current)) {
-                const kl = k.toLowerCase();
-                if (kl.includes(dn) || dn.includes(kl)) return { key: k, ...v };
-            }
-            // Match without .pdf extension
-            const dnBase = dn.replace(/\.pdf$/i, '');
-            for (const [k, v] of Object.entries(fileMapRef.current)) {
-                const kBase = k.toLowerCase().replace(/\.pdf$/i, '');
-                if (kBase.includes(dnBase) || dnBase.includes(kBase)) return { key: k, ...v };
-            }
-            return null;
+        // Helper: partial filename match (case-insensitive, .pdf-tolerant)
+        const nameMatches = (a, b) => {
+            if (!a || !b) return false;
+            const al = a.toLowerCase().replace(/\.pdf$/i, '');
+            const bl = b.toLowerCase().replace(/\.pdf$/i, '');
+            return al.includes(bl) || bl.includes(al);
         };
 
-        // Helper: open document with blob_path or constructed URL
-        const openFromMapped = (mapped, docName, page) => {
-            const resultUser = mapped?.user_id || browseUsername || username;
-            const meta = { user_id: resultUser, filename: docName, page };
-            if (mapped?.blob_path) {
-                console.log('[Citation] Opening via blob_path:', mapped.blob_path);
-                openDocument(buildBlobUrl(mapped.blob_path), page, docName, hlKeyword, meta);
-            } else {
-                const folder = mapped?.category || 'documents';
-                const url = buildBlobUrl(`${resultUser}/${folder}/${docName}`);
-                console.log('[Citation] Opening via constructed URL:', url);
-                openDocument(url, page, docName, hlKeyword, meta);
+        // ── Strategy 1: Match from message's results (도면분석 패턴 — 가장 신뢰) ──
+        // The results array has blob_path, user_id, category — everything needed.
+        if (msgResults.length > 0) {
+            let matched = null;
+            if (targetDocName) {
+                // Match by filename + page
+                matched = msgResults.find(r => nameMatches(r.filename, targetDocName) && r.page === targetPage)
+                    || msgResults.find(r => nameMatches(r.filename, targetDocName));
             }
-        };
-
-        // 1. Try files array (current folder's files)
-        let targetFile = null;
-        if (targetDocName) {
-            targetFile = files.find(f =>
-                f.name.toLowerCase().includes(targetDocName.toLowerCase()) ||
-                targetDocName.toLowerCase().includes(f.name.toLowerCase())
-            );
-        }
-        if (!targetFile && activeDoc) targetFile = activeDoc;
-
-        if (targetFile) {
-            console.log('[Citation] Found in files array:', targetFile.name);
-            const mappedUser = fileMapRef.current[targetFile.name]?.user_id || browseUsername || username;
-            const meta = { user_id: mappedUser, filename: targetFile.name, page: targetPage };
-            openDocument(targetFile.pdfUrl, targetPage, targetFile.name, hlKeyword, meta);
-            return;
-        }
-
-        // 2. Try fileMapRef (populated from search/chat results)
-        if (targetDocName) {
-            const mapped = findInFileMap(targetDocName);
-            if (mapped) {
-                console.log('[Citation] Found in fileMapRef:', mapped.key);
-                openFromMapped(mapped, mapped.key, targetPage);
+            if (!matched && targetPage > 0) {
+                // Match by page only
+                matched = msgResults.find(r => r.page === targetPage);
+            }
+            if (matched) {
+                console.log('[Citation] Resolved from msgResults:', matched.filename, 'blob:', matched.blob_path?.slice(0, 60));
+                handleResultClick({ ...matched, page: targetPage });
                 return;
             }
         }
 
-        // 3. Fallback: find by page number from chat results
-        // Look for any document with matching page in fileMapRef
-        if (targetPage > 0) {
-            // Try the last chat message's results for matching page
-            const lastAssistantMsg = [...chatMessages].reverse().find(m => m.role === 'assistant' && m.results);
-            if (lastAssistantMsg?.results) {
-                const pageResult = lastAssistantMsg.results.find(r => r.page === targetPage && r.blob_path);
-                if (pageResult) {
-                    console.log('[Citation] Found page match in chat results:', pageResult.filename);
-                    openFromMapped(pageResult, pageResult.filename, targetPage);
-                    return;
-                }
+        // ── Strategy 2: Match from files array (현재 폴더 파일) ──
+        if (targetDocName) {
+            const targetFile = files.find(f => nameMatches(f.name, targetDocName));
+            if (targetFile) {
+                console.log('[Citation] Found in files:', targetFile.name);
+                const mappedUser = fileMapRef.current[targetFile.name]?.user_id || browseUsername || username;
+                openDocument(targetFile.pdfUrl, targetPage, targetFile.name, null, { user_id: mappedUser, filename: targetFile.name, page: targetPage });
+                return;
             }
-            // Last resort: any blob_path in fileMapRef
-            const anyEntry = Object.entries(fileMapRef.current).find(([, v]) => v?.blob_path);
-            if (anyEntry) {
-                const [fname, mapped] = anyEntry;
-                console.log('[Citation] Last resort fallback:', fname);
-                openFromMapped(mapped, fname, targetPage);
-            }
+        }
+
+        // ── Strategy 3: Active document fallback ──
+        if (activeDoc) {
+            console.log('[Citation] Fallback to activeDoc:', activeDoc.name);
+            const mappedUser = fileMapRef.current[activeDoc.name]?.user_id || browseUsername || username;
+            openDocument(activeDoc.pdfUrl, targetPage, activeDoc.name, null, { user_id: mappedUser, filename: activeDoc.name, page: targetPage });
         }
     };
 
@@ -1204,9 +1160,9 @@ const KnowhowDB = () => {
     };
 
     // =============================================
-    // MARKDOWN COMPONENTS (for chat)
+    // MARKDOWN COMPONENTS (for chat) — factory that binds message results
     // =============================================
-    const markdownComponents = {
+    const sharedMarkdownComponents = {
         table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
         thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
         th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
@@ -1219,12 +1175,15 @@ const KnowhowDB = () => {
         code: ({ node, inline, ...props }) => inline
             ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
             : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
+    };
+    const getMarkdownComponents = (msgResults) => ({
+        ...sharedMarkdownComponents,
         a: ({ node, href, children, ...props }) => {
             if (href?.startsWith('#citation-')) {
                 const keyword = decodeURIComponent(href.replace('#citation-', ''));
                 return (
                     <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleCitationClick(keyword); }}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleCitationClick(keyword, msgResults || []); }}
                         className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
                         title={`View source`}
                     >
@@ -1235,7 +1194,7 @@ const KnowhowDB = () => {
             }
             return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
         }
-    };
+    });
 
     const processCitations = (text) => {
         return text.replace(/(`*)\[\[(.*?)\]\]\1/g, (match, backticks, p1) => {
@@ -1804,7 +1763,7 @@ const KnowhowDB = () => {
                                                 : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
                                     }`}>
                                         {msg.role === 'user' ? msg.content : (
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={getMarkdownComponents(msg.results)}>
                                                 {processCitations(msg.content)}
                                             </ReactMarkdown>
                                         )}
