@@ -459,6 +459,7 @@ class RevisionSearchService:
                     "revision_date": r.get("revision_date", ""),
                     "project_name": r.get("project_name", ""),
                     "change_description": r.get("change_description", ""),
+                    "content": r.get("content") or "",
                     "content_preview": (r.get("content") or "")[:500],
                     "blob_path": r.get("blob_path", ""),
                     "page_number": r.get("page_number", 0),

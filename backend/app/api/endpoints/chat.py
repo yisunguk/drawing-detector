@@ -577,12 +577,20 @@ async def chat(
                         results=mapped_results
                     )
 
-                # Chat mode: build context for GPT
-                for r in mapped_results:
-                    fname = r.get("filename", "Unknown")
-                    pg = r.get("page", "")
+                # Chat mode: build context for GPT using FULL content from service_results
+                for r in service_results:
+                    full_content = r.get("content", "") or r.get("content_preview", "")
+                    if request.folder == "revision":
+                        blob_path = r.get("blob_path", "")
+                        rev_filename = blob_path.split("/")[-1] if blob_path else r.get("doc_no", "")
+                        rev_label = r.get("revision", "")
+                        fname = f"[Rev.{rev_label}] {rev_filename}" if rev_label else rev_filename
+                        pg = r.get("page_number", "")
+                    else:  # lessons
+                        fname = r.get("source_file", "") or r.get("file_nm", "")
+                        pg = ""
                     context_text += f"\n=== Document: {fname} (Page {pg}) ===\n"
-                    context_text += r.get("content", "") + "\n"
+                    context_text += full_content + "\n"
 
             # ---------------------------------------------------------
             # MODE: KEYWORD SEARCH (pdf-search-index)
