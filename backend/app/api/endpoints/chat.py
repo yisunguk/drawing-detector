@@ -172,7 +172,8 @@ def _rerank_by_keywords(results_list: list, original_query: str) -> list:
 
     # Log top 5 for debugging
     for i, r in enumerate(results_list[:5]):
-        print(f"[Chat] Rerank #{i+1}: {r.get('source','?')} p.{r.get('page','?')} "
+        name = r.get('source') or r.get('filename') or '?'
+        print(f"[Chat] Rerank #{i+1}: [{r.get('type','doc')}] {name} p.{r.get('page','?')} "
               f"azure={r.get('@search.score', 0):.1f} rerank={r.get('_rerank_score', 0):.1f}", flush=True)
 
     return results_list
@@ -233,12 +234,15 @@ def _search_lessons_revision(search_query: str, username: str | None, is_admin: 
             cleaned = _clean_content(raw)
             azure_hl = r.get("azure_highlights", [])
             highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+            score = r.get("score", 0)
             extra_results.append({
                 "filename": r.get("source_file", ""),
+                "source": r.get("source_file", ""),
                 "page": None,
                 "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
                 "highlight": highlight_text,
-                "score": r.get("score", 0),
+                "score": score,
+                "@search.score": score,
                 "path": r.get("file_path", ""),
                 "blob_path": r.get("file_path", ""),
                 "coords": None,
@@ -259,12 +263,15 @@ def _search_lessons_revision(search_query: str, username: str | None, is_admin: 
             cleaned = _clean_content(raw)
             azure_hl = r.get("azure_highlights", [])
             highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+            score = r.get("score", 0)
             extra_results.append({
                 "filename": r.get("doc_no", ""),
+                "source": r.get("doc_no", ""),
                 "page": r.get("page_number", 0),
                 "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
                 "highlight": highlight_text,
-                "score": r.get("score", 0),
+                "score": score,
+                "@search.score": score,
                 "path": r.get("blob_path", ""),
                 "blob_path": r.get("blob_path", ""),
                 "coords": None,
