@@ -1023,8 +1023,12 @@ const KnowhowDB = () => {
                 // Match by page only
                 matched = msgResults.find(r => r.page === targetPage);
             }
+            // Fallback: use first result (same chat response → likely same document)
+            if (!matched && msgResults.length > 0) {
+                matched = msgResults[0];
+            }
             if (matched) {
-                console.log('[Citation] Resolved from msgResults:', matched.filename, 'blob:', matched.blob_path?.slice(0, 60));
+                console.log('[Citation] Resolved from msgResults:', matched.filename, 'page:', targetPage, 'blob:', matched.blob_path?.slice(0, 60));
                 handleResultClick({ ...matched, page: targetPage }, searchText);
                 return;
             }
@@ -1046,6 +1050,14 @@ const KnowhowDB = () => {
             console.log('[Citation] Fallback to activeDoc:', activeDoc.name);
             const mappedUser = fileMapRef.current[activeDoc.name]?.user_id || browseUsername || username;
             openDocument(activeDoc.pdfUrl, targetPage, activeDoc.name, searchText, { user_id: mappedUser, filename: activeDoc.name, page: targetPage, blob_path: activeDoc.blob_path || fileMapRef.current[activeDoc.name]?.blob_path || null });
+            return;
+        }
+
+        // ── Strategy 4: Navigate currently open PDF (이미 열린 문서로 페이지 이동) ──
+        if (currentPdfUrlRef.current && pdfDocObj) {
+            console.log('[Citation] Fallback: navigating current PDF to page', targetPage, 'keyword:', searchText);
+            const currentMeta = highlightMetaRef.current;
+            openDocument(currentPdfUrlRef.current, targetPage, currentMeta?.filename || '', searchText, currentMeta);
         }
     };
 
