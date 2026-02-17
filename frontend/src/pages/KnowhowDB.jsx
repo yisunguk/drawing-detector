@@ -1794,15 +1794,43 @@ const KnowhowDB = () => {
                                     }`}>
                                         {msg.role === 'user' ? msg.content : (
                                             <div onClickCapture={(e) => {
-                                                // Event delegation at CAPTURE phase — fires before any child handler
-                                                // This div is re-created by .map() on every render → always fresh closure
                                                 const btn = e.target.closest('[data-citation]');
                                                 if (!btn) return;
                                                 e.preventDefault();
                                                 e.stopPropagation();
-                                                const kw = btn.getAttribute('data-citation');
-                                                console.log('[Citation] delegation clicked:', kw);
-                                                citationHandlerRef.current(kw, msg.results || []);
+                                                const raw = btn.getAttribute('data-citation');
+
+                                                // Parse keyword|page from citation
+                                                let searchText = raw, targetPage = pdfPage;
+                                                if (raw.includes('|')) {
+                                                    const parts = raw.split('|');
+                                                    searchText = parts[0].trim() || raw;
+                                                    if (parts.length > 1) {
+                                                        const pm = parts[1].trim().match(/(\d+)/);
+                                                        if (pm) targetPage = parseInt(pm[1]);
+                                                    }
+                                                } else {
+                                                    const pm = raw.match(/\(Page\s*(\d+)\)/i);
+                                                    if (pm) {
+                                                        targetPage = parseInt(pm[1]);
+                                                        searchText = raw.replace(/\s*\(Page\s*\d+\)/i, '').trim();
+                                                    }
+                                                }
+                                                if (targetPage < 1) targetPage = 1;
+
+                                                console.log('[Citation] clicked:', searchText, 'page:', targetPage);
+
+                                                // Dashboard 패턴: 이미 PDF 열려있으면 직접 상태만 변경
+                                                if (pdfDocObj && currentPdfUrlRef.current) {
+                                                    setHighlightKeyword(searchText);
+                                                    setHighlightRects([]);
+                                                    setHighlightPolygons([]);
+                                                    setPdfPage(Math.min(targetPage, pdfTotalPages || targetPage));
+                                                    return;
+                                                }
+
+                                                // 첫 클릭 (PDF 아직 안 열림): 전체 플로우
+                                                citationHandlerRef.current(raw, msg.results || []);
                                             }}>
                                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                                                 table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
