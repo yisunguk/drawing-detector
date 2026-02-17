@@ -6,6 +6,8 @@ from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceNotFoundError
 from app.services.blob_storage import get_container_client
 from app.services.azure_search import azure_search_service
+from app.services.lessons_search import lessons_search_service
+from app.services.revision_search import revision_search_service
 import io
 import json
 
@@ -168,11 +170,35 @@ def download_file(path: str, range: str = Header(None)):
 
 
 @router.get("/index-status")
-def get_index_status(username: str):
-    """Get indexing status for all files of a given user."""
-    try:
-        print(f"[index-status] Checking index status for user: {username}", flush=True)
+def get_index_status(username: str, folder: str = ""):
+    """Get indexing status for all files of a given user.
 
+    The `folder` parameter selects the correct Azure Search index:
+      - lessons  → lessons-learned-index
+      - revision → revision-master-index
+      - (others) → pdf-search-index (documents, drawings, etc.)
+    """
+    try:
+        print(f"[index-status] Checking index status for user: {username}, folder: {folder}", flush=True)
+
+        # ── lessons / revision: dedicated indexes, no JSON step ──
+        if folder == "lessons":
+            indexed = lessons_search_service.get_indexed_facets(username)
+            print(f"[index-status] Found {len(indexed)} indexed files in lessons-learned-index", flush=True)
+            files = {}
+            for fname, count in indexed.items():
+                files[fname] = {"indexed_pages": count, "json_exists": True}
+            return {"files": files}
+
+        if folder == "revision":
+            indexed = revision_search_service.get_indexed_facets(username)
+            print(f"[index-status] Found {len(indexed)} indexed files in revision-master-index", flush=True)
+            files = {}
+            for fname, count in indexed.items():
+                files[fname] = {"indexed_pages": count, "json_exists": True}
+            return {"files": files}
+
+        # ── Default: pdf-search-index (documents, drawings, etc.) ──
         # 1. Get indexed file → page count from Azure Search
         indexed = azure_search_service.get_indexed_facets(username)
         print(f"[index-status] Found {len(indexed)} indexed files in Azure Search", flush=True)

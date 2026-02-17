@@ -734,6 +734,26 @@ class LessonsSearchService:
             logger.error(f"Get uploaded files failed: {e}")
             return []
 
+    def get_indexed_facets(self, username: str) -> dict:
+        """Returns {source_file: indexed_doc_count} for a given user."""
+        if not self.client:
+            return {}
+        try:
+            safe_user = username.replace("'", "''")
+            results = self.client.search(
+                search_text="*",
+                filter=f"username eq '{safe_user}'",
+                facets=["source_file,count:1000"],
+                top=0
+            )
+            facets = results.get_facets()
+            if not facets or "source_file" not in facets:
+                return {}
+            return {f["value"]: f["count"] for f in facets["source_file"]}
+        except Exception as e:
+            logger.error(f"Failed to get lessons indexed facets for {username}: {e}")
+            return {}
+
     def delete_by_source_file(self, source_file: str, username: str) -> int:
         """Delete all indexed documents from a specific source file."""
         if not self.client:

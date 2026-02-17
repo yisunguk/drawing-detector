@@ -47,8 +47,10 @@ const getListApiUrl = (path) => {
     return `${API_BASE}/api/v1/azure/list?path=${encodeURIComponent(path)}`;
 };
 
-const getIndexStatusApiUrl = (username) => {
-    return `${API_BASE}/api/v1/azure/index-status?username=${encodeURIComponent(username)}`;
+const getIndexStatusApiUrl = (username, folder = '') => {
+    let url = `${API_BASE}/api/v1/azure/index-status?username=${encodeURIComponent(username)}`;
+    if (folder) url += `&folder=${encodeURIComponent(folder)}`;
+    return url;
 };
 
 const getReindexApiUrl = () => {
@@ -273,10 +275,10 @@ const KnowhowDB = () => {
     // =============================================
     // INDEX STATUS (Admin only)
     // =============================================
-    const loadIndexStatus = async (user) => {
+    const loadIndexStatus = async (user, folder = '') => {
         if (!isAdmin || !user) return;
         try {
-            const res = await fetch(getIndexStatusApiUrl(user));
+            const res = await fetch(getIndexStatusApiUrl(user, folder));
             if (!res.ok) throw new Error('Failed to load index status');
             const data = await res.json();
             setIndexStatus(data.files || {});
@@ -288,7 +290,7 @@ const KnowhowDB = () => {
 
     useEffect(() => {
         if (isAdmin && browseUsername && activeFolder) {
-            loadIndexStatus(browseUsername);
+            loadIndexStatus(browseUsername, activeFolder);
         } else {
             setIndexStatus({});
         }
@@ -419,7 +421,7 @@ const KnowhowDB = () => {
                 }
             }
             setUploadStatus('Done!');
-            await loadIndexStatus(browseUsername);
+            await loadIndexStatus(browseUsername, activeFolder);
         } finally {
             setIsAnalyzingAll(false);
             setIsUploading(false);
@@ -444,7 +446,7 @@ const KnowhowDB = () => {
             const data = await res.json();
             if (data.deleted_count > 0) {
                 alert(`인덱스 정리 완료: ${data.deleted_count}개 항목 삭제\n\n삭제된 파일:\n${data.deleted_files.join('\n')}`);
-                await loadIndexStatus(browseUsername);
+                await loadIndexStatus(browseUsername, activeFolder);
             } else {
                 alert('정리할 orphaned 인덱스가 없습니다.');
             }
@@ -1455,7 +1457,7 @@ const KnowhowDB = () => {
                                                                 }
                                                             }, totalPages);
                                                             setUploadStatus('Done!');
-                                                            await loadIndexStatus(browseUsername);
+                                                            await loadIndexStatus(browseUsername, activeFolder);
                                                         } catch (err) {
                                                             alert('Analysis failed: ' + err.message);
                                                         } finally {
@@ -1512,7 +1514,7 @@ const KnowhowDB = () => {
                                                             );
                                                             if (res.ok) {
                                                                 loadFiles(activeFolder);
-                                                                loadIndexStatus(browseUsername);
+                                                                loadIndexStatus(browseUsername, activeFolder);
                                                                 if (activeDoc?.name === file.name) setActiveDoc(null);
                                                             } else {
                                                                 throw new Error('Delete failed');

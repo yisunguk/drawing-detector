@@ -376,6 +376,34 @@ class RevisionSearchService:
             logger.error(f"Delete by revision failed: {e}")
             return 0
 
+    # ── Facets / Index Status ──
+
+    def get_indexed_facets(self, username: str) -> dict:
+        """Returns {filename: indexed_page_count} for a given user.
+
+        Extracts the filename from blob_path and counts pages per file.
+        """
+        if not self.client:
+            return {}
+        try:
+            safe_user = username.replace("'", "''")
+            results = self.client.search(
+                search_text="*",
+                filter=f"username eq '{safe_user}'",
+                select=["blob_path"],
+                top=5000
+            )
+            counts = {}
+            for r in results:
+                blob_path = r.get("blob_path", "")
+                if blob_path:
+                    filename = blob_path.split("/")[-1]
+                    counts[filename] = counts.get(filename, 0) + 1
+            return counts
+        except Exception as e:
+            logger.error(f"Failed to get revision indexed facets for {username}: {e}")
+            return {}
+
     # ── Search ──
 
     def hybrid_search(self, query: str, project_id: Optional[str] = None,
