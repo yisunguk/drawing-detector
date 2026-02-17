@@ -1179,6 +1179,7 @@ const KnowhowDB = () => {
     const getMarkdownComponents = (msgResults) => ({
         ...sharedMarkdownComponents,
         a: ({ node, href, children, ...props }) => {
+            console.log('[MD-LINK]', { href: href?.substring(0, 60), isCitation: href?.startsWith('#citation-'), resultsLen: msgResults?.length });
             if (href?.startsWith('#citation-')) {
                 let keyword;
                 try { keyword = decodeURIComponent(href.replace('#citation-', '')); } catch { keyword = href.replace('#citation-', ''); }
@@ -1206,23 +1207,24 @@ const KnowhowDB = () => {
                 }
 
                 return (
-                    <button
+                    <span
+                        role="button"
+                        tabIndex={0}
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
+                            console.log('[CITE-CLICK]', { resolved: !!resolved, keyword: keyword?.substring(0, 50), resultsLen: msgResults?.length });
                             if (resolved) {
                                 handleResultClick(resolved);
                             } else {
-                                // Fallback: use handleCitationClick for unresolved
                                 handleCitationClick(keyword, msgResults || []);
                             }
                         }}
-                        className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
-                        title={resolved ? `${resolved.filename} p.${resolved.page}` : 'View source'}
+                        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', margin: '0 2px', padding: '1px 6px', background: '#eff6ff', color: '#2563eb', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 500, border: '1px solid #bfdbfe' }}
                     >
                         <Sparkles size={10} />
                         {children}
-                    </button>
+                    </span>
                 );
             }
             return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
