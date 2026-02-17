@@ -6,6 +6,8 @@ from openai import AzureOpenAI
 from azure.search.documents.models import VectorizedQuery
 from app.core.config import settings
 from app.core.firebase_admin import verify_id_token
+from app.services.lessons_search import lessons_search_service
+from app.services.revision_search import revision_search_service
 
 router = APIRouter()
 
@@ -190,6 +192,7 @@ class ChatRequest(BaseModel):
     viewing_context: Optional[str] = None  # Current page context from frontend (user's viewport)
     target_user: Optional[str] = None  # Admin-only: filter search to a specific user folder
     target_users: Optional[List[str]] = None  # Admin-only: multi-user scope filter
+    folder: Optional[str] = None  # Active folder: lessons, revision, etc.
 
 class ChatResponse(BaseModel):
     response: str
@@ -404,9 +407,95 @@ async def chat(
                 print(f"[Chat] Tag pattern detected → expanded query: {search_query}")
 
             # ---------------------------------------------------------
-            # MODE: KEYWORD SEARCH
+            # FOLDER-SPECIFIC SEARCH: lessons / revision
+            # (These use dedicated Azure Search indexes)
             # ---------------------------------------------------------
-            if request.mode == "search":
+            if request.folder in ("lessons", "revision"):
+                # Determine username for lessons/revision search
+                folder_username = None
+                if is_admin:
+                    if request.target_users and len(request.target_users) > 0:
+                        folder_username = request.target_users[0]
+                    elif request.target_user:
+                        folder_username = request.target_user
+                else:
+                    folder_username = safe_user_id
+
+                print(f"[Chat] Folder-specific search: folder={request.folder}, username={folder_username}", flush=True)
+
+                if request.folder == "lessons":
+                    service_results = lessons_search_service.hybrid_search(
+                        query=search_query,
+                        username=folder_username,
+                        top=50
+                    )
+                    mapped_results = []
+                    for r in service_results:
+                        raw = r.get("content", "") or r.get("content_preview", "")
+                        cleaned = _clean_content(raw)
+                        azure_hl = r.get("azure_highlights", [])
+                        highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+                        mapped_results.append({
+                            "filename": r.get("source_file", ""),
+                            "page": None,
+                            "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
+                            "highlight": highlight_text,
+                            "score": r.get("score", 0),
+                            "path": r.get("file_path", ""),
+                            "blob_path": r.get("file_path", ""),
+                            "coords": None,
+                            "type": "lessons",
+                            "category": r.get("category", ""),
+                            "user_id": folder_username or "",
+                            "file_nm": r.get("file_nm", ""),
+                        })
+                else:  # revision
+                    service_results = revision_search_service.hybrid_search(
+                        query=search_query,
+                        username=folder_username,
+                        top=50
+                    )
+                    mapped_results = []
+                    for r in service_results:
+                        raw = r.get("content_preview", "") or ""
+                        cleaned = _clean_content(raw)
+                        azure_hl = r.get("azure_highlights", [])
+                        highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+                        mapped_results.append({
+                            "filename": r.get("doc_no", ""),
+                            "page": r.get("page_number", 0),
+                            "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
+                            "highlight": highlight_text,
+                            "score": r.get("score", 0),
+                            "path": r.get("blob_path", ""),
+                            "blob_path": r.get("blob_path", ""),
+                            "coords": None,
+                            "type": "revision",
+                            "category": r.get("phase_name", ""),
+                            "user_id": folder_username or "",
+                            "title": r.get("title", ""),
+                            "revision": r.get("revision", ""),
+                        })
+
+                print(f"[Chat] Folder search found {len(mapped_results)} results", flush=True)
+
+                if request.mode == "search":
+                    return ChatResponse(
+                        response=f"Found {len(mapped_results)} documents.",
+                        results=mapped_results
+                    )
+
+                # Chat mode: build context for GPT
+                for r in mapped_results:
+                    fname = r.get("filename", "Unknown")
+                    pg = r.get("page", "")
+                    context_text += f"\n=== Document: {fname} (Page {pg}) ===\n"
+                    context_text += r.get("content", "") + "\n"
+
+            # ---------------------------------------------------------
+            # MODE: KEYWORD SEARCH (pdf-search-index)
+            # ---------------------------------------------------------
+            elif request.mode == "search":
                 print(f"[Chat] Executing Keyword Search for user '{safe_user_id}': {search_query} | filter={search_filter}", flush=True)
 
                 # Extract keywords for highlighting fallback
@@ -494,85 +583,85 @@ async def chat(
 
             # ---------------------------------------------------------
             # MODE: CHAT — Hybrid Search (Vector + Keyword)
+            # (Only runs for default folders: documents, drawings, etc.)
             # ---------------------------------------------------------
-            # Generate query embedding for vector search
-            query_vector = None
-            try:
-                from app.services.azure_search import azure_search_service as _search_svc
-                query_vector = _search_svc._generate_embedding(search_query)
-            except Exception as e:
-                print(f"[Chat] Warning: Query embedding failed: {e}. Falling back to keyword-only.")
+            else:
+                # Generate query embedding for vector search
+                query_vector = None
+                try:
+                    from app.services.azure_search import azure_search_service as _search_svc
+                    query_vector = _search_svc._generate_embedding(search_query)
+                except Exception as e:
+                    print(f"[Chat] Warning: Query embedding failed: {e}. Falling back to keyword-only.")
 
-            vector_queries = []
-            if query_vector:
-                vector_queries.append(
-                    VectorizedQuery(
-                        vector=query_vector,
-                        k_nearest_neighbors=50,
-                        fields="content_vector",
+                vector_queries = []
+                if query_vector:
+                    vector_queries.append(
+                        VectorizedQuery(
+                            vector=query_vector,
+                            k_nearest_neighbors=50,
+                            fields="content_vector",
+                        )
                     )
+
+                search_results = azure_search_service.client.search(
+                    search_text=search_query,
+                    query_type=query_type,
+                    filter=search_filter,
+                    vector_queries=vector_queries if vector_queries else None,
+                    top=50,
+                    select=["content", "source", "page", "title", "category", "user_id", "blob_path", "coords", "type"],
                 )
 
-            search_results = azure_search_service.client.search(
-                search_text=search_query,
-                query_type=query_type,
-                filter=search_filter,
-                vector_queries=vector_queries if vector_queries else None,
-                top=50,
-                select=["content", "source", "page", "title", "category", "user_id", "blob_path", "coords", "type"],
-            )
+                results_list = list(search_results)
+                print(f"[Chat] Hybrid Search Results Count: {len(results_list)}")
 
-            results_list = list(search_results)
-            print(f"[Chat] Hybrid Search Results Count: {len(results_list)}")
+                # Python-side filtering by doc_ids (avoids Azure OData Korean issues)
+                if request.doc_ids and len(request.doc_ids) > 0:
+                    print(f"[Chat] Filtering results by doc_ids: {request.doc_ids}")
+                    filtered_results = []
+                    for result in results_list:
+                        source_filename = result.get('source', '')
+                        src_base = source_filename.replace('.pdf', '').replace('.pdf', '')  # Handle .pdf.pdf
+                        for doc_id in request.doc_ids:
+                            base_name = doc_id.replace('.pdf', '')
+                            # Flexible matching: exact, contains, or partial overlap
+                            if (src_base == base_name
+                                or source_filename == doc_id
+                                or base_name in src_base
+                                or src_base in base_name):
+                                filtered_results.append(result)
+                                break
+                    print(f"[Chat] Filtered Results Count: {len(filtered_results)} (from {len(results_list)})")
+                    # Fallback: if strict filter yields 0, use all results
+                    if len(filtered_results) > 0:
+                        results_list = filtered_results
+                    else:
+                        print(f"[Chat] doc_ids filter matched 0 results. Using all {len(results_list)} search results as fallback.")
 
-            # Python-side filtering by doc_ids (avoids Azure OData Korean issues)
-            if request.doc_ids and len(request.doc_ids) > 0:
-                print(f"[Chat] Filtering results by doc_ids: {request.doc_ids}")
-                filtered_results = []
-                for result in results_list:
-                    source_filename = result.get('source', '')
-                    src_base = source_filename.replace('.pdf', '').replace('.pdf', '')  # Handle .pdf.pdf
-                    for doc_id in request.doc_ids:
-                        base_name = doc_id.replace('.pdf', '')
-                        # Flexible matching: exact, contains, or partial overlap
-                        if (src_base == base_name
-                            or source_filename == doc_id
-                            or base_name in src_base
-                            or src_base in base_name):
-                            filtered_results.append(result)
-                            break
-                print(f"[Chat] Filtered Results Count: {len(filtered_results)} (from {len(results_list)})")
-                # Fallback: if strict filter yields 0, use all results
-                if len(filtered_results) > 0:
-                    results_list = filtered_results
+                # ---------------------------------------------------------
+                # Re-ranking: Boost results with exact keyword matches
+                # ---------------------------------------------------------
+                if results_list and request.query:
+                    try:
+                        results_list = _rerank_by_keywords(results_list, request.query)
+                    except Exception as e:
+                        print(f"[Chat] Re-ranking failed (using original order): {e}", flush=True)
+
+                if not results_list:
+                    context_text = "No relevant documents found in the index."
+                    print("[Chat] No results found in Azure Search.")
                 else:
-                    print(f"[Chat] doc_ids filter matched 0 results. Using all {len(results_list)} search results as fallback.")
+                    # Build context from re-ranked results (most relevant first)
+                    for idx, result in enumerate(results_list):
+                        source_filename = result.get('source', 'Unknown')
+                        target_page = int(result.get('page', 0))
 
-            # ---------------------------------------------------------
-            # Re-ranking: Boost results with exact keyword matches
-            # Azure Search may under-rank pages with precise keyword matches
-            # (e.g. "변류기 2차 인출선 굵기" on page 80 of a 707-page doc)
-            # ---------------------------------------------------------
-            if results_list and request.query:
-                try:
-                    results_list = _rerank_by_keywords(results_list, request.query)
-                except Exception as e:
-                    print(f"[Chat] Re-ranking failed (using original order): {e}", flush=True)
+                        if target_page > 0:
+                            page_doc_map[target_page] = source_filename
 
-            if not results_list:
-                context_text = "No relevant documents found in the index."
-                print("[Chat] No results found in Azure Search.")
-            else:
-                # Build context from re-ranked results (most relevant first)
-                for idx, result in enumerate(results_list):
-                    source_filename = result.get('source', 'Unknown')
-                    target_page = int(result.get('page', 0))
-
-                    if target_page > 0:
-                        page_doc_map[target_page] = source_filename
-
-                    context_text += f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
-                    context_text += (result.get('content') or '') + "\n"
+                        context_text += f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
+                        context_text += (result.get('content') or '') + "\n"
         
         # Prepend viewing context (user's current viewport) if provided
         # This ensures the LLM always sees what the user is currently looking at

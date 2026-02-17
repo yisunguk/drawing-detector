@@ -726,6 +726,7 @@ const KnowhowDB = () => {
                 context: null,
                 doc_ids: activeDoc ? [activeDoc.name] : null,
                 mode: 'search',
+                ...(activeFolder && { folder: activeFolder }),
                 ...(isAdmin && scopeUsers.size > 0 && { target_users: [...scopeUsers] }),
                 ...(isAdmin && scopeUsers.size === 0 && (selectedUserFolder || treeActiveUser) && { target_user: selectedUserFolder || treeActiveUser })
             };
@@ -813,6 +814,7 @@ const KnowhowDB = () => {
                     doc_ids: activeDoc ? [activeDoc.name] : null,
                     mode: 'chat',
                     history: history.length > 0 ? history : null,
+                    ...(activeFolder && { folder: activeFolder }),
                     ...(isAdmin && scopeUsers.size > 0 && { target_users: [...scopeUsers] }),
                     ...(isAdmin && scopeUsers.size === 0 && (selectedUserFolder || treeActiveUser) && { target_user: selectedUserFolder || treeActiveUser })
                 })
