@@ -780,8 +780,40 @@ async def chat(
                     context_text = "No relevant documents found in the index."
                     print("[Chat] No results found in Azure Search.")
                 else:
-                    # Build context from re-ranked results (most relevant first)
-                    for idx, result in enumerate(results_list):
+                    # Cross-search FIRST: include lessons + revision context before main results
+                    # so they don't get truncated by context limit
+                    cross_context = ""
+                    if not request.folder:
+                        cross_user = None
+                        if is_admin:
+                            cross_user = (request.target_users[0] if request.target_users else request.target_user) or None
+                        else:
+                            cross_user = safe_user_id
+                        extra = _search_lessons_revision(search_query, cross_user, is_admin, top=10)
+                        if extra:
+                            print(f"[Chat] Cross-search added {len(extra)} context items from lessons/revision", flush=True)
+                            for r in extra:
+                                fname = r.get("filename", "Unknown")
+                                pg = r.get("page", "")
+                                full = r.get("full_content", "") or r.get("content", "")
+                                if len(full) > 8000:
+                                    full = full[:8000] + "...(truncated)"
+                                cross_context += f"\n=== [{r.get('type','doc')}] Document: {fname} (Page {pg}) ===\n"
+                                cross_context += full + "\n"
+
+                    # Limit main results to top 15 (after rerank) to keep context manageable
+                    # 50 results × ~2600 chars avg = 131K, far exceeding 100K limit
+                    max_main_results = 15 if not request.doc_ids else len(results_list)
+                    main_results = results_list[:max_main_results]
+                    print(f"[Chat] Building context from top {len(main_results)} of {len(results_list)} results", flush=True)
+
+                    # Build context: cross-search first, then main results
+                    if cross_context:
+                        context_text += "\n--- Lessons Learned & Revision Documents ---\n"
+                        context_text += cross_context
+
+                    context_text += "\n--- Main Search Results ---\n"
+                    for idx, result in enumerate(main_results):
                         source_filename = result.get('source', 'Unknown')
                         target_page = int(result.get('page', 0))
 
@@ -790,27 +822,6 @@ async def chat(
 
                         context_text += f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
                         context_text += (result.get('content') or '') + "\n"
-
-                # Cross-search: also include lessons + revision context (no folder = all indexes)
-                if not request.folder:
-                    cross_user = None
-                    if is_admin:
-                        cross_user = (request.target_users[0] if request.target_users else request.target_user) or None
-                    else:
-                        cross_user = safe_user_id
-                    extra = _search_lessons_revision(search_query, cross_user, is_admin, top=10)
-                    if extra:
-                        print(f"[Chat] Cross-search added {len(extra)} context items from lessons/revision", flush=True)
-                        for r in extra:
-                            fname = r.get("filename", "Unknown")
-                            pg = r.get("page", "")
-                            # Use full_content for LLM context (not truncated 300-char content)
-                            # Cap per-document at 8000 chars to avoid oversized context
-                            full = r.get("full_content", "") or r.get("content", "")
-                            if len(full) > 8000:
-                                full = full[:8000] + "...(truncated)"
-                            context_text += f"\n=== [{r.get('type','doc')}] Document: {fname} (Page {pg}) ===\n"
-                            context_text += full + "\n"
 
         # Prepend viewing context (user's current viewport) if provided
         # This ensures the LLM always sees what the user is currently looking at
