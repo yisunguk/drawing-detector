@@ -1681,12 +1681,15 @@ const KnowhowDB = () => {
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2 mb-1.5">
                                                         <FileText className="w-4 h-4 text-[#d97757] flex-shrink-0" />
-                                                        {result.type === 'revision' && (
+                                                        {result.type === 'revision' ? (
                                                             <span className="flex-shrink-0 px-1.5 py-0.5 text-[9px] font-bold rounded bg-purple-100 text-purple-700">REV</span>
-                                                        )}
-                                                        {result.type === 'lessons' && (
+                                                        ) : result.type === 'lessons' ? (
                                                             <span className="flex-shrink-0 px-1.5 py-0.5 text-[9px] font-bold rounded bg-teal-100 text-teal-700">LL</span>
-                                                        )}
+                                                        ) : result.category === 'drawings' ? (
+                                                            <span className="flex-shrink-0 px-1.5 py-0.5 text-[9px] font-bold rounded bg-blue-100 text-blue-700">DWG</span>
+                                                        ) : result.category === 'documents' ? (
+                                                            <span className="flex-shrink-0 px-1.5 py-0.5 text-[9px] font-bold rounded bg-amber-100 text-amber-700">DOC</span>
+                                                        ) : null}
                                                         <span className="text-sm font-medium text-gray-800 truncate">{result.filename || 'Unknown'}</span>
                                                         <span className="text-xs text-gray-400 flex-shrink-0">{result.page ? `Page ${result.page}` : ''}</span>
                                                     </div>
