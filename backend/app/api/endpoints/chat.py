@@ -127,14 +127,13 @@ def _extract_and_highlight(content: str, keywords: list) -> str:
 
 def _rerank_by_keywords(results_list: list, original_query: str) -> list:
     """
-    Re-rank Azure Search results by exact keyword match density.
-    Ensures pages with precise Korean keyword matches rank higher.
-    E.g., "변류기 2차 인출선의 굵기" should strongly boost a page containing
-    "변류기 2차 인출선은 10 mm² 이상 굵기이어야".
+    Re-rank search results using Azure score (primary) + keyword boost from highlight.
+
+    Azure Search already scores using full content + embeddings.
+    We use the highlight field (Azure's keyword extraction from FULL content)
+    to add a keyword-match boost — this avoids reading full content in Python.
     """
     query_lower = original_query.lower().strip()
-
-    # Split query into words
     raw_words = re.split(r'\s+', query_lower)
 
     keywords = []
@@ -148,29 +147,34 @@ def _rerank_by_keywords(results_list: list, original_query: str) -> list:
 
     print(f"[Chat] Re-ranking {len(results_list)} results by keywords: {keywords}", flush=True)
 
-    for result in results_list:
-        content = (result.get('content') or '').lower()
-        azure_score = result.get('@search.score', 0)
+    # Normalize Azure scores across different indexes to 0-100 scale
+    max_azure = max((r.get('@search.score', 0) for r in results_list), default=1) or 1
 
-        # 1) Count keyword hits (substring match handles Korean conjugation)
-        hits = sum(1 for kw in keywords if kw in content)
+    for result in results_list:
+        azure_score = result.get('@search.score', 0)
+        normalized_azure = (azure_score / max_azure) * 100  # 0-100
+
+        # Use highlight (Azure's keyword extraction from full content) + content for keyword matching
+        highlight = re.sub(r'<[^>]+>', '', (result.get('highlight') or '')).lower()
+        content = (result.get('content') or '').lower()
+        text = highlight + " " + content
+
+        # Count keyword hits
+        hits = sum(1 for kw in keywords if kw in text)
         keyword_ratio = hits / len(keywords)
 
-        # 2) Adjacency bonus: consecutive keywords appearing near each other
+        # Adjacency bonus
         adjacency_bonus = 0
         for i in range(len(keywords) - 1):
             pattern = re.escape(keywords[i]) + r'.{0,30}' + re.escape(keywords[i + 1])
-            if re.search(pattern, content):
+            if re.search(pattern, text):
                 adjacency_bonus += 1
 
-        # 3) Combined score: Azure score + keyword match + adjacency
-        #    keyword_ratio * 200 ensures exact keyword match strongly boosts ranking
-        #    adjacency * 100 rewards phrase-level matches
-        result['_rerank_score'] = azure_score + (keyword_ratio * 200) + (adjacency_bonus * 100)
+        # Combined: normalized azure (0-100) + keyword boost (0-200) + adjacency (0-100)
+        result['_rerank_score'] = normalized_azure + (keyword_ratio * 200) + (adjacency_bonus * 100)
 
     results_list.sort(key=lambda r: r.get('_rerank_score', 0), reverse=True)
 
-    # Log top 5 for debugging
     for i, r in enumerate(results_list[:5]):
         name = r.get('source') or r.get('filename') or '?'
         print(f"[Chat] Rerank #{i+1}: [{r.get('type','doc')}] {name} p.{r.get('page','?')} "
@@ -555,8 +559,6 @@ async def chat(
                     for r in mapped_results:
                         if '_rerank_score' in r:
                             r['score'] = r['_rerank_score']
-                        c = r.get('content', '')
-                        r['content'] = c[:300] + ('...' if len(c) > 300 else '')
                         r.pop('_rerank_score', None)
                         r.pop('@search.score', None)
                     return ChatResponse(
@@ -637,7 +639,7 @@ async def chat(
                         "filename": filename,
                         "source": filename,
                         "page": page,
-                        "content": cleaned,  # full content for reranking
+                        "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
                         "highlight": highlight_text,
                         "score": score,
                         "@search.score": score,
@@ -668,12 +670,10 @@ async def chat(
                     except Exception as e:
                         print(f"[Chat] Search re-ranking failed (using original order): {e}", flush=True)
 
-                # Post-rerank: truncate content and update score for UI badge
+                # Post-rerank: update score for UI badge
                 for r in results:
                     if '_rerank_score' in r:
                         r['score'] = r['_rerank_score']
-                    c = r.get('content', '')
-                    r['content'] = c[:300] + ('...' if len(c) > 300 else '')
                     r.pop('_rerank_score', None)
                     r.pop('@search.score', None)
 
