@@ -1180,12 +1180,45 @@ const KnowhowDB = () => {
         ...sharedMarkdownComponents,
         a: ({ node, href, children, ...props }) => {
             if (href?.startsWith('#citation-')) {
-                const keyword = decodeURIComponent(href.replace('#citation-', ''));
+                let keyword;
+                try { keyword = decodeURIComponent(href.replace('#citation-', '')); } catch { keyword = href.replace('#citation-', ''); }
+
+                // Pre-resolve result at render time (like 도면분석 Sources pattern)
+                let resolved = null;
+                if (keyword.includes('|') && msgResults?.length > 0) {
+                    const parts = keyword.split('|');
+                    let targetPage = 1, targetDocName = null;
+                    const pm = parts[1]?.trim().match(/(\d+)/);
+                    if (pm) targetPage = parseInt(pm[1]);
+                    if (parts.length > 2) targetDocName = parts[2].trim();
+
+                    if (targetDocName) {
+                        const dn = targetDocName.toLowerCase().replace(/\.pdf$/i, '');
+                        resolved = msgResults.find(r => {
+                            const rn = (r.filename || '').toLowerCase().replace(/\.pdf$/i, '');
+                            return (rn.includes(dn) || dn.includes(rn));
+                        });
+                    }
+                    if (!resolved && targetPage > 0) {
+                        resolved = msgResults.find(r => r.page === targetPage);
+                    }
+                    if (resolved) resolved = { ...resolved, page: targetPage };
+                }
+
                 return (
                     <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleCitationClick(keyword, msgResults || []); }}
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (resolved) {
+                                handleResultClick(resolved);
+                            } else {
+                                // Fallback: use handleCitationClick for unresolved
+                                handleCitationClick(keyword, msgResults || []);
+                            }
+                        }}
                         className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
-                        title={`View source`}
+                        title={resolved ? `${resolved.filename} p.${resolved.page}` : 'View source'}
                     >
                         <Sparkles size={10} />
                         {children}
@@ -1199,7 +1232,9 @@ const KnowhowDB = () => {
     const processCitations = (text) => {
         return text.replace(/(`*)\[\[(.*?)\]\]\1/g, (match, backticks, p1) => {
             const cleanText = p1.includes('|') ? p1.split('|')[0].trim() + ' (' + p1.split('|')[1].trim() + ')' : p1;
-            return `[${cleanText.replace(/\|/g, '\\|')}](#citation-${encodeURIComponent(p1)})`;
+            // Encode parentheses too — they break markdown link syntax in filenames like "(FUEL GAS)"
+            const encoded = encodeURIComponent(p1).replace(/\(/g, '%28').replace(/\)/g, '%29');
+            return `[${cleanText.replace(/\|/g, '\\|')}](#citation-${encoded})`;
         });
     };
 
