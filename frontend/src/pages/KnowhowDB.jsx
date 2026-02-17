@@ -472,6 +472,8 @@ const KnowhowDB = () => {
     // PDF RENDERING
     // =============================================
     const openDocument = async (url, page = 1, filename = '', keyword = null, meta = null) => {
+        console.log(`[OpenDocument] Loading: ${filename} (Page ${page})`, { url_masked: url.split('?')[0] });
+
         setHighlightKeyword(keyword || null);
         highlightMetaRef.current = meta; // { user_id, filename, page }
         setHighlightRects([]);
@@ -496,10 +498,13 @@ const KnowhowDB = () => {
         setRightOpen(true);
 
         if (url === currentPdfUrlRef.current && pdfDocObj) {
+            console.log(`[OpenDocument] reusing loaded PDF. Moving to page ${page}`);
             setPdfPage(Math.min(page, pdfTotalPages));
             return;
         }
 
+        // RESET PAGE IMMEDIATELY to avoid "Invalid page request" on new doc load
+        setPdfPage(1);
         setPdfLoading(true);
         currentPdfUrlRef.current = url;
 
@@ -508,7 +513,10 @@ const KnowhowDB = () => {
             const doc = await pdfjs.getDocument(url).promise;
             setPdfDocObj(doc);
             setPdfTotalPages(doc.numPages);
-            setPdfPage(Math.min(page, doc.numPages));
+            // NOW set the requested page, clamped
+            const safePage = Math.min(page, doc.numPages);
+            console.log(`[OpenDocument] PDF Loaded. Total pages: ${doc.numPages}. Going to page: ${safePage}`);
+            setPdfPage(safePage);
         } catch (e) {
             console.error('Failed to load PDF:', e);
             setPdfDocObj(null);
@@ -978,6 +986,8 @@ const KnowhowDB = () => {
     const handleCitationClick = (keyword, msgResults = []) => {
         if (!keyword || keyword.length < 2) return;
 
+        console.log(`[Citation] Handling click: "${keyword}"`);
+
         const noiseWords = ['g', 'e', 's', 't', 'c', 'd', 'p', 'i', 'v', 'l', 'r', 'o', 'm', 'n', 'u', 'k'];
         const clean = keyword.toLowerCase().trim();
         if (clean.length < 2 || noiseWords.includes(clean)) return;
@@ -1041,6 +1051,8 @@ const KnowhowDB = () => {
             if (targetFile) {
                 console.log('[Citation] Found in files:', targetFile.name);
                 const mappedUser = fileMapRef.current[targetFile.name]?.user_id || browseUsername || username;
+                console.log('[Citation] mappedUser:', mappedUser, 'browseUsername:', browseUsername);
+
                 openDocument(targetFile.pdfUrl, targetPage, targetFile.name, searchText, { user_id: mappedUser, filename: targetFile.name, page: targetPage, blob_path: targetFile.blob_path || fileMapRef.current[targetFile.name]?.blob_path || null });
                 return;
             }
@@ -1048,18 +1060,27 @@ const KnowhowDB = () => {
 
         // ── Strategy 3: Active document fallback ──
         if (activeDoc) {
-            console.log('[Citation] Fallback to activeDoc:', activeDoc.name);
-            const mappedUser = fileMapRef.current[activeDoc.name]?.user_id || browseUsername || username;
-            openDocument(activeDoc.pdfUrl, targetPage, activeDoc.name, searchText, { user_id: mappedUser, filename: activeDoc.name, page: targetPage, blob_path: activeDoc.blob_path || fileMapRef.current[activeDoc.name]?.blob_path || null });
-            return;
+            // Check if activeDoc effectively matches the target (if targeted)
+            const isMatch = targetDocName ? nameMatches(activeDoc.name, targetDocName) : true;
+
+            if (isMatch) {
+                console.log('[Citation] Fallback to activeDoc:', activeDoc.name);
+                const mappedUser = fileMapRef.current[activeDoc.name]?.user_id || browseUsername || username;
+                openDocument(activeDoc.pdfUrl, targetPage, activeDoc.name, searchText, { user_id: mappedUser, filename: activeDoc.name, page: targetPage, blob_path: activeDoc.blob_path || fileMapRef.current[activeDoc.name]?.blob_path || null });
+                return;
+            }
         }
 
         // ── Strategy 4: Navigate currently open PDF (이미 열린 문서로 페이지 이동) ──
         if (currentPdfUrlRef.current && pdfDocObj) {
-            console.log('[Citation] Fallback: navigating current PDF to page', targetPage, 'keyword:', searchText);
+            // Only if we haven't found a better match, but we are desperate
+            console.log('[Citation] Fallback: navigating currently open PDF to page', targetPage, 'keyword:', searchText);
             const currentMeta = highlightMetaRef.current;
             openDocument(currentPdfUrlRef.current, targetPage, currentMeta?.filename || '', searchText, currentMeta);
+            return;
         }
+
+        console.warn('[Citation] Could not resolve document for:', keyword);
     };
 
     // Keep ref always pointing to latest handleCitationClick (avoids stale closure in ReactMarkdown buttons)
