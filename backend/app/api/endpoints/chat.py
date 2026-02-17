@@ -546,6 +546,19 @@ async def chat(
                 print(f"[Chat] Folder search found {len(mapped_results)} results", flush=True)
 
                 if request.mode == "search":
+                    # Re-rank folder-specific results too
+                    if mapped_results and request.query:
+                        try:
+                            mapped_results = _rerank_by_keywords(mapped_results, request.query)
+                        except Exception as e:
+                            print(f"[Chat] Folder search re-ranking failed: {e}", flush=True)
+                    for r in mapped_results:
+                        if '_rerank_score' in r:
+                            r['score'] = r['_rerank_score']
+                        c = r.get('content', '')
+                        r['content'] = c[:300] + ('...' if len(c) > 300 else '')
+                        r.pop('_rerank_score', None)
+                        r.pop('@search.score', None)
                     return ChatResponse(
                         response=f"Found {len(mapped_results)} documents.",
                         results=mapped_results
@@ -622,10 +635,12 @@ async def chat(
 
                     results.append({
                         "filename": filename,
+                        "source": filename,
                         "page": page,
-                        "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
+                        "content": cleaned,  # full content for reranking
                         "highlight": highlight_text,
                         "score": score,
+                        "@search.score": score,
                         "path": path,
                         "blob_path": res.get("blob_path") or "",
                         "coords": res.get("coords"),
@@ -652,6 +667,15 @@ async def chat(
                         results = _rerank_by_keywords(results, request.query)
                     except Exception as e:
                         print(f"[Chat] Search re-ranking failed (using original order): {e}", flush=True)
+
+                # Post-rerank: truncate content and update score for UI badge
+                for r in results:
+                    if '_rerank_score' in r:
+                        r['score'] = r['_rerank_score']
+                    c = r.get('content', '')
+                    r['content'] = c[:300] + ('...' if len(c) > 300 else '')
+                    r.pop('_rerank_score', None)
+                    r.pop('@search.score', None)
 
                 print(f"[Chat] Keyword Search found {len(results)} unique pages.")
                 return ChatResponse(

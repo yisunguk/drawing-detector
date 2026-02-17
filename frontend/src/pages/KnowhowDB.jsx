@@ -1701,11 +1701,11 @@ const KnowhowDB = () => {
                                                 </div>
                                                 {result.score != null && (
                                                     <div className={`flex-shrink-0 px-2 py-1 text-xs font-medium rounded ${
-                                                        result.score >= 20 ? 'bg-green-50 text-green-700' :
-                                                        result.score >= 10 ? 'bg-blue-50 text-blue-700' :
+                                                        result.score >= 200 ? 'bg-green-50 text-green-700' :
+                                                        result.score >= 100 ? 'bg-blue-50 text-blue-700' :
                                                         'bg-gray-50 text-gray-500'
                                                     }`}>
-                                                        {result.score >= 20 ? '높음' : result.score >= 10 ? '보통' : '낮음'}
+                                                        {result.score >= 200 ? '높음' : result.score >= 100 ? '보통' : '낮음'}
                                                     </div>
                                                 )}
                                             </div>
