@@ -581,12 +581,15 @@ async def chat(
                         results=mapped_results
                     )
 
-                # Chat mode: build context for GPT using FULL content from service_results
-                for r in service_results:
+                # Chat mode: send only top-K results to LLM (standard RAG approach)
+                TOP_K_FOLDER = 5
+                MAX_CONTENT_PER_DOC = 4000
+                top_results = service_results[:TOP_K_FOLDER]
+                print(f"[Chat] Folder chat: sending top {len(top_results)} of {len(service_results)} to LLM", flush=True)
+                for r in top_results:
                     full_content = r.get("content", "") or r.get("content_preview", "")
-                    # Cap per-document at 8000 chars to avoid oversized context
-                    if len(full_content) > 8000:
-                        full_content = full_content[:8000] + "...(truncated)"
+                    if len(full_content) > MAX_CONTENT_PER_DOC:
+                        full_content = full_content[:MAX_CONTENT_PER_DOC] + "...(truncated)"
                     if request.folder == "revision":
                         blob_path = r.get("blob_path", "")
                         rev_filename = blob_path.split("/")[-1] if blob_path else r.get("doc_no", "")
@@ -780,8 +783,14 @@ async def chat(
                     context_text = "No relevant documents found in the index."
                     print("[Chat] No results found in Azure Search.")
                 else:
-                    # Cross-search FIRST: include lessons + revision context before main results
-                    # so they don't get truncated by context limit
+                    # ── Standard RAG: Send only top-K most relevant results to LLM ──
+                    # Search finds 50 candidates, but LLM only needs the best 5.
+                    # This is the standard approach used by LangChain, LlamaIndex, etc.
+                    TOP_K_MAIN = 10 if not request.doc_ids else min(len(results_list), 15)
+                    TOP_K_CROSS = 5
+                    MAX_CONTENT_PER_DOC = 4000  # ~1000 tokens per doc
+
+                    # Cross-search: lessons + revision (only when no folder selected)
                     cross_context = ""
                     if not request.folder:
                         cross_user = None
@@ -789,30 +798,29 @@ async def chat(
                             cross_user = (request.target_users[0] if request.target_users else request.target_user) or None
                         else:
                             cross_user = safe_user_id
-                        extra = _search_lessons_revision(search_query, cross_user, is_admin, top=10)
+                        extra = _search_lessons_revision(search_query, cross_user, is_admin, top=TOP_K_CROSS)
                         if extra:
-                            print(f"[Chat] Cross-search added {len(extra)} context items from lessons/revision", flush=True)
+                            print(f"[Chat] Cross-search: {len(extra)} results from lessons/revision", flush=True)
                             for r in extra:
                                 fname = r.get("filename", "Unknown")
                                 pg = r.get("page", "")
                                 full = r.get("full_content", "") or r.get("content", "")
-                                if len(full) > 8000:
-                                    full = full[:8000] + "...(truncated)"
+                                if len(full) > MAX_CONTENT_PER_DOC:
+                                    full = full[:MAX_CONTENT_PER_DOC] + "...(truncated)"
                                 cross_context += f"\n=== [{r.get('type','doc')}] Document: {fname} (Page {pg}) ===\n"
                                 cross_context += full + "\n"
 
-                    # Limit main results to top 15 (after rerank) to keep context manageable
-                    # 50 results × ~2600 chars avg = 131K, far exceeding 100K limit
-                    max_main_results = 15 if not request.doc_ids else len(results_list)
-                    main_results = results_list[:max_main_results]
-                    print(f"[Chat] Building context from top {len(main_results)} of {len(results_list)} results", flush=True)
+                    # Main results: top-K after rerank
+                    main_results = results_list[:TOP_K_MAIN]
+                    total_context_chars = len(cross_context)
+                    for result in main_results:
+                        total_context_chars += len(result.get('content') or '')
+                    print(f"[Chat] RAG context: top {len(main_results)} of {len(results_list)} results + {len(cross_context):,} chars cross-search = ~{total_context_chars:,} chars total", flush=True)
 
                     # Build context: cross-search first, then main results
                     if cross_context:
-                        context_text += "\n--- Lessons Learned & Revision Documents ---\n"
                         context_text += cross_context
 
-                    context_text += "\n--- Main Search Results ---\n"
                     for idx, result in enumerate(main_results):
                         source_filename = result.get('source', 'Unknown')
                         target_page = int(result.get('page', 0))
@@ -820,8 +828,11 @@ async def chat(
                         if target_page > 0:
                             page_doc_map[target_page] = source_filename
 
+                        content = (result.get('content') or '')
+                        if len(content) > MAX_CONTENT_PER_DOC:
+                            content = content[:MAX_CONTENT_PER_DOC] + "...(truncated)"
                         context_text += f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
-                        context_text += (result.get('content') or '') + "\n"
+                        context_text += content + "\n"
 
         # Prepend viewing context (user's current viewport) if provided
         # This ensures the LLM always sees what the user is currently looking at
