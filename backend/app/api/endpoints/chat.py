@@ -307,6 +307,7 @@ async def chat(
         context_text = ""
         page_doc_map = {}
         results_list = []
+        cross_search_extra = []  # Cross-search results for citation resolution
 
         # 1. If context is explicitly provided, use it (backward compatibility)
         if request.context:
@@ -688,6 +689,7 @@ async def chat(
                     else:
                         cross_user = safe_user_id
                     extra = _search_lessons_revision(search_query, cross_user, is_admin, top=20)
+                    cross_search_extra = extra or []
                     if extra:
                         print(f"[Chat] Cross-search added {len(extra)} results from lessons/revision", flush=True)
                         results.extend(extra)
@@ -799,6 +801,7 @@ async def chat(
                         else:
                             cross_user = safe_user_id
                         extra = _search_lessons_revision(search_query, cross_user, is_admin, top=TOP_K_CROSS)
+                        cross_search_extra = extra or []
                         if extra:
                             print(f"[Chat] Cross-search: {len(extra)} results from lessons/revision", flush=True)
                             for r in extra:
@@ -834,6 +837,12 @@ async def chat(
                         context_text += f"\n=== Document: {source_filename} (Page {target_page}) ===\n"
                         context_text += content + "\n"
 
+        # Debug: verify what's in context
+        _ctx_upper = context_text.upper()
+        _debug_keywords = ["FIBRE GLASS", "E-GLASS", "POLYESTER", "SINTERED"]
+        _found = {kw: kw in _ctx_upper for kw in _debug_keywords}
+        print(f"[Chat] Context debug: {len(context_text):,} chars, keywords={_found}", flush=True)
+
         # Prepend viewing context (user's current viewport) if provided
         # This ensures the LLM always sees what the user is currently looking at
         if request.viewing_context:
@@ -848,6 +857,12 @@ async def chat(
 
         # 3. Call Azure OpenAI
         system_prompt = """You are a design expert who understands drawing information. You act as an analyst who finds, compares, and reviews all information in provided drawings like Drawing 1, Drawing 2, etc. You must help designers reduce design risks. Use Markdown formats (tables, bullet points, bold text).
+
+**⚠️ CRITICAL: Use ALL provided documents — do NOT skip any source.**
+- The context contains documents from MULTIPLE indexes: main documents, revision documents `[revision]`, and lessons learned `[lessons]`.
+- You MUST mention information from EVERY relevant document, including ALL revisions (Rev.A, Rev.B, Rev.C, etc.).
+- If different revisions show different values for the same field (e.g., material changes from FIBRE GLASS in Rev.A to POLYESTER in Rev.C), you MUST highlight these differences.
+- Do NOT only report the latest revision. Compare and contrast ALL revisions to help identify design changes and risks.
 
 **🔗 MANDATORY Citation & Linking Rules (YOU MUST FOLLOW THESE):**
 
@@ -948,18 +963,20 @@ async def chat(
         # Prepare Deduplicated Results for Chat Response (Sources)
         sources_for_response = []
         seen_pages = set()
+
+        # Include main search results
         for res in results_list:
             filename = res.get("source")
             page = res.get("page")
             dedup_key = (filename, page)
-            
+
             if dedup_key in seen_pages:
                 continue
-            
+
             score = res.get("@search.score", 0)
             if score < 5.0:
                 continue
-                
+
             seen_pages.add(dedup_key)
             sources_for_response.append({
                 "filename": filename,
@@ -969,8 +986,30 @@ async def chat(
                 "coords": res.get("coords"),
                 "type": res.get("type"),
                 "category": res.get("category"),
-                "user_id": res.get("user_id")
+                "user_id": res.get("user_id"),
+                "blob_path": res.get("blob_path") or res.get("metadata_storage_path") or "",
             })
+
+        # Include cross-search (revision/lessons) results for citation link resolution
+        if cross_search_extra:
+            for r in cross_search_extra:
+                fname = r.get("filename", "")
+                pg = r.get("page")
+                dedup_key = (fname, pg)
+                if dedup_key in seen_pages:
+                    continue
+                seen_pages.add(dedup_key)
+                sources_for_response.append({
+                    "filename": fname,
+                    "page": int(pg) if pg else 0,
+                    "content": (r.get("content") or "")[:200] + "...",
+                    "score": r.get("score", 0),
+                    "coords": None,
+                    "type": r.get("type"),
+                    "category": r.get("category"),
+                    "user_id": r.get("user_id"),
+                    "blob_path": r.get("blob_path", ""),
+                })
 
         return ChatResponse(
             response=response_content,
