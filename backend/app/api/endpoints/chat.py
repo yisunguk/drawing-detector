@@ -971,7 +971,7 @@ async def chat(
         sources_for_response = []
         seen_pages = set()
 
-        # Include main search results
+        # Include main search results (use rerank_score if available, else @search.score)
         for res in results_list:
             filename = res.get("source")
             page = res.get("page")
@@ -980,16 +980,14 @@ async def chat(
             if dedup_key in seen_pages:
                 continue
 
-            score = res.get("@search.score", 0)
-            if score < 5.0:
-                continue
-
             seen_pages.add(dedup_key)
+            # Use _rerank_score (set by reranker) or fallback to @search.score
+            display_score = res.get("_rerank_score") or res.get("@search.score", 0)
             sources_for_response.append({
                 "filename": filename,
                 "page": int(page) if page else 0,
                 "content": (res.get("content") or "")[:200] + "...",
-                "score": score,
+                "score": display_score,
                 "coords": res.get("coords"),
                 "type": res.get("type"),
                 "category": res.get("category"),
@@ -1017,6 +1015,10 @@ async def chat(
                     "user_id": r.get("user_id"),
                     "blob_path": r.get("blob_path", ""),
                 })
+
+        print(f"[Chat] Sources for response: {len(sources_for_response)} items", flush=True)
+        for i, s in enumerate(sources_for_response[:5]):
+            print(f"[Chat]   src#{i+1}: {s.get('filename')} p.{s.get('page')} score={s.get('score',0):.1f} blob={s.get('blob_path','')[:60]}", flush=True)
 
         return ChatResponse(
             response=response_content,
