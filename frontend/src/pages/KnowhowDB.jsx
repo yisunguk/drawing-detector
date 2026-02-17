@@ -412,7 +412,7 @@ const KnowhowDB = () => {
                         const pdfjs = await loadPdfJs();
                         const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
                         totalPages = pdf.numPages;
-                    } catch {}
+                    } catch { }
                     const blobName = `${browseUsername}/${activeFolder}/${file.name}`;
                     await startAnalysis(file.name, totalPages, browseUsername, activeFolder, true, blobName);
                     await pollAnalysisStatus(file.name, (statusData) => {
@@ -1303,11 +1303,10 @@ const KnowhowDB = () => {
                                                 });
                                                 if (!expandedUsers.has(user)) toggleTreeUser(user);
                                             }}
-                                            className={`flex-1 flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${
-                                                scopeUsers.has(user)
-                                                    ? 'bg-blue-100 text-blue-700 font-medium'
-                                                    : 'text-gray-600 hover:bg-gray-200'
-                                            }`}
+                                            className={`flex-1 flex items-center gap-2 px-2 py-2 rounded-lg text-sm transition-colors ${scopeUsers.has(user)
+                                                ? 'bg-blue-100 text-blue-700 font-medium'
+                                                : 'text-gray-600 hover:bg-gray-200'
+                                                }`}
                                         >
                                             {scopeUsers.has(user)
                                                 ? <><FolderOpen className="w-4 h-4 flex-shrink-0" /><Check className="w-3.5 h-3.5 flex-shrink-0 text-blue-600" /></>
@@ -1330,11 +1329,10 @@ const KnowhowDB = () => {
                                                     setActiveDoc(null);
                                                 }
                                             }}
-                                            className={`w-full flex items-center gap-2 pl-10 pr-3 py-1.5 rounded-lg text-sm transition-colors ${
-                                                activeFolder === folder.name && treeActiveUser === user
-                                                    ? 'bg-gray-200 text-blue-700 font-medium'
-                                                    : 'text-gray-500 hover:bg-gray-200'
-                                            }`}
+                                            className={`w-full flex items-center gap-2 pl-10 pr-3 py-1.5 rounded-lg text-sm transition-colors ${activeFolder === folder.name && treeActiveUser === user
+                                                ? 'bg-gray-200 text-blue-700 font-medium'
+                                                : 'text-gray-500 hover:bg-gray-200'
+                                                }`}
                                         >
                                             {activeFolder === folder.name && treeActiveUser === user
                                                 ? <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" />
@@ -1356,11 +1354,10 @@ const KnowhowDB = () => {
                                 <button
                                     key={folder.name}
                                     onClick={() => setActiveFolder(activeFolder === folder.name ? null : folder.name)}
-                                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                                        activeFolder === folder.name
-                                            ? 'bg-blue-100 text-blue-700 font-medium'
-                                            : 'text-gray-600 hover:bg-gray-200'
-                                    }`}
+                                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${activeFolder === folder.name
+                                        ? 'bg-blue-100 text-blue-700 font-medium'
+                                        : 'text-gray-600 hover:bg-gray-200'
+                                        }`}
                                 >
                                     {activeFolder === folder.name
                                         ? <FolderOpen className="w-4 h-4 flex-shrink-0" />
@@ -1438,152 +1435,150 @@ const KnowhowDB = () => {
                                     {files.map((file) => {
                                         const fStatus = isAdmin ? indexStatus[file.name] : null;
                                         return (
-                                        <div
-                                            key={file.name}
-                                            className={`group flex items-center gap-2 px-3 py-2 rounded-lg text-xs cursor-pointer transition-colors ${
-                                                activeDoc?.name === file.name
+                                            <div
+                                                key={file.name}
+                                                className={`group flex items-center gap-2 px-3 py-2 rounded-lg text-xs cursor-pointer transition-colors ${activeDoc?.name === file.name
                                                     ? 'bg-blue-100 text-blue-700 font-medium'
                                                     : 'text-gray-600 hover:bg-gray-200'
-                                            }`}
-                                        >
-                                            <div
-                                                className="flex-1 flex items-center gap-2 min-w-0"
-                                                onClick={() => {
-                                                    setActiveDoc(file);
-                                                    openDocument(file.pdfUrl, 1, file.name);
-                                                }}
+                                                    }`}
                                             >
-                                                <FileText className="w-3.5 h-3.5 flex-shrink-0" />
-                                                <span className="truncate">{file.name}</span>
-                                                {/* Index status indicator (admin only) */}
-                                                {isAdmin && (
-                                                    fStatus?.indexed_pages > 0 ? (
-                                                        <span className="flex-shrink-0 text-green-600 font-bold text-[10px]" title={`Indexed: ${fStatus.indexed_pages} pages`}>●{fStatus.indexed_pages}p</span>
-                                                    ) : fStatus?.json_exists ? (
-                                                        <span className="flex-shrink-0 bg-amber-100 text-amber-700 font-medium text-[9px] px-1 rounded" title="JSON exists, not indexed">미인덱싱</span>
-                                                    ) : (
-                                                        <span className="flex-shrink-0 text-gray-300 text-[10px]" title="Not analyzed">●</span>
-                                                    )
+                                                <div
+                                                    className="flex-1 flex items-center gap-2 min-w-0"
+                                                    onClick={() => {
+                                                        setActiveDoc(file);
+                                                        openDocument(file.pdfUrl, 1, file.name);
+                                                    }}
+                                                >
+                                                    <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                                                    <span className="truncate">{file.name}</span>
+                                                    {/* Index status indicator (admin only) */}
+                                                    {isAdmin && (
+                                                        fStatus?.indexed_pages > 0 ? (
+                                                            <span className="flex-shrink-0 text-green-600 font-bold text-[10px]" title={`Indexed: ${fStatus.indexed_pages} pages`}>●{fStatus.indexed_pages}p</span>
+                                                        ) : fStatus?.json_exists ? (
+                                                            <span className="flex-shrink-0 bg-amber-100 text-amber-700 font-medium text-[9px] px-1 rounded" title="JSON exists, not indexed">미인덱싱</span>
+                                                        ) : (
+                                                            <span className="flex-shrink-0 text-gray-300 text-[10px]" title="Not analyzed">●</span>
+                                                        )
+                                                    )}
+                                                </div>
+                                                {/* Admin reindex button - for un-indexed files with JSON (not for revision/lessons) */}
+                                                {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && fStatus?.json_exists && !fStatus?.indexed_pages && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleReindex(file);
+                                                        }}
+                                                        disabled={isReindexing}
+                                                        className={`hidden group-hover:flex p-1 hover:bg-orange-100 rounded text-orange-600 transition-colors ${reindexingFile === file.name ? '!flex animate-spin' : ''
+                                                            }`}
+                                                        title="Reindex from JSON"
+                                                    >
+                                                        <RefreshCcw className="w-3 h-3" />
+                                                    </button>
+                                                )}
+                                                {/* Admin analyze button - for files without JSON and not indexed (not for revision/lessons) */}
+                                                {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && !fStatus?.json_exists && !(fStatus?.indexed_pages > 0) && (
+                                                    <button
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            if (!confirm(`Analyze "${file.name}"?`)) return;
+                                                            setIsUploading(true);
+                                                            setUploadStatus(`Analyzing ${file.name}...`);
+                                                            try {
+                                                                let totalPages = 1;
+                                                                try {
+                                                                    const pdfjs = await loadPdfJs();
+                                                                    const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
+                                                                    totalPages = pdf.numPages;
+                                                                } catch { }
+                                                                const blobName = `${browseUsername}/${activeFolder}/${file.name}`;
+                                                                await startAnalysis(file.name, totalPages, browseUsername, activeFolder, true, blobName);
+                                                                await pollAnalysisStatus(file.name, (statusData) => {
+                                                                    if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
+                                                                        const completed = statusData.completed_chunks || [];
+                                                                        let done = 0;
+                                                                        for (const c of completed) {
+                                                                            const [s, en] = c.split('-').map(Number);
+                                                                            done += (en - s + 1);
+                                                                        }
+                                                                        setUploadStatus(`Analyzing ${file.name}... (${done}/${totalPages}p)`);
+                                                                    }
+                                                                }, totalPages);
+                                                                setUploadStatus('Done!');
+                                                                await loadIndexStatus(browseUsername, activeFolder);
+                                                            } catch (err) {
+                                                                alert('Analysis failed: ' + err.message);
+                                                            } finally {
+                                                                setIsUploading(false);
+                                                                setUploadStatus('');
+                                                            }
+                                                        }}
+                                                        disabled={isUploading}
+                                                        className="flex p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors"
+                                                        title="Analyze & Index"
+                                                    >
+                                                        <Sparkles className="w-3 h-3" />
+                                                    </button>
+                                                )}
+                                                {activeFolder === 'my-documents' && (
+                                                    <button
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            if (!confirm(`Re-analyze "${file.name}"?`)) return;
+                                                            setIsUploading(true);
+                                                            setUploadStatus(`Re-analyzing ${file.name}...`);
+                                                            try {
+                                                                let totalPages = 1;
+                                                                try {
+                                                                    const pdfjs = await loadPdfJs();
+                                                                    const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
+                                                                    totalPages = pdf.numPages;
+                                                                } catch { }
+                                                                await startAnalysis(file.name, totalPages, username, 'my-documents', true);
+                                                                await pollAnalysisStatus(file.name, () => { }, totalPages);
+                                                                loadFiles('my-documents');
+                                                            } catch (err) {
+                                                                alert('Re-analysis failed: ' + err.message);
+                                                            } finally {
+                                                                setIsUploading(false);
+                                                                setUploadStatus('');
+                                                            }
+                                                        }}
+                                                        className="hidden group-hover:flex p-1 hover:bg-blue-200 rounded text-blue-600 transition-colors"
+                                                        title="Re-analyze"
+                                                    >
+                                                        <RefreshCcw className="w-3 h-3" />
+                                                    </button>
+                                                )}
+                                                {(activeFolder === 'my-documents' || isAdmin) && (
+                                                    <button
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            if (!confirm(`Delete "${file.name}"?`)) return;
+                                                            try {
+                                                                const res = await fetch(
+                                                                    `${API_BASE}/api/v1/analyze/doc/${encodeURIComponent(file.name)}?username=${encodeURIComponent(browseUsername)}&category=${encodeURIComponent(activeFolder)}`,
+                                                                    { method: 'DELETE' }
+                                                                );
+                                                                if (res.ok) {
+                                                                    loadFiles(activeFolder);
+                                                                    loadIndexStatus(browseUsername, activeFolder);
+                                                                    if (activeDoc?.name === file.name) setActiveDoc(null);
+                                                                } else {
+                                                                    throw new Error('Delete failed');
+                                                                }
+                                                            } catch (err) {
+                                                                alert('Delete failed: ' + err.message);
+                                                            }
+                                                        }}
+                                                        className="hidden group-hover:flex p-1 hover:bg-red-100 rounded text-red-500 transition-colors"
+                                                        title="Delete"
+                                                    >
+                                                        <Trash2 className="w-3 h-3" />
+                                                    </button>
                                                 )}
                                             </div>
-                                            {/* Admin reindex button - for un-indexed files with JSON (not for revision/lessons) */}
-                                            {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && fStatus?.json_exists && !fStatus?.indexed_pages && (
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleReindex(file);
-                                                    }}
-                                                    disabled={isReindexing}
-                                                    className={`hidden group-hover:flex p-1 hover:bg-orange-100 rounded text-orange-600 transition-colors ${
-                                                        reindexingFile === file.name ? '!flex animate-spin' : ''
-                                                    }`}
-                                                    title="Reindex from JSON"
-                                                >
-                                                    <RefreshCcw className="w-3 h-3" />
-                                                </button>
-                                            )}
-                                            {/* Admin analyze button - for files without JSON and not indexed (not for revision/lessons) */}
-                                            {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && !fStatus?.json_exists && !(fStatus?.indexed_pages > 0) && (
-                                                <button
-                                                    onClick={async (e) => {
-                                                        e.stopPropagation();
-                                                        if (!confirm(`Analyze "${file.name}"?`)) return;
-                                                        setIsUploading(true);
-                                                        setUploadStatus(`Analyzing ${file.name}...`);
-                                                        try {
-                                                            let totalPages = 1;
-                                                            try {
-                                                                const pdfjs = await loadPdfJs();
-                                                                const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
-                                                                totalPages = pdf.numPages;
-                                                            } catch {}
-                                                            const blobName = `${browseUsername}/${activeFolder}/${file.name}`;
-                                                            await startAnalysis(file.name, totalPages, browseUsername, activeFolder, true, blobName);
-                                                            await pollAnalysisStatus(file.name, (statusData) => {
-                                                                if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
-                                                                    const completed = statusData.completed_chunks || [];
-                                                                    let done = 0;
-                                                                    for (const c of completed) {
-                                                                        const [s, en] = c.split('-').map(Number);
-                                                                        done += (en - s + 1);
-                                                                    }
-                                                                    setUploadStatus(`Analyzing ${file.name}... (${done}/${totalPages}p)`);
-                                                                }
-                                                            }, totalPages);
-                                                            setUploadStatus('Done!');
-                                                            await loadIndexStatus(browseUsername, activeFolder);
-                                                        } catch (err) {
-                                                            alert('Analysis failed: ' + err.message);
-                                                        } finally {
-                                                            setIsUploading(false);
-                                                            setUploadStatus('');
-                                                        }
-                                                    }}
-                                                    disabled={isUploading}
-                                                    className="flex p-1 hover:bg-blue-100 rounded text-blue-600 transition-colors"
-                                                    title="Analyze & Index"
-                                                >
-                                                    <Sparkles className="w-3 h-3" />
-                                                </button>
-                                            )}
-                                            {activeFolder === 'my-documents' && (
-                                                <button
-                                                    onClick={async (e) => {
-                                                        e.stopPropagation();
-                                                        if (!confirm(`Re-analyze "${file.name}"?`)) return;
-                                                        setIsUploading(true);
-                                                        setUploadStatus(`Re-analyzing ${file.name}...`);
-                                                        try {
-                                                            let totalPages = 1;
-                                                            try {
-                                                                const pdfjs = await loadPdfJs();
-                                                                const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
-                                                                totalPages = pdf.numPages;
-                                                            } catch {}
-                                                            await startAnalysis(file.name, totalPages, username, 'my-documents', true);
-                                                            await pollAnalysisStatus(file.name, () => {}, totalPages);
-                                                            loadFiles('my-documents');
-                                                        } catch (err) {
-                                                            alert('Re-analysis failed: ' + err.message);
-                                                        } finally {
-                                                            setIsUploading(false);
-                                                            setUploadStatus('');
-                                                        }
-                                                    }}
-                                                    className="hidden group-hover:flex p-1 hover:bg-blue-200 rounded text-blue-600 transition-colors"
-                                                    title="Re-analyze"
-                                                >
-                                                    <RefreshCcw className="w-3 h-3" />
-                                                </button>
-                                            )}
-                                            {(activeFolder === 'my-documents' || isAdmin) && (
-                                                <button
-                                                    onClick={async (e) => {
-                                                        e.stopPropagation();
-                                                        if (!confirm(`Delete "${file.name}"?`)) return;
-                                                        try {
-                                                            const res = await fetch(
-                                                                `${API_BASE}/api/v1/analyze/doc/${encodeURIComponent(file.name)}?username=${encodeURIComponent(browseUsername)}&category=${encodeURIComponent(activeFolder)}`,
-                                                                { method: 'DELETE' }
-                                                            );
-                                                            if (res.ok) {
-                                                                loadFiles(activeFolder);
-                                                                loadIndexStatus(browseUsername, activeFolder);
-                                                                if (activeDoc?.name === file.name) setActiveDoc(null);
-                                                            } else {
-                                                                throw new Error('Delete failed');
-                                                            }
-                                                        } catch (err) {
-                                                            alert('Delete failed: ' + err.message);
-                                                        }
-                                                    }}
-                                                    className="hidden group-hover:flex p-1 hover:bg-red-100 rounded text-red-500 transition-colors"
-                                                    title="Delete"
-                                                >
-                                                    <Trash2 className="w-3 h-3" />
-                                                </button>
-                                            )}
-                                        </div>
                                         );
                                     })}
                                 </div>
@@ -1634,17 +1629,15 @@ const KnowhowDB = () => {
                 <div className="h-12 border-b border-[#e5e1d8] bg-white flex items-center px-4 gap-1 flex-shrink-0">
                     <button
                         onClick={() => setMode('search')}
-                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                            mode === 'search' ? 'bg-[#d97757] text-white' : 'text-gray-500 hover:bg-gray-100'
-                        }`}
+                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${mode === 'search' ? 'bg-[#d97757] text-white' : 'text-gray-500 hover:bg-gray-100'
+                            }`}
                     >
                         <SearchIcon className="w-4 h-4" /> AI 검색
                     </button>
                     <button
                         onClick={() => setMode('chat')}
-                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                            mode === 'chat' ? 'bg-[#d97757] text-white' : 'text-gray-500 hover:bg-gray-100'
-                        }`}
+                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${mode === 'chat' ? 'bg-[#d97757] text-white' : 'text-gray-500 hover:bg-gray-100'
+                            }`}
                     >
                         <MessageSquare className="w-4 h-4" /> AI 분석
                     </button>
@@ -1738,7 +1731,7 @@ const KnowhowDB = () => {
                                                     </div>
                                                     {result.highlight ? (
                                                         <p className="text-sm text-gray-600 leading-relaxed line-clamp-4 search-highlight"
-                                                           dangerouslySetInnerHTML={{ __html: result.highlight }} />
+                                                            dangerouslySetInnerHTML={{ __html: result.highlight }} />
                                                     ) : (
                                                         <p className="text-sm text-gray-600 leading-relaxed line-clamp-3">
                                                             {result.content || 'No preview available'}
@@ -1746,11 +1739,10 @@ const KnowhowDB = () => {
                                                     )}
                                                 </div>
                                                 {result.score != null && (
-                                                    <div className={`flex-shrink-0 px-2 py-1 text-xs font-medium rounded ${
-                                                        result.score >= 200 ? 'bg-green-50 text-green-700' :
+                                                    <div className={`flex-shrink-0 px-2 py-1 text-xs font-medium rounded ${result.score >= 200 ? 'bg-green-50 text-green-700' :
                                                         result.score >= 100 ? 'bg-blue-50 text-blue-700' :
-                                                        'bg-gray-50 text-gray-500'
-                                                    }`}>
+                                                            'bg-gray-50 text-gray-500'
+                                                        }`}>
                                                         {result.score >= 200 ? '높음' : result.score >= 100 ? '보통' : '낮음'}
                                                     </div>
                                                 )}
@@ -1777,21 +1769,19 @@ const KnowhowDB = () => {
                         <div className="max-w-3xl mx-auto space-y-4">
                             {chatMessages.map((msg, idx) => (
                                 <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                                        msg.role === 'user' ? 'bg-[#333333]' : 'bg-[#d97757]'
-                                    }`}>
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user' ? 'bg-[#333333]' : 'bg-[#d97757]'
+                                        }`}>
                                         {msg.role === 'user'
                                             ? <User size={14} className="text-white" />
                                             : <Bot size={14} className="text-white" />
                                         }
                                     </div>
-                                    <div className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                                        msg.role === 'user'
-                                            ? '!bg-[#333333] !text-white rounded-tr-none'
-                                            : msg.isError
-                                                ? 'bg-red-50 text-red-600 border border-red-100 rounded-tl-none'
-                                                : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
-                                    }`}>
+                                    <div className={`max-w-[85%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.role === 'user'
+                                        ? '!bg-[#333333] !text-white rounded-tr-none'
+                                        : msg.isError
+                                            ? 'bg-red-50 text-red-600 border border-red-100 rounded-tl-none'
+                                            : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
+                                        }`}>
                                         {msg.role === 'user' ? msg.content : (
                                             <div onClickCapture={(e) => {
                                                 const btn = e.target.closest('[data-citation]');
@@ -1800,70 +1790,44 @@ const KnowhowDB = () => {
                                                 e.stopPropagation();
                                                 const raw = btn.getAttribute('data-citation');
 
-                                                // Parse keyword|page from citation
-                                                let searchText = raw, targetPage = pdfPage;
-                                                if (raw.includes('|')) {
-                                                    const parts = raw.split('|');
-                                                    searchText = parts[0].trim() || raw;
-                                                    if (parts.length > 1) {
-                                                        const pm = parts[1].trim().match(/(\d+)/);
-                                                        if (pm) targetPage = parseInt(pm[1]);
-                                                    }
-                                                } else {
-                                                    const pm = raw.match(/\(Page\s*(\d+)\)/i);
-                                                    if (pm) {
-                                                        targetPage = parseInt(pm[1]);
-                                                        searchText = raw.replace(/\s*\(Page\s*\d+\)/i, '').trim();
-                                                    }
-                                                }
-                                                if (targetPage < 1) targetPage = 1;
-
-                                                console.log('[Citation] clicked:', searchText, 'page:', targetPage);
-
-                                                // Dashboard 패턴: 이미 PDF 열려있으면 직접 상태만 변경
-                                                if (pdfDocObj && currentPdfUrlRef.current) {
-                                                    setHighlightKeyword(searchText);
-                                                    setHighlightRects([]);
-                                                    setHighlightPolygons([]);
-                                                    setPdfPage(Math.min(targetPage, pdfTotalPages || targetPage));
-                                                    return;
-                                                }
-
-                                                // 첫 클릭 (PDF 아직 안 열림): 전체 플로우
+                                                // 항상 citationHandlerRef 통해 문서 매칭 시도 (이미 열린 문서인지 확인도 그 안에서 처리됨)
                                                 citationHandlerRef.current(raw, msg.results || []);
+                                                return;
+
+
                                             }}>
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                                                table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
-                                                thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
-                                                th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
-                                                td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
-                                                ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
-                                                ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
-                                                li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
-                                                p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
-                                                strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
-                                                code: ({ node, inline, ...props }) => inline
-                                                    ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
-                                                    : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
-                                                a: ({ node, href, children, ...props }) => {
-                                                    if (href?.startsWith('#citation-')) {
-                                                        const keyword = decodeURIComponent(href.replace('#citation-', ''));
-                                                        return (
-                                                            <button
-                                                                data-citation={keyword}
-                                                                className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
-                                                                title={`"${keyword}" 위치 찾기`}
-                                                            >
-                                                                <Sparkles size={10} />
-                                                                {children}
-                                                            </button>
-                                                        );
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                                                    table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
+                                                    thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
+                                                    th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
+                                                    td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
+                                                    ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
+                                                    ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
+                                                    li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+                                                    p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
+                                                    strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
+                                                    code: ({ node, inline, ...props }) => inline
+                                                        ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
+                                                        : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
+                                                    a: ({ node, href, children, ...props }) => {
+                                                        if (href?.startsWith('#citation-')) {
+                                                            const keyword = decodeURIComponent(href.replace('#citation-', ''));
+                                                            return (
+                                                                <button
+                                                                    data-citation={keyword}
+                                                                    className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
+                                                                    title={`"${keyword}" 위치 찾기`}
+                                                                >
+                                                                    <Sparkles size={10} />
+                                                                    {children}
+                                                                </button>
+                                                            );
+                                                        }
+                                                        return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
                                                     }
-                                                    return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
-                                                }
-                                            }}>
-                                                {processCitations(msg.content)}
-                                            </ReactMarkdown>
+                                                }}>
+                                                    {processCitations(msg.content)}
+                                                </ReactMarkdown>
                                             </div>
                                         )}
                                         {msg.role === 'assistant' && msg.results && msg.results.length > 0 && (
@@ -1981,40 +1945,40 @@ const KnowhowDB = () => {
                             } else if (highlightPolygons.length > 0) {
                                 const pts = highlightPolygons[0].points;
                                 let sumX = 0, sumY = 0, n = pts.length / 2;
-                                for (let j = 0; j < pts.length; j += 2) { sumX += pts[j]; sumY += pts[j+1]; }
+                                for (let j = 0; j < pts.length; j += 2) { sumX += pts[j]; sumY += pts[j + 1]; }
                                 cx = sumX / n; cy = sumY / n;
                             }
                             return (
-                            <svg
-                                className="absolute top-0 left-0 pointer-events-none"
-                                style={{ width: cs.width, height: cs.height, zIndex: 10 }}
-                                viewBox={`0 0 ${cs.width} ${cs.height}`}
-                            >
-                                {highlightRects.map((rect, i) => (
-                                    <rect key={`r${i}`} x={rect.x} y={rect.y} width={rect.width} height={rect.height}
-                                        fill="rgba(255, 235, 59, 0.35)" stroke="#f59e0b" strokeWidth="1.5" />
-                                ))}
-                                {highlightPolygons.map((poly, i) => {
-                                    const pts = poly.points;
-                                    const svgPts = [];
-                                    for (let j = 0; j < pts.length; j += 2) svgPts.push(`${pts[j]},${pts[j+1]}`);
-                                    return (
-                                        <polygon key={`p${i}`}
-                                            points={svgPts.join(' ')}
-                                            fill={i === 0 ? 'rgba(255, 235, 59, 0.45)' : 'rgba(255, 235, 59, 0.25)'}
-                                            stroke="#f59e0b" strokeWidth={i === 0 ? 2 : 1}
-                                            style={{ strokeLinejoin: 'round' }} />
-                                    );
-                                })}
-                                {/* Animated pulsing target indicator */}
-                                <circle cx={cx} cy={cy} r="20" fill="none" stroke="#f59e0b" strokeWidth="3" opacity="0.8">
-                                    <animate attributeName="r" values="20;30;20" dur="2s" repeatCount="indefinite" />
-                                    <animate attributeName="opacity" values="0.8;0.4;0.8" dur="2s" repeatCount="indefinite" />
-                                </circle>
-                                {/* Crosshair lines */}
-                                <line x1={cx - 30} y1={cy} x2={cx + 30} y2={cy} stroke="#f59e0b" strokeWidth="2" strokeDasharray="4" />
-                                <line x1={cx} y1={cy - 30} x2={cx} y2={cy + 30} stroke="#f59e0b" strokeWidth="2" strokeDasharray="4" />
-                            </svg>
+                                <svg
+                                    className="absolute top-0 left-0 pointer-events-none"
+                                    style={{ width: cs.width, height: cs.height, zIndex: 10 }}
+                                    viewBox={`0 0 ${cs.width} ${cs.height}`}
+                                >
+                                    {highlightRects.map((rect, i) => (
+                                        <rect key={`r${i}`} x={rect.x} y={rect.y} width={rect.width} height={rect.height}
+                                            fill="rgba(255, 235, 59, 0.35)" stroke="#f59e0b" strokeWidth="1.5" />
+                                    ))}
+                                    {highlightPolygons.map((poly, i) => {
+                                        const pts = poly.points;
+                                        const svgPts = [];
+                                        for (let j = 0; j < pts.length; j += 2) svgPts.push(`${pts[j]},${pts[j + 1]}`);
+                                        return (
+                                            <polygon key={`p${i}`}
+                                                points={svgPts.join(' ')}
+                                                fill={i === 0 ? 'rgba(255, 235, 59, 0.45)' : 'rgba(255, 235, 59, 0.25)'}
+                                                stroke="#f59e0b" strokeWidth={i === 0 ? 2 : 1}
+                                                style={{ strokeLinejoin: 'round' }} />
+                                        );
+                                    })}
+                                    {/* Animated pulsing target indicator */}
+                                    <circle cx={cx} cy={cy} r="20" fill="none" stroke="#f59e0b" strokeWidth="3" opacity="0.8">
+                                        <animate attributeName="r" values="20;30;20" dur="2s" repeatCount="indefinite" />
+                                        <animate attributeName="opacity" values="0.8;0.4;0.8" dur="2s" repeatCount="indefinite" />
+                                    </circle>
+                                    {/* Crosshair lines */}
+                                    <line x1={cx - 30} y1={cy} x2={cx + 30} y2={cy} stroke="#f59e0b" strokeWidth="2" strokeDasharray="4" />
+                                    <line x1={cx} y1={cy - 30} x2={cx} y2={cy + 30} stroke="#f59e0b" strokeWidth="2" strokeDasharray="4" />
+                                </svg>
                             );
                         })() : null}
                     />
