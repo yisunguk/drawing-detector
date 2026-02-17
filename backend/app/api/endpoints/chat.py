@@ -234,16 +234,18 @@ def _search_lessons_revision(search_query: str, username: str | None, is_admin: 
             query=search_query, username=username, top=top
         )
         for r in lr:
-            raw = r.get("content", "") or r.get("content_preview", "")
-            cleaned = _clean_content(raw)
+            full_raw = r.get("content", "") or r.get("content_preview", "")
+            full_cleaned = _clean_content(full_raw)
+            cleaned_short = full_cleaned[:300] + ("..." if len(full_cleaned) > 300 else "")
             azure_hl = r.get("azure_highlights", [])
-            highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+            highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned_short
             score = r.get("score", 0)
             extra_results.append({
                 "filename": r.get("source_file", ""),
                 "source": r.get("source_file", ""),
                 "page": None,
-                "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
+                "content": cleaned_short,
+                "full_content": full_cleaned,
                 "highlight": highlight_text,
                 "score": score,
                 "@search.score": score,
@@ -263,10 +265,11 @@ def _search_lessons_revision(search_query: str, username: str | None, is_admin: 
             query=search_query, username=username, top=top
         )
         for r in rr:
-            raw = r.get("content_preview", "") or ""
-            cleaned = _clean_content(raw)
+            full_raw = r.get("content", "") or r.get("content_preview", "")
+            full_cleaned = _clean_content(full_raw)
+            cleaned_short = full_cleaned[:300] + ("..." if len(full_cleaned) > 300 else "")
             azure_hl = r.get("azure_highlights", [])
-            highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+            highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned_short
             score = r.get("score", 0)
             # Use actual filename from blob_path, with revision label
             blob_path = r.get("blob_path", "")
@@ -277,7 +280,8 @@ def _search_lessons_revision(search_query: str, username: str | None, is_admin: 
                 "filename": display_name,
                 "source": display_name,
                 "page": r.get("page_number", 0),
-                "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
+                "content": cleaned_short,
+                "full_content": full_cleaned,
                 "highlight": highlight_text,
                 "score": score,
                 "@search.score": score,
@@ -580,6 +584,9 @@ async def chat(
                 # Chat mode: build context for GPT using FULL content from service_results
                 for r in service_results:
                     full_content = r.get("content", "") or r.get("content_preview", "")
+                    # Cap per-document at 8000 chars to avoid oversized context
+                    if len(full_content) > 8000:
+                        full_content = full_content[:8000] + "...(truncated)"
                     if request.folder == "revision":
                         blob_path = r.get("blob_path", "")
                         rev_filename = blob_path.split("/")[-1] if blob_path else r.get("doc_no", "")
@@ -797,8 +804,13 @@ async def chat(
                         for r in extra:
                             fname = r.get("filename", "Unknown")
                             pg = r.get("page", "")
+                            # Use full_content for LLM context (not truncated 300-char content)
+                            # Cap per-document at 8000 chars to avoid oversized context
+                            full = r.get("full_content", "") or r.get("content", "")
+                            if len(full) > 8000:
+                                full = full[:8000] + "...(truncated)"
                             context_text += f"\n=== [{r.get('type','doc')}] Document: {fname} (Page {pg}) ===\n"
-                            context_text += r.get("content", "") + "\n"
+                            context_text += full + "\n"
 
         # Prepend viewing context (user's current viewport) if provided
         # This ensures the LLM always sees what the user is currently looking at
