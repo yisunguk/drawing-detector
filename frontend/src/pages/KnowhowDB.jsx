@@ -1160,80 +1160,12 @@ const KnowhowDB = () => {
     };
 
     // =============================================
-    // MARKDOWN COMPONENTS (for chat) — factory that binds message results
+    // MARKDOWN + CITATIONS — copied from ChatInterface.jsx (proven working)
     // =============================================
-    const sharedMarkdownComponents = {
-        table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
-        thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
-        th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
-        td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
-        ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
-        ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
-        li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
-        p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
-        strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
-        code: ({ node, inline, ...props }) => inline
-            ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
-            : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
-    };
-    const getMarkdownComponents = (msgResults) => ({
-        ...sharedMarkdownComponents,
-        // Citations rendered via inline code — bypasses react-markdown link event issues
-        code: ({ node, inline, children, ...props }) => {
-            const text = String(children).replace(/\n$/, '');
-            if (inline && text.startsWith('CITE:')) {
-                const raw = text.substring(5);
-                const parts = raw.split('|');
-                const displayText = parts[0].trim() + (parts[1] ? ' (' + parts[1].trim() + ')' : '');
-
-                let targetPage = 1, targetDocName = null;
-                if (parts.length > 1) {
-                    const pm = parts[1].trim().match(/(\d+)/);
-                    if (pm) targetPage = parseInt(pm[1]);
-                }
-                if (parts.length > 2) targetDocName = parts[2].trim();
-
-                // Resolve from results at render time (도면분석 패턴)
-                let resolved = null;
-                if (targetDocName && msgResults?.length > 0) {
-                    const dn = targetDocName.toLowerCase().replace(/\.pdf$/i, '');
-                    resolved = msgResults.find(r => {
-                        const rn = (r.filename || '').toLowerCase().replace(/\.pdf$/i, '');
-                        return rn.includes(dn) || dn.includes(rn);
-                    });
-                }
-                if (!resolved && targetPage > 0 && msgResults?.length > 0) {
-                    resolved = msgResults.find(r => r.page === targetPage);
-                }
-                if (resolved) resolved = { ...resolved, page: targetPage };
-
-                return (
-                    <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => resolved ? handleResultClick(resolved) : handleCitationClick(raw, msgResults || [])}
-                        className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
-                        title={resolved ? `${resolved.filename} p.${resolved.page}` : displayText}
-                    >
-                        <Sparkles size={10} />
-                        {displayText}
-                    </span>
-                );
-            }
-            return inline
-                ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props}>{children}</code>
-                : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props}>{children}</code>;
-        },
-        a: ({ node, href, children, ...props }) => (
-            <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
-        ),
-    });
-
     const processCitations = (text) => {
-        // Convert [[Keyword|Page X|DocName]] → inline code `CITE:...`
-        // Using code element instead of link avoids react-markdown swallowing click events
         return text.replace(/(`*)\[\[(.*?)\]\]\1/g, (match, backticks, p1) => {
-            return '`CITE:' + p1 + '`';
+            const cleanText = p1.includes('|') ? p1.split('|')[0].trim() + ' (' + p1.split('|')[1].trim() + ')' : p1;
+            return `[${cleanText.replace(/\|/g, '\\|')}](#citation-${encodeURIComponent(p1)})`;
         });
     };
 
@@ -1797,7 +1729,63 @@ const KnowhowDB = () => {
                                                 : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
                                     }`}>
                                         {msg.role === 'user' ? msg.content : (
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={getMarkdownComponents(msg.results)}>
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                                                table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
+                                                thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
+                                                th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
+                                                td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
+                                                ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
+                                                ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
+                                                li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+                                                p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
+                                                strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
+                                                code: ({ node, inline, ...props }) => inline
+                                                    ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
+                                                    : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
+                                                a: ({ node, href, children, ...props }) => {
+                                                    if (href?.startsWith('#citation-')) {
+                                                        const keyword = decodeURIComponent(href.replace('#citation-', ''));
+                                                        // Resolve result from this message's results
+                                                        const msgResults = msg.results || [];
+                                                        let resolved = null;
+                                                        if (keyword.includes('|') && msgResults.length > 0) {
+                                                            const parts = keyword.split('|');
+                                                            let targetPage = 1, targetDocName = null;
+                                                            const pm = parts[1]?.trim().match(/(\d+)/);
+                                                            if (pm) targetPage = parseInt(pm[1]);
+                                                            if (parts.length > 2) targetDocName = parts[2].trim();
+                                                            if (targetDocName) {
+                                                                const dn = targetDocName.toLowerCase().replace(/\.pdf$/i, '');
+                                                                resolved = msgResults.find(r => {
+                                                                    const rn = (r.filename || '').toLowerCase().replace(/\.pdf$/i, '');
+                                                                    return rn.includes(dn) || dn.includes(rn);
+                                                                });
+                                                            }
+                                                            if (!resolved && targetPage > 0) resolved = msgResults.find(r => r.page === targetPage);
+                                                            if (resolved) resolved = { ...resolved, page: targetPage };
+                                                        }
+                                                        return (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    if (resolved) {
+                                                                        handleResultClick(resolved);
+                                                                    } else {
+                                                                        handleCitationClick(keyword, msgResults);
+                                                                    }
+                                                                }}
+                                                                className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
+                                                                title={resolved ? `${resolved.filename} p.${resolved.page}` : `View source`}
+                                                            >
+                                                                <Sparkles size={10} />
+                                                                {children}
+                                                            </button>
+                                                        );
+                                                    }
+                                                    return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
+                                                }
+                                            }}>
                                                 {processCitations(msg.content)}
                                             </ReactMarkdown>
                                         )}
