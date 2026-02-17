@@ -823,6 +823,14 @@ async def chat(
                     # Build context: cross-search first, then main results
                     if cross_context:
                         context_text += cross_context
+                        # Add cross-search documents to page_doc_map for citation resolution
+                        for r in (cross_search_extra or []):
+                            pg = r.get("page")
+                            fname = r.get("filename", "")
+                            if pg and fname:
+                                page_key = int(pg) if pg else 0
+                                if page_key > 0 and page_key not in page_doc_map:
+                                    page_doc_map[page_key] = fname
 
                     for idx, result in enumerate(main_results):
                         source_filename = result.get('source', 'Unknown')

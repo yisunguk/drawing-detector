@@ -988,6 +988,16 @@ const KnowhowDB = () => {
                 const url = buildBlobUrl(`${resultUser}/${folder}/${targetDocName}`);
                 openDocument(url, targetPage, targetDocName, hlKeyword, meta);
             }
+        } else if (targetPage > 1) {
+            // Fallback: no document name in citation - try to find by page from fileMapRef
+            const pageMatch = Object.entries(fileMapRef.current).find(([, v]) => v?.blob_path);
+            if (pageMatch) {
+                const [fname, mapped] = pageMatch;
+                const resultUser = mapped?.user_id || browseUsername || username;
+                const meta = { user_id: resultUser, filename: fname, page: targetPage };
+                const url = buildBlobUrl(mapped.blob_path);
+                openDocument(url, targetPage, fname, hlKeyword, meta);
+            }
         }
     };
 
