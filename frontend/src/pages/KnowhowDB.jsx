@@ -1178,65 +1178,62 @@ const KnowhowDB = () => {
     };
     const getMarkdownComponents = (msgResults) => ({
         ...sharedMarkdownComponents,
-        a: ({ node, href, children, ...props }) => {
-            console.log('[MD-LINK]', { href: href?.substring(0, 60), isCitation: href?.startsWith('#citation-'), resultsLen: msgResults?.length });
-            if (href?.startsWith('#citation-')) {
-                let keyword;
-                try { keyword = decodeURIComponent(href.replace('#citation-', '')); } catch { keyword = href.replace('#citation-', ''); }
+        // Citations rendered via inline code — bypasses react-markdown link event issues
+        code: ({ node, inline, children, ...props }) => {
+            const text = String(children).replace(/\n$/, '');
+            if (inline && text.startsWith('CITE:')) {
+                const raw = text.substring(5);
+                const parts = raw.split('|');
+                const displayText = parts[0].trim() + (parts[1] ? ' (' + parts[1].trim() + ')' : '');
 
-                // Pre-resolve result at render time (like 도면분석 Sources pattern)
-                let resolved = null;
-                if (keyword.includes('|') && msgResults?.length > 0) {
-                    const parts = keyword.split('|');
-                    let targetPage = 1, targetDocName = null;
-                    const pm = parts[1]?.trim().match(/(\d+)/);
+                let targetPage = 1, targetDocName = null;
+                if (parts.length > 1) {
+                    const pm = parts[1].trim().match(/(\d+)/);
                     if (pm) targetPage = parseInt(pm[1]);
-                    if (parts.length > 2) targetDocName = parts[2].trim();
-
-                    if (targetDocName) {
-                        const dn = targetDocName.toLowerCase().replace(/\.pdf$/i, '');
-                        resolved = msgResults.find(r => {
-                            const rn = (r.filename || '').toLowerCase().replace(/\.pdf$/i, '');
-                            return (rn.includes(dn) || dn.includes(rn));
-                        });
-                    }
-                    if (!resolved && targetPage > 0) {
-                        resolved = msgResults.find(r => r.page === targetPage);
-                    }
-                    if (resolved) resolved = { ...resolved, page: targetPage };
                 }
+                if (parts.length > 2) targetDocName = parts[2].trim();
+
+                // Resolve from results at render time (도면분석 패턴)
+                let resolved = null;
+                if (targetDocName && msgResults?.length > 0) {
+                    const dn = targetDocName.toLowerCase().replace(/\.pdf$/i, '');
+                    resolved = msgResults.find(r => {
+                        const rn = (r.filename || '').toLowerCase().replace(/\.pdf$/i, '');
+                        return rn.includes(dn) || dn.includes(rn);
+                    });
+                }
+                if (!resolved && targetPage > 0 && msgResults?.length > 0) {
+                    resolved = msgResults.find(r => r.page === targetPage);
+                }
+                if (resolved) resolved = { ...resolved, page: targetPage };
 
                 return (
                     <span
                         role="button"
                         tabIndex={0}
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            console.log('[CITE-CLICK]', { resolved: !!resolved, keyword: keyword?.substring(0, 50), resultsLen: msgResults?.length });
-                            if (resolved) {
-                                handleResultClick(resolved);
-                            } else {
-                                handleCitationClick(keyword, msgResults || []);
-                            }
-                        }}
-                        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '2px', margin: '0 2px', padding: '1px 6px', background: '#eff6ff', color: '#2563eb', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 500, border: '1px solid #bfdbfe' }}
+                        onClick={() => resolved ? handleResultClick(resolved) : handleCitationClick(raw, msgResults || [])}
+                        className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
+                        title={resolved ? `${resolved.filename} p.${resolved.page}` : displayText}
                     >
                         <Sparkles size={10} />
-                        {children}
+                        {displayText}
                     </span>
                 );
             }
-            return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
-        }
+            return inline
+                ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props}>{children}</code>
+                : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props}>{children}</code>;
+        },
+        a: ({ node, href, children, ...props }) => (
+            <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>
+        ),
     });
 
     const processCitations = (text) => {
+        // Convert [[Keyword|Page X|DocName]] → inline code `CITE:...`
+        // Using code element instead of link avoids react-markdown swallowing click events
         return text.replace(/(`*)\[\[(.*?)\]\]\1/g, (match, backticks, p1) => {
-            const cleanText = p1.includes('|') ? p1.split('|')[0].trim() + ' (' + p1.split('|')[1].trim() + ')' : p1;
-            // Encode parentheses too — they break markdown link syntax in filenames like "(FUEL GAS)"
-            const encoded = encodeURIComponent(p1).replace(/\(/g, '%28').replace(/\)/g, '%29');
-            return `[${cleanText.replace(/\|/g, '\\|')}](#citation-${encoded})`;
+            return '`CITE:' + p1 + '`';
         });
     };
 
