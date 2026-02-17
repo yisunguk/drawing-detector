@@ -598,17 +598,52 @@ const KnowhowDB = () => {
                 if (!pageData) {
                     const baseName = meta.filename.replace(/\.[^.]+$/, '');
 
-                    // 1) Try split format: {user}/json/{baseName}/page_{N}.json
-                    const splitPath = `${meta.user_id}/json/${baseName}/page_${pdfPage}.json`;
+                    // blob_path 기반 JSON 폴더 계산 (Dashboard 동일 로직)
+                    let jsonFolder = null;
+                    if (meta.blob_path) {
+                        const decoded = decodeURIComponent(meta.blob_path);
+                        const folderPattern = /\/(drawings|documents|my-documents|temp)\//i;
+                        if (folderPattern.test(decoded)) {
+                            jsonFolder = decoded.replace(folderPattern, '/json/').replace(/\.[^.]+$/, '');
+                        }
+                    }
+                    // fallback: 기존 방식
+                    if (!jsonFolder) {
+                        jsonFolder = `${meta.user_id}/json/${baseName}`;
+                    }
+                    console.log('[Highlight] jsonFolder:', jsonFolder, '| blob_path:', meta.blob_path);
+
+                    // 1) Try meta.json first (split format 확인)
+                    const metaPath = `${jsonFolder}/meta.json`;
                     try {
-                        const res = await fetch(buildBlobUrl(splitPath));
+                        const res = await fetch(buildBlobUrl(metaPath));
                         if (res.ok) {
-                            pageData = await res.json();
-                            ocrPageCacheRef.current[cacheKey] = pageData;
+                            const metaJson = await res.json();
+                            if (metaJson.format === 'split') {
+                                // split format → page_N.json
+                                const splitPath = `${jsonFolder}/page_${pdfPage}.json`;
+                                const pageRes = await fetch(buildBlobUrl(splitPath));
+                                if (pageRes.ok) {
+                                    pageData = await pageRes.json();
+                                    ocrPageCacheRef.current[cacheKey] = pageData;
+                                }
+                            }
                         }
                     } catch (e) { /* ignore */ }
 
-                    // 2) Fallback: old single JSON format ({user}/json/{filename}.json or .pdf.json)
+                    // 2) Fallback: direct split path (meta.json 없는 경우)
+                    if (!pageData) {
+                        const splitPath = `${jsonFolder}/page_${pdfPage}.json`;
+                        try {
+                            const res = await fetch(buildBlobUrl(splitPath));
+                            if (res.ok) {
+                                pageData = await res.json();
+                                ocrPageCacheRef.current[cacheKey] = pageData;
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    // 3) Fallback: old single JSON format
                     if (!pageData) {
                         const singleCandidates = [
                             `${meta.user_id}/json/${baseName}.json`,
@@ -903,7 +938,7 @@ const KnowhowDB = () => {
         const page = result.page || 1;
         const keyword = overrideKeyword || query.trim() || lastQueryRef.current || null;
         const resultUser = result.user_id || fileMapRef.current[filename]?.user_id || browseUsername || username;
-        const meta = { user_id: resultUser, filename, page };
+        const meta = { user_id: resultUser, filename, page, blob_path: result.blob_path || null };
 
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
@@ -990,7 +1025,7 @@ const KnowhowDB = () => {
             if (targetFile) {
                 console.log('[Citation] Found in files:', targetFile.name);
                 const mappedUser = fileMapRef.current[targetFile.name]?.user_id || browseUsername || username;
-                openDocument(targetFile.pdfUrl, targetPage, targetFile.name, searchText, { user_id: mappedUser, filename: targetFile.name, page: targetPage });
+                openDocument(targetFile.pdfUrl, targetPage, targetFile.name, searchText, { user_id: mappedUser, filename: targetFile.name, page: targetPage, blob_path: targetFile.blob_path || fileMapRef.current[targetFile.name]?.blob_path || null });
                 return;
             }
         }
@@ -999,7 +1034,7 @@ const KnowhowDB = () => {
         if (activeDoc) {
             console.log('[Citation] Fallback to activeDoc:', activeDoc.name);
             const mappedUser = fileMapRef.current[activeDoc.name]?.user_id || browseUsername || username;
-            openDocument(activeDoc.pdfUrl, targetPage, activeDoc.name, searchText, { user_id: mappedUser, filename: activeDoc.name, page: targetPage });
+            openDocument(activeDoc.pdfUrl, targetPage, activeDoc.name, searchText, { user_id: mappedUser, filename: activeDoc.name, page: targetPage, blob_path: activeDoc.blob_path || fileMapRef.current[activeDoc.name]?.blob_path || null });
         }
     };
 
