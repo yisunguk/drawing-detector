@@ -110,6 +110,11 @@ const KnowhowDB = () => {
     const [rightWidth, setRightWidth] = useState(500);
     const [isResizing, setIsResizing] = useState(false);
     const [pdfDocObj, setPdfDocObj] = useState(null);
+    // FIX: PDF Doc Ref to avoid stale closures in openDocument
+    const pdfDocRef = useRef(null);
+    useEffect(() => {
+        pdfDocRef.current = pdfDocObj;
+    }, [pdfDocObj]);
     const [pdfPage, setPdfPage] = useState(1);
     const [pdfTotalPages, setPdfTotalPages] = useState(0);
     const [pdfLoading, setPdfLoading] = useState(false);
@@ -499,7 +504,8 @@ const KnowhowDB = () => {
         setOfficeUrl(null);
         setRightOpen(true);
 
-        if (url === currentPdfUrlRef.current && pdfDocObj) {
+        // FIX: Check LIVE pdfDocRef instead of stale closure pdfDocObj
+        if (url === currentPdfUrlRef.current && pdfDocRef.current) {
             console.log(`[OpenDocument] reusing loaded PDF. Moving to page ${page}`);
             setPdfPage(Math.min(page, pdfTotalPages));
             return;
@@ -1100,7 +1106,7 @@ const KnowhowDB = () => {
         }
 
         // ── Strategy 4: Navigate currently open PDF (이미 열린 문서로 페이지 이동) ──
-        if (currentPdfUrlRef.current && pdfDocObj) {
+        if (currentPdfUrlRef.current && pdfDocRef.current) { // Use pdfDocRef.current here
             // Only if we haven't found a better match, but we are desperate
             console.log('[Citation] Fallback: navigating currently open PDF to page', targetPage, 'keyword:', searchText);
             const currentMeta = highlightMetaRef.current;
@@ -1855,24 +1861,39 @@ const KnowhowDB = () => {
                                                     code: ({ node, inline, ...props }) => inline
                                                         ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
                                                         : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
+                                                    // FIX: Use citationHandlerRef to avoid stale closures in ReactMarkdown
                                                     a: ({ node, href, children, ...props }) => {
+                                                        // Check if this appears to be a citation button content
+                                                        // (Simple heuristic: usually just "Page X" or short text)
+                                                        // The original code had a condition `if (props.children && typeof props.children === 'string' && props.children.startsWith('[[')) return <>{children}</>;`
+                                                        // This line was likely intended to prevent processing already processed citations, but it's misplaced.
+                                                        // The `processCitations` function already transforms `[[...]]` into `[...](#citation-...)`.
+                                                        // So, we only need to handle the `href` starting with `#citation-`.
+
                                                         if (href?.startsWith('#citation-')) {
                                                             const keyword = decodeURIComponent(href.replace('#citation-', ''));
-                                                            return (
-                                                                <button
-                                                                    data-citation={keyword}
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        handleCitationClick(keyword, msg.results || []);
-                                                                    }}
-                                                                    className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
-                                                                    title={`"${keyword}" 위치 찾기`}
-                                                                >
-                                                                    <Sparkles size={10} />
-                                                                    {children}
-                                                                </button>
-                                                            );
+
+                                                            const isButton = true; // simplifying for now, assuming style is handled by className
+
+                                                            if (isButton) {
+                                                                return (
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.preventDefault();
+                                                                            e.stopPropagation();
+                                                                            // ALWAYS call the latest handler via ref
+                                                                            if (citationHandlerRef.current) {
+                                                                                citationHandlerRef.current(keyword, msg.results || []);
+                                                                            }
+                                                                        }}
+                                                                        className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
+                                                                        title={`"${keyword}" 위치 찾기`}
+                                                                    >
+                                                                        <Sparkles size={10} />
+                                                                        {children}
+                                                                    </button>
+                                                                );
+                                                            }
                                                         }
                                                         return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
                                                     }
