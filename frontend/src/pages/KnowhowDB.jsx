@@ -1035,6 +1035,20 @@ const KnowhowDB = () => {
             return al.includes(bl) || bl.includes(al);
         };
 
+        // ── Strategy 0: Direct Index Match (Most Reliable) ──
+        // If keyword contains an index (format: "Keyword|Page|DocName|Index"), use it directly.
+        if (keyword.includes('|')) {
+            const parts = keyword.split('|');
+            if (parts.length >= 4) {
+                const idx = parseInt(parts[3]);
+                if (!isNaN(idx) && idx >= 0 && idx < msgResults.length) {
+                    console.log('[Citation] Direct index match:', idx, msgResults[idx]);
+                    handleResultClick(msgResults[idx]);
+                    return;
+                }
+            }
+        }
+
         // ── Strategy 1: Match from message's results (도면분석 패턴 — 가장 신뢰) ──
         // The results array has blob_path, user_id, category — everything needed.
         if (msgResults.length > 0) {

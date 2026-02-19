@@ -945,34 +945,109 @@ async def chat(
 
         response_content = response.choices[0].message.content
         
-        # Post-Processing: Inject Document Name into Citations
+        # Prepare Sources Map for Index-Based Citations
+        # We need to know the final index of each (filename, page) in the results array sent to frontend.
+        # This mirrors the logic used to build `sources_for_response` later.
+        source_index_map = {}
+        _temp_seen = set()
+        _current_index = 0
+
+        # simulate main results addition
+        for res in results_list:
+            fname = res.get("source")
+            pg = res.get("page")
+            key = (fname, pg) # dedup key
+            if key not in _temp_seen:
+                _temp_seen.add(key)
+                source_index_map[key] = _current_index
+                _current_index += 1
+        
+        # simulate cross search addition
+        if cross_search_extra:
+            for r in cross_search_extra:
+                fname = r.get("filename", "")
+                pg = r.get("page")
+                key = (fname, pg)
+                if key not in _temp_seen:
+                    _temp_seen.add(key)
+                    source_index_map[key] = _current_index
+                    _current_index += 1
+
+        # Post-Processing: Inject Document Name AND Index into Citations
         # The LLM is instructed to produce [[Keyword|Page X|DocumentName]] (3-part).
-        # As a fallback, if LLM produces 2-part [[Keyword|Page X]], inject doc name from page_doc_map.
-        # 3-part citations are left untouched (regex only matches 2-part).
+        # We will upgrade this to [[Keyword|Page X|DocumentName|Index]] (4-part) for robust linking.
         def citation_replacer(match):
             keyword = match.group(1)
             try:
                 page_num = int(match.group(2))
+                
+                # Default values
+                doc_name = "Unknown"
+                source_idx = -1
+
+                # 1. Try to find robust match in page_doc_map (which stores filename)
                 if page_num in page_doc_map:
                     doc_name = page_doc_map[page_num]
-
+                    
                     # FIX: Handle double extension issue (.pdf.pdf)
                     if doc_name.lower().endswith('.pdf.pdf'):
-                        doc_name = doc_name[:-4]  # Remove last .pdf
+                        doc_name = doc_name[:-4]
 
-                    return f"[[{keyword}|Page {page_num}|{doc_name}]]"
+                    # 2. Find the index for this (doc_name, page_num)
+                    # We look up in our pre-calculated map
+                    # CAUTION: page_doc_map keys are ints. source_index_map keys are (filename, page_as_int_or_str?)
+                    # Let's ensure consistency. source_index_map keys constructed from results are likely mixed types.
+                    # We iterates to find best match if standard lookup fails, but let's try direct first.
+                    
+                    # Try exact key match (assuming map keys are (str, int) or (str, str))
+                    # In results_list, page is often int or str.
+                    # Let's check typical types.
+                    
+                    found_idx = -1
+                    # Iterate to find matching index for this filename + page (safest)
+                    for (f, p), idx in source_index_map.items():
+                         # Compare filename (case insensitive just in case) and page
+                         if f == doc_name and str(p) == str(page_num):
+                             found_idx = idx
+                             break
+                    
+                    if found_idx == -1:
+                        # Fallback: maybe just filename match for that page?
+                        # Or if doc_name is not in map (rare if page_doc_map has it)
+                        pass
+                    else:
+                        source_idx = found_idx
+
+                    # Return 4-part citation: [[Keyword|Page X|DocName|Index]]
+                    # If index is -1, frontend will fall back to old fuzzy matching
+                    return f"[[{keyword}|Page {page_num}|{doc_name}|{source_idx}]]"
             except:
                 pass
-            return match.group(0)
+            return match.group(0) # Return original if failure
 
         try:
-            # Only matches 2-part: [[Keyword|Page 5]] (NOT 3-part with |DocName)
+            # Only matches 2-part: [[Keyword|Page 5]] -> convert to 4-part
             response_content = re.sub(r'\[\[(.*?)\|Page\s*(\d+)\]\]', citation_replacer, response_content, flags=re.IGNORECASE)
 
-            # Normalize any .pdf.pdf in 3-part citations produced by LLM
+            # Also upgrade existing 3-part citations (produced effectively by LLM sometimes) to 4-part
+            # Pattern: [[Keyword|Page X|DocName]] -> [[Keyword|Page X|DocName|Index]]
+            def upgrade_3part(match):
+                kw = match.group(1)
+                pg = match.group(2)
+                doc = match.group(3)
+                idx = -1
+                for (f, p), i in source_index_map.items():
+                    if f == doc and str(p) == str(pg):
+                        idx = i
+                        break
+                return f"[[{kw}|Page {pg}|{doc}|{idx}]]"
+
+            response_content = re.sub(r'\[\[(.*?)\|Page\s*(\d+)\|(.*?)\]\]', upgrade_3part, response_content, flags=re.IGNORECASE)
+
+            # Normalize any .pdf.pdf in resulting citations
             def fix_double_pdf(m):
                 return m.group(0).replace('.pdf.pdf', '.pdf')
-            response_content = re.sub(r'\[\[.*?\|Page\s*\d+\|.*?\.pdf\.pdf\]\]', fix_double_pdf, response_content, flags=re.IGNORECASE)
+            response_content = re.sub(r'\.pdf\.pdf', '.pdf', response_content, flags=re.IGNORECASE)
 
             # Log all citations found in final response
             all_citations = re.findall(r'\[\[(.*?)\]\]', response_content)
