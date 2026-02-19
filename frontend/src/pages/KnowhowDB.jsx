@@ -1125,17 +1125,14 @@ const KnowhowDB = () => {
     chatMessagesRef.current = chatMessages;
 
     // =============================================
-    // DOM EVENT DELEGATION for inline citation clicks
-    // ReactMarkdown buttons lose React onClick after re-renders.
-    // Document-level listener always works regardless of conditional rendering.
+    // DOM EVENT DELEGATION for inline citation clicks (bubble phase, NO stopPropagation)
+    // stopPropagation in capture phase blocks React's event system and breaks subsequent clicks.
     // =============================================
     useEffect(() => {
         const handleCitationDomClick = (e) => {
+            if (e.__citationHandled) return; // Already handled by React onClick
             const btn = e.target.closest('[data-citation-msg-idx]');
             if (!btn) return;
-
-            e.preventDefault();
-            e.stopPropagation();
 
             const msgIdx = parseInt(btn.dataset.citationMsgIdx);
             const resultIdx = parseInt(btn.dataset.citationResultIdx);
@@ -1143,19 +1140,16 @@ const KnowhowDB = () => {
 
             if (isNaN(msgIdx) || isNaN(resultIdx)) return;
             const msg = msgs[msgIdx];
-            if (!msg?.results?.[resultIdx]) {
-                console.warn('[Citation DOM] No result found for', { msgIdx, resultIdx });
-                return;
-            }
+            if (!msg?.results?.[resultIdx]) return;
 
-            console.log(`[Citation DOM] Click → msg[${msgIdx}].results[${resultIdx}]`, msg.results[resultIdx]?.filename, 'p.' + msg.results[resultIdx]?.page);
+            console.log(`[Citation DOM-fallback] msg[${msgIdx}].results[${resultIdx}]`, msg.results[resultIdx]?.filename, 'p.' + msg.results[resultIdx]?.page);
             if (handleResultClickRef.current) {
                 handleResultClickRef.current(msg.results[resultIdx]);
             }
         };
 
-        document.addEventListener('click', handleCitationDomClick, true);
-        return () => document.removeEventListener('click', handleCitationDomClick, true);
+        document.addEventListener('click', handleCitationDomClick);
+        return () => document.removeEventListener('click', handleCitationDomClick);
     }, []);
 
     // =============================================
@@ -1900,22 +1894,31 @@ const KnowhowDB = () => {
                                                         ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
                                                         : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
                                                     // Citation buttons use DOM event delegation (not React onClick)
-                                                    // ReactMarkdown buttons lose React onClick after re-renders.
-                                                    // data-* attrs are read by the native DOM listener on chatAreaRef.
+                                                    // Dual strategy: React onClick (via ref) + DOM data-* delegation
                                                     a: ({ node, href, children, ...props }) => {
                                                         if (href?.startsWith('#citation-')) {
                                                             const keyword = decodeURIComponent(href.replace('#citation-', ''));
                                                             const parts = keyword.split('|');
-                                                            // Extract result index (4th pipe-separated value)
                                                             let resultIdx = -1;
                                                             if (parts.length >= 4) {
                                                                 const parsed = parseInt(parts[3]);
                                                                 if (!isNaN(parsed)) resultIdx = parsed;
                                                             }
+                                                            const safeIdx = resultIdx >= 0 ? resultIdx : 0;
                                                             return (
                                                                 <button
                                                                     data-citation-msg-idx={idx}
-                                                                    data-citation-result-idx={resultIdx >= 0 ? resultIdx : 0}
+                                                                    data-citation-result-idx={safeIdx}
+                                                                    onClick={(e) => {
+                                                                        // Flag native event so DOM fallback handler skips it
+                                                                        if (e.nativeEvent) e.nativeEvent.__citationHandled = true;
+                                                                        const msgs = chatMessagesRef.current;
+                                                                        const m = msgs[idx];
+                                                                        if (m?.results?.[safeIdx] && handleResultClickRef.current) {
+                                                                            console.log(`[Citation React] onClick → msg[${idx}].results[${safeIdx}]`, m.results[safeIdx]?.filename);
+                                                                            handleResultClickRef.current(m.results[safeIdx]);
+                                                                        }
+                                                                    }}
                                                                     className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
                                                                     title={`"${parts[0]?.trim() || keyword}" 위치 찾기`}
                                                                 >
