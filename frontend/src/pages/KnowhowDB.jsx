@@ -184,12 +184,15 @@ const KnowhowDB = () => {
     const [treeActiveUser, setTreeActiveUser] = useState(null);
     const [expandedUsers, setExpandedUsers] = useState(new Set());
     const [userSubFolders, setUserSubFolders] = useState({});
+    // Resolved blob folder name for non-admin users (may differ from displayName/email)
+    const [resolvedUsername, setResolvedUsername] = useState(null);
     const browseUsername = isAdmin
         ? (selectedUserFolder || treeActiveUser || null)
-        : username;
+        : (resolvedUsername || username);
 
     // === Left Sidebar State ===
     const [folders, setFolders] = useState([]);
+    const [loadingFolders, setLoadingFolders] = useState(false);
     const [activeFolder, setActiveFolder] = useState(null);
     const [files, setFiles] = useState([]);
     const [failedFiles, setFailedFiles] = useState([]);
@@ -294,15 +297,94 @@ const KnowhowDB = () => {
     }, [isAdmin]);
 
     // =============================================
-    // LOAD FOLDERS ON MOUNT / USER CHANGE
+    // RESOLVE BLOB FOLDER NAME (Non-admin users)
+    // Try displayName → email prefix → search root folders
+    // =============================================
+    useEffect(() => {
+        if (isAdmin || !currentUser) return;
+
+        const displayName = currentUser.displayName;
+        const emailPrefix = currentUser.email?.split('@')[0];
+        const candidates = [];
+        if (displayName) candidates.push(displayName);
+        if (emailPrefix && emailPrefix !== displayName) candidates.push(emailPrefix);
+
+        (async () => {
+            setLoadingFolders(true);
+            // Try each candidate name to find matching blob folder
+            for (const name of candidates) {
+                try {
+                    const res = await fetch(getListApiUrl(`${name}/`));
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    const items = Array.isArray(data) ? data : (data.items || []);
+                    const folderItems = items.filter(
+                        item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase())
+                    );
+                    if (folderItems.length > 0) {
+                        setResolvedUsername(name);
+                        setFolders(folderItems);
+                        setLoadingFolders(false);
+                        return;
+                    }
+                } catch (e) {
+                    console.error(`Failed to check folder for ${name}:`, e);
+                }
+            }
+
+            // Fallback: search root-level folders for a match
+            try {
+                const res = await fetch(getListApiUrl(''));
+                if (res.ok) {
+                    const data = await res.json();
+                    const items = Array.isArray(data) ? data : (data.items || []);
+                    const rootFolders = items
+                        .filter(item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase()))
+                        .map(item => item.name);
+
+                    // Check if any root folder matches email prefix (case-insensitive)
+                    const match = rootFolders.find(f =>
+                        f.toLowerCase() === emailPrefix?.toLowerCase() ||
+                        f.toLowerCase() === displayName?.toLowerCase()
+                    );
+                    if (match) {
+                        const subRes = await fetch(getListApiUrl(`${match}/`));
+                        if (subRes.ok) {
+                            const subData = await subRes.json();
+                            const subItems = Array.isArray(subData) ? subData : (subData.items || []);
+                            const folderItems = subItems.filter(
+                                item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase())
+                            );
+                            setResolvedUsername(match);
+                            setFolders(folderItems);
+                            setLoadingFolders(false);
+                            return;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to search root folders:', e);
+            }
+
+            // No folders found
+            setResolvedUsername(candidates[0] || emailPrefix);
+            setFolders([]);
+            setLoadingFolders(false);
+        })();
+    }, [isAdmin, currentUser]);
+
+    // =============================================
+    // LOAD FOLDERS ON MOUNT / USER CHANGE (Admin only)
     // =============================================
     useEffect(() => {
         if (!browseUsername) return;
-        if (isAdmin && !selectedUserFolder) return; // "전체" tree mode — folders loaded via tree
+        if (!isAdmin) return; // Non-admin folders resolved above
+        if (!selectedUserFolder) return; // "전체" tree mode — folders loaded via tree
         loadFolders();
     }, [browseUsername]);
 
     const loadFolders = async () => {
+        setLoadingFolders(true);
         try {
             const res = await fetch(getListApiUrl(`${browseUsername}/`));
             if (!res.ok) throw new Error('Failed to list folders');
@@ -314,6 +396,8 @@ const KnowhowDB = () => {
             setFolders(folderItems);
         } catch (e) {
             console.error('Failed to load folders:', e);
+        } finally {
+            setLoadingFolders(false);
         }
     };
 
@@ -1247,10 +1331,10 @@ const KnowhowDB = () => {
         try {
             const totalPages = await countPdfPages(file);
             setUploadStatus('Preparing upload...');
-            const { upload_url } = await getUploadSas(file.name, username);
+            const { upload_url } = await getUploadSas(file.name, browseUsername || username);
             await uploadToAzure(upload_url, file, (percent) => setUploadStatus(`Uploading... ${percent}%`));
             setUploadStatus('Starting analysis...');
-            await startAnalysis(file.name, totalPages, username, 'my-documents');
+            await startAnalysis(file.name, totalPages, browseUsername || username, 'my-documents');
 
             await pollAnalysisStatus(file.name, (statusData) => {
                 if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
@@ -1526,7 +1610,11 @@ const KnowhowDB = () => {
                                 </button>
                             ))}
                             {folders.length === 0 && (
-                                <div className="text-xs text-gray-400 italic px-3 py-2">Loading folders...</div>
+                                <div className="text-xs text-gray-400 italic px-3 py-2">
+                                    {loadingFolders ? (
+                                        <span className="flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> 폴더 로딩 중...</span>
+                                    ) : '폴더가 없습니다.'}
+                                </div>
                             )}
                         </div>
                     )}
