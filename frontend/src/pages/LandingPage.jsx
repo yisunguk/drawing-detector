@@ -53,7 +53,7 @@ const LandingPage = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 px-4">
                     {/* Card 1: Drawing Analysis AI */}
                     <div
-                        onClick={() => navigate('/drawing-ai')}
+                        onClick={() => window.open('/drawing-ai', '_blank')}
                         className="group relative cursor-pointer"
                     >
                         <div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl opacity-20 group-hover:opacity-100 blur transition duration-500"></div>
@@ -78,7 +78,7 @@ const LandingPage = () => {
 
                     {/* Card 2: Know-how DB */}
                     <div
-                        onClick={() => navigate('/knowhow-db')}
+                        onClick={() => window.open('/knowhow-db', '_blank')}
                         className="group relative cursor-pointer"
                     >
                         <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl opacity-20 group-hover:opacity-100 blur transition duration-500"></div>
@@ -103,7 +103,7 @@ const LandingPage = () => {
 
                     {/* Card 3: P&ID Line List */}
                     <div
-                        onClick={() => navigate('/line-list')}
+                        onClick={() => window.open('/line-list', '_blank')}
                         className="group relative cursor-pointer"
                     >
                         <div className="absolute -inset-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl opacity-20 group-hover:opacity-100 blur transition duration-500"></div>
@@ -128,7 +128,7 @@ const LandingPage = () => {
 
                     {/* Card 4: Lessons Learned AI */}
                     <div
-                        onClick={() => navigate('/lessons-learned')}
+                        onClick={() => window.open('/lessons-learned', '_blank')}
                         className="group relative cursor-pointer"
                     >
                         <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-violet-500 rounded-2xl opacity-20 group-hover:opacity-100 blur transition duration-500"></div>
@@ -153,7 +153,7 @@ const LandingPage = () => {
 
                     {/* Card 5: Revision Master */}
                     <div
-                        onClick={() => navigate('/revision-master')}
+                        onClick={() => window.open('/revision-master', '_blank')}
                         className="group relative cursor-pointer"
                     >
                         <div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-teal-500 rounded-2xl opacity-20 group-hover:opacity-100 blur transition duration-500"></div>
