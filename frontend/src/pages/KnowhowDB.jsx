@@ -81,55 +81,93 @@ const ChatMessageContent = React.memo(({ content, results, onResultClick }) => {
         return `[${cleanText.replace(/\|/g, '\\|')}](#citation-${encodeURIComponent(p1)})`;
     });
 
-    return (
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-            table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
-            thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
-            th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
-            td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
-            ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
-            ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
-            li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
-            p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
-            strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
-            code: ({ node, inline, ...props }) => inline
-                ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
-                : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
-            a: ({ node, href, children, ...props }) => {
-                if (href?.startsWith('#citation-')) {
-                    const raw = decodeURIComponent(href.replace('#citation-', ''));
-                    const parts = raw.split('|');
-                    let resultIdx = 0;
-                    if (parts.length >= 4) {
-                        const parsed = parseInt(parts[3]);
-                        if (!isNaN(parsed) && parsed >= 0 && parsed < (results?.length || 0)) {
-                            resultIdx = parsed;
-                        }
-                    }
-                    const result = results?.[resultIdx];
-                    if (!result) {
-                        return <span className="text-blue-500 font-medium text-xs">{children}</span>;
-                    }
-                    return (
-                        <button
-                            onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onResultClick(result);
-                            }}
-                            className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
-                            title={`${result.filename} - Page ${result.page}`}
-                        >
-                            <Sparkles size={10} />
-                            {children}
-                        </button>
-                    );
-                }
-                return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
+    // Extract only the results actually cited in the answer (by index)
+    const citedIndices = new Set();
+    const citRegex = /\[\[(.*?)\]\]/g;
+    let citMatch;
+    while ((citMatch = citRegex.exec(content)) !== null) {
+        const parts = citMatch[1].split('|');
+        if (parts.length >= 4) {
+            const idx = parseInt(parts[3]);
+            if (!isNaN(idx) && idx >= 0 && idx < (results?.length || 0)) {
+                citedIndices.add(idx);
             }
-        }}>
-            {processedContent}
-        </ReactMarkdown>
+        }
+    }
+    const citedResults = results?.filter((_, i) => citedIndices.has(i)) || [];
+
+    return (
+        <div>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
+                thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
+                th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
+                td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
+                ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
+                ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
+                li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+                p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
+                strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
+                code: ({ node, inline, ...props }) => inline
+                    ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
+                    : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
+                a: ({ node, href, children, ...props }) => {
+                    if (href?.startsWith('#citation-')) {
+                        const raw = decodeURIComponent(href.replace('#citation-', ''));
+                        const parts = raw.split('|');
+                        let resultIdx = 0;
+                        if (parts.length >= 4) {
+                            const parsed = parseInt(parts[3]);
+                            if (!isNaN(parsed) && parsed >= 0 && parsed < (results?.length || 0)) {
+                                resultIdx = parsed;
+                            }
+                        }
+                        const result = results?.[resultIdx];
+                        if (!result) {
+                            return <span className="text-blue-500 font-medium text-xs">{children}</span>;
+                        }
+                        return (
+                            <button
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onResultClick(result);
+                                }}
+                                className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
+                                title={`${result.filename} - Page ${result.page}`}
+                            >
+                                <Sparkles size={10} />
+                                {children}
+                            </button>
+                        );
+                    }
+                    return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
+                }
+            }}>
+                {processedContent}
+            </ReactMarkdown>
+            {citedResults.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-gray-100">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">
+                        <List size={10} /> 출처 (Sources)
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {citedResults.map((res, rIdx) => (
+                            <button
+                                key={rIdx}
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onResultClick(res); }}
+                                className="flex items-center gap-1 px-2 py-1 bg-[#f4f1ea] hover:bg-[#e5e1d8] text-[#d97757] text-[10px] font-medium rounded-md border border-[#e5e1d8]/50 transition-colors max-w-[180px] truncate"
+                                title={`${res.filename} - Page ${res.page}`}
+                            >
+                                <Sparkles size={8} />
+                                <span className="truncate">{res.filename}</span>
+                                <span className="text-gray-400 font-normal ml-0.5">p.{res.page}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
     );
 });
 
@@ -1918,27 +1956,6 @@ const KnowhowDB = () => {
                                                 results={msg.results}
                                                 onResultClick={stableResultClick}
                                             />
-                                        )}
-                                        {msg.role === 'assistant' && msg.results && msg.results.length > 0 && (
-                                            <div className="mt-4 pt-3 border-t border-gray-100">
-                                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">
-                                                    <List size={10} /> 출처 (Sources)
-                                                </div>
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {msg.results.map((res, rIdx) => (
-                                                        <button
-                                                            key={rIdx}
-                                                            onClick={() => handleResultClick(res)}
-                                                            className="flex items-center gap-1 px-2 py-1 bg-[#f4f1ea] hover:bg-[#e5e1d8] text-[#d97757] text-[10px] font-medium rounded-md border border-[#e5e1d8]/50 transition-colors max-w-[180px] truncate"
-                                                            title={`${res.filename} - Page ${res.page}`}
-                                                        >
-                                                            <Sparkles size={8} />
-                                                            <span className="truncate">{res.filename}</span>
-                                                            <span className="text-gray-400 font-normal ml-0.5">p.{res.page}</span>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
                                         )}
                                     </div>
                                 </div>
