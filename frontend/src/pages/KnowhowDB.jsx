@@ -162,7 +162,6 @@ const KnowhowDB = () => {
     const citationHandlerRef = useRef(null); // always-latest handleCitationClick (avoids stale closure in ReactMarkdown)
     const handleResultClickRef = useRef(null); // always-latest handleResultClick (for direct citation calls)
     const chatMessagesRef = useRef([]); // always-latest chatMessages (for DOM event delegation)
-    const chatAreaRef = useRef(null); // chat message area container ref
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -1128,14 +1127,10 @@ const KnowhowDB = () => {
     // =============================================
     // DOM EVENT DELEGATION for inline citation clicks
     // ReactMarkdown buttons lose React onClick after re-renders.
-    // Native DOM listener on container always works (same principle as bottom source links).
+    // Document-level listener always works regardless of conditional rendering.
     // =============================================
     useEffect(() => {
-        const container = chatAreaRef.current;
-        if (!container) return;
-
         const handleCitationDomClick = (e) => {
-            // Walk up from click target to find a citation button with data attributes
             const btn = e.target.closest('[data-citation-msg-idx]');
             if (!btn) return;
 
@@ -1159,9 +1154,9 @@ const KnowhowDB = () => {
             }
         };
 
-        container.addEventListener('click', handleCitationDomClick, true); // capture phase
-        return () => container.removeEventListener('click', handleCitationDomClick, true);
-    }, []); // empty deps — refs keep it fresh
+        document.addEventListener('click', handleCitationDomClick, true);
+        return () => document.removeEventListener('click', handleCitationDomClick, true);
+    }, []);
 
     // =============================================
     // UPLOAD HANDLER
@@ -1873,7 +1868,7 @@ const KnowhowDB = () => {
                         </div>
                     ) : (
                         /* ===== CHAT MESSAGES ===== */
-                        <div ref={chatAreaRef} className="max-w-3xl mx-auto space-y-4">
+                        <div className="max-w-3xl mx-auto space-y-4">
                             {chatMessages.map((msg, idx) => (
                                 <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user' ? 'bg-[#333333]' : 'bg-[#d97757]'
