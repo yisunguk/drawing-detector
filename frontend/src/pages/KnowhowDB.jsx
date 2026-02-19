@@ -161,6 +161,8 @@ const KnowhowDB = () => {
     const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
     const citationHandlerRef = useRef(null); // always-latest handleCitationClick (avoids stale closure in ReactMarkdown)
     const handleResultClickRef = useRef(null); // always-latest handleResultClick (for direct citation calls)
+    const chatMessagesRef = useRef([]); // always-latest chatMessages (for DOM event delegation)
+    const chatAreaRef = useRef(null); // chat message area container ref
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -1121,6 +1123,45 @@ const KnowhowDB = () => {
     // Keep refs always pointing to latest handlers (avoids stale closure in ReactMarkdown buttons)
     citationHandlerRef.current = handleCitationClick;
     handleResultClickRef.current = handleResultClick;
+    chatMessagesRef.current = chatMessages;
+
+    // =============================================
+    // DOM EVENT DELEGATION for inline citation clicks
+    // ReactMarkdown buttons lose React onClick after re-renders.
+    // Native DOM listener on container always works (same principle as bottom source links).
+    // =============================================
+    useEffect(() => {
+        const container = chatAreaRef.current;
+        if (!container) return;
+
+        const handleCitationDomClick = (e) => {
+            // Walk up from click target to find a citation button with data attributes
+            const btn = e.target.closest('[data-citation-msg-idx]');
+            if (!btn) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const msgIdx = parseInt(btn.dataset.citationMsgIdx);
+            const resultIdx = parseInt(btn.dataset.citationResultIdx);
+            const msgs = chatMessagesRef.current;
+
+            if (isNaN(msgIdx) || isNaN(resultIdx)) return;
+            const msg = msgs[msgIdx];
+            if (!msg?.results?.[resultIdx]) {
+                console.warn('[Citation DOM] No result found for', { msgIdx, resultIdx });
+                return;
+            }
+
+            console.log(`[Citation DOM] Click → msg[${msgIdx}].results[${resultIdx}]`, msg.results[resultIdx]?.filename, 'p.' + msg.results[resultIdx]?.page);
+            if (handleResultClickRef.current) {
+                handleResultClickRef.current(msg.results[resultIdx]);
+            }
+        };
+
+        container.addEventListener('click', handleCitationDomClick, true); // capture phase
+        return () => container.removeEventListener('click', handleCitationDomClick, true);
+    }, []); // empty deps — refs keep it fresh
 
     // =============================================
     // UPLOAD HANDLER
@@ -1832,7 +1873,7 @@ const KnowhowDB = () => {
                         </div>
                     ) : (
                         /* ===== CHAT MESSAGES ===== */
-                        <div className="max-w-3xl mx-auto space-y-4">
+                        <div ref={chatAreaRef} className="max-w-3xl mx-auto space-y-4">
                             {chatMessages.map((msg, idx) => (
                                 <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                                     <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'user' ? 'bg-[#333333]' : 'bg-[#d97757]'
@@ -1863,45 +1904,25 @@ const KnowhowDB = () => {
                                                     code: ({ node, inline, ...props }) => inline
                                                         ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
                                                         : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
-                                                    // FIX: Use citationHandlerRef to avoid stale closures in ReactMarkdown
+                                                    // Citation buttons use DOM event delegation (not React onClick)
+                                                    // ReactMarkdown buttons lose React onClick after re-renders.
+                                                    // data-* attrs are read by the native DOM listener on chatAreaRef.
                                                     a: ({ node, href, children, ...props }) => {
-                                                        // Check if this appears to be a citation button content
-                                                        // (Simple heuristic: usually just "Page X" or short text)
-                                                        // The original code had a condition `if (props.children && typeof props.children === 'string' && props.children.startsWith('[[')) return <>{children}</>;`
-                                                        // This line was likely intended to prevent processing already processed citations, but it's misplaced.
-                                                        // The `processCitations` function already transforms `[[...]]` into `[...](#citation-...)`.
-                                                        // So, we only need to handle the `href` starting with `#citation-`.
-
                                                         if (href?.startsWith('#citation-')) {
                                                             const keyword = decodeURIComponent(href.replace('#citation-', ''));
-
+                                                            const parts = keyword.split('|');
+                                                            // Extract result index (4th pipe-separated value)
+                                                            let resultIdx = -1;
+                                                            if (parts.length >= 4) {
+                                                                const parsed = parseInt(parts[3]);
+                                                                if (!isNaN(parsed)) resultIdx = parsed;
+                                                            }
                                                             return (
                                                                 <button
-                                                                    onClick={(e) => {
-                                                                        e.preventDefault();
-                                                                        e.stopPropagation();
-                                                                        // Strategy A: Direct index match — identical to bottom source links
-                                                                        // This bypasses handleCitationClick entirely for maximum reliability
-                                                                        const parts = keyword.split('|');
-                                                                        const results = msg.results || [];
-                                                                        if (parts.length >= 4 && results.length > 0) {
-                                                                            const idx = parseInt(parts[3]);
-                                                                            if (!isNaN(idx) && idx >= 0 && idx < results.length) {
-                                                                                console.log(`[Citation] Direct index ${idx} → handleResultClick (same as bottom source)`, results[idx]?.filename);
-                                                                                if (handleResultClickRef.current) {
-                                                                                    handleResultClickRef.current(results[idx]);
-                                                                                    return;
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                        // Strategy B: Fallback to handleCitationClick for keyword-based resolution
-                                                                        console.log(`[Citation] Fallback to handleCitationClick for: "${keyword}"`);
-                                                                        if (citationHandlerRef.current) {
-                                                                            citationHandlerRef.current(keyword, results);
-                                                                        }
-                                                                    }}
+                                                                    data-citation-msg-idx={idx}
+                                                                    data-citation-result-idx={resultIdx >= 0 ? resultIdx : 0}
                                                                     className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
-                                                                    title={`"${keyword}" 위치 찾기`}
+                                                                    title={`"${parts[0]?.trim() || keyword}" 위치 찾기`}
                                                                 >
                                                                     <Sparkles size={10} />
                                                                     {children}
