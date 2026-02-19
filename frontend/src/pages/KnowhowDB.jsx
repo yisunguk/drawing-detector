@@ -86,6 +86,7 @@ const KnowhowDB = () => {
     // === Left Sidebar State ===
     const [folders, setFolders] = useState([]);
     const [activeFolder, setActiveFolder] = useState(null);
+    const [files, setFiles] = useState([]);
     const [failedFiles, setFailedFiles] = useState([]);
     const [debugMode, setDebugMode] = useState(false);
     const [loadingFiles, setLoadingFiles] = useState(false);
