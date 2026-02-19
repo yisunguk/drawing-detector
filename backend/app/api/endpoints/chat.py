@@ -847,7 +847,7 @@ async def chat(
                         source_filename = result.get('source', 'Unknown')
                         target_page = int(result.get('page', 0))
 
-                        if target_page > 0:
+                        if target_page > 0 and target_page not in page_doc_map:
                             page_doc_map[target_page] = source_filename
 
                         content = (result.get('content') or '')
