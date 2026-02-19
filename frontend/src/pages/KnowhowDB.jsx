@@ -66,6 +66,73 @@ const buildBlobUrl = (blobPath) => {
     return `https://${AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net/${AZURE_CONTAINER_NAME}/${encodedPath}?${AZURE_SAS_TOKEN}`;
 };
 
+// =============================================
+// MEMOIZED CHAT MESSAGE — isolated from parent re-renders
+// so that inline citation buttons inside ReactMarkdown keep working.
+// Same pattern as Dashboard's ChatInterface.jsx.
+// =============================================
+const ChatMessageContent = React.memo(({ content, results, onResultClick }) => {
+    // Transform [[Keyword|Page X|DocName|Index]] → markdown links
+    const processedContent = content.replace(/(`*)\[\[(.*?)\]\]\1/g, (match, backticks, p1) => {
+        const parts = p1.split('|');
+        const label = parts[0]?.trim() || p1;
+        const pageStr = parts[1]?.trim() || '';
+        const cleanText = pageStr ? `${label} (${pageStr})` : label;
+        return `[${cleanText.replace(/\|/g, '\\|')}](#citation-${encodeURIComponent(p1)})`;
+    });
+
+    return (
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+            table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
+            thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
+            th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
+            td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
+            ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
+            ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
+            li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
+            p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
+            strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
+            code: ({ node, inline, ...props }) => inline
+                ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
+                : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
+            a: ({ node, href, children, ...props }) => {
+                if (href?.startsWith('#citation-')) {
+                    const raw = decodeURIComponent(href.replace('#citation-', ''));
+                    const parts = raw.split('|');
+                    let resultIdx = 0;
+                    if (parts.length >= 4) {
+                        const parsed = parseInt(parts[3]);
+                        if (!isNaN(parsed) && parsed >= 0 && parsed < (results?.length || 0)) {
+                            resultIdx = parsed;
+                        }
+                    }
+                    const result = results?.[resultIdx];
+                    if (!result) {
+                        return <span className="text-blue-500 font-medium text-xs">{children}</span>;
+                    }
+                    return (
+                        <button
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onResultClick(result);
+                            }}
+                            className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200"
+                            title={`${result.filename} - Page ${result.page}`}
+                        >
+                            <Sparkles size={10} />
+                            {children}
+                        </button>
+                    );
+                }
+                return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
+            }
+        }}>
+            {processedContent}
+        </ReactMarkdown>
+    );
+});
+
 const KnowhowDB = () => {
     const navigate = useNavigate();
     const { currentUser } = useAuth();
@@ -160,6 +227,12 @@ const KnowhowDB = () => {
     const lastQueryRef = useRef('');
     const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
     const citationHandlerRef = useRef(null); // always-latest handleCitationClick
+    const handleResultClickRef = useRef(null); // stable ref for memoized child
+
+    // Stable callback for ChatMessageContent — never changes identity, always calls latest handleResultClick
+    const stableResultClick = useCallback((result) => {
+        if (handleResultClickRef.current) handleResultClickRef.current(result);
+    }, []);
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -1003,6 +1076,9 @@ const KnowhowDB = () => {
         openDocument(url, page, filename, keyword, meta);
     };
 
+    // Keep ref always pointing to latest handleResultClick (for memoized ChatMessageContent)
+    handleResultClickRef.current = handleResultClick;
+
     const handleCitationClick = (keyword, msgResults = []) => {
         if (!keyword || keyword.length < 2) return;
 
@@ -1276,34 +1352,6 @@ const KnowhowDB = () => {
                 ? `안녕하세요! ${scopeDesc}에 대해 궁금한 점을 물어보세요.`
                 : '안녕하세요! 문서에 대해 궁금한 점을 물어보세요.'
         }]);
-    };
-
-    // =============================================
-    // MARKDOWN + CITATIONS
-    // =============================================
-    // Strip [[...]] citations from text (they'll be rendered as separate React buttons)
-    const stripCitations = (text) => {
-        return text.replace(/(`*)\[\[(.*?)\]\]\1/g, '');
-    };
-
-    // Extract citation data from text for rendering as React buttons
-    const extractCitations = (text, results) => {
-        const citations = [];
-        const regex = /(`*)\[\[(.*?)\]\]\1/g;
-        let match;
-        while ((match = regex.exec(text)) !== null) {
-            const p1 = match[2];
-            const parts = p1.split('|');
-            const label = parts[0]?.trim() || p1;
-            const pageStr = parts[1]?.trim() || '';
-            let resultIdx = 0;
-            if (parts.length >= 4) {
-                const parsed = parseInt(parts[3]);
-                if (!isNaN(parsed) && parsed >= 0 && parsed < (results?.length || 0)) resultIdx = parsed;
-            }
-            citations.push({ label, pageStr, resultIdx, result: results?.[resultIdx] });
-        }
-        return citations;
     };
 
     // =============================================
@@ -1865,52 +1913,11 @@ const KnowhowDB = () => {
                                             : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
                                         }`}>
                                         {msg.role === 'user' ? msg.content : (
-                                            <div>
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                                                    table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
-                                                    thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
-                                                    th: ({ node, ...props }) => <th className="border border-gray-300 px-3 py-2 font-semibold text-left" {...props} />,
-                                                    td: ({ node, ...props }) => <td className="border border-gray-300 px-3 py-2" {...props} />,
-                                                    ul: ({ node, ...props }) => <ul className="list-disc pl-4 my-2 space-y-1" {...props} />,
-                                                    ol: ({ node, ...props }) => <ol className="list-decimal pl-4 my-2 space-y-1" {...props} />,
-                                                    li: ({ node, ...props }) => <li className="leading-relaxed" {...props} />,
-                                                    p: ({ node, ...props }) => <p className="mb-2 last:mb-0 leading-relaxed" {...props} />,
-                                                    strong: ({ node, ...props }) => <strong className="font-bold text-[#333333]" {...props} />,
-                                                    code: ({ node, inline, ...props }) => inline
-                                                        ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
-                                                        : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
-                                                    a: ({ node, href, children, ...props }) => {
-                                                        if (href?.startsWith('#citation-')) {
-                                                            // Render as styled inline text (not a button — buttons are rendered below)
-                                                            return <span className="text-blue-500 font-medium text-xs">{children}</span>;
-                                                        }
-                                                        return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
-                                                    }
-                                                }}>
-                                                    {stripCitations(msg.content)}
-                                                </ReactMarkdown>
-                                                {/* Inline citation buttons — OUTSIDE ReactMarkdown, same pattern as bottom source links */}
-                                                {msg.results && msg.results.length > 0 && (() => {
-                                                    const cites = extractCitations(msg.content, msg.results);
-                                                    if (cites.length === 0) return null;
-                                                    return (
-                                                        <div className="flex flex-wrap gap-1.5 mt-2">
-                                                            {cites.map((cite, cIdx) => (
-                                                                cite.result && <button
-                                                                    key={cIdx}
-                                                                    onClick={() => handleResultClick(cite.result)}
-                                                                    className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-medium rounded-md border border-blue-200 transition-colors max-w-[240px]"
-                                                                    title={`${cite.result.filename} - Page ${cite.result.page}`}
-                                                                >
-                                                                    <Sparkles size={8} className="flex-shrink-0" />
-                                                                    <span className="truncate">{cite.label}</span>
-                                                                    {cite.pageStr && <span className="text-blue-400 font-normal ml-0.5 flex-shrink-0">({cite.pageStr})</span>}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    );
-                                                })()}
-                                            </div>
+                                            <ChatMessageContent
+                                                content={msg.content}
+                                                results={msg.results}
+                                                onResultClick={stableResultClick}
+                                            />
                                         )}
                                         {msg.role === 'assistant' && msg.results && msg.results.length > 0 && (
                                             <div className="mt-4 pt-3 border-t border-gray-100">
