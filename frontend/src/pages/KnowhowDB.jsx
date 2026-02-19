@@ -159,9 +159,7 @@ const KnowhowDB = () => {
     const fileMapRef = useRef({});
     const lastQueryRef = useRef('');
     const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
-    const citationHandlerRef = useRef(null); // always-latest handleCitationClick (avoids stale closure in ReactMarkdown)
-    const handleResultClickRef = useRef(null); // always-latest handleResultClick (for direct citation calls)
-    const chatMessagesRef = useRef([]); // always-latest chatMessages (for DOM event delegation)
+    const citationHandlerRef = useRef(null); // always-latest handleCitationClick
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -1119,38 +1117,8 @@ const KnowhowDB = () => {
         console.warn('[Citation] Could not resolve document for:', keyword);
     };
 
-    // Keep refs always pointing to latest handlers (avoids stale closure in ReactMarkdown buttons)
+    // Keep ref always pointing to latest handleCitationClick
     citationHandlerRef.current = handleCitationClick;
-    handleResultClickRef.current = handleResultClick;
-    chatMessagesRef.current = chatMessages;
-
-    // =============================================
-    // DOM EVENT DELEGATION for inline citation clicks (bubble phase, NO stopPropagation)
-    // stopPropagation in capture phase blocks React's event system and breaks subsequent clicks.
-    // =============================================
-    useEffect(() => {
-        const handleCitationDomClick = (e) => {
-            if (e.__citationHandled) return; // Already handled by React onClick
-            const btn = e.target.closest('[data-citation-msg-idx]');
-            if (!btn) return;
-
-            const msgIdx = parseInt(btn.dataset.citationMsgIdx);
-            const resultIdx = parseInt(btn.dataset.citationResultIdx);
-            const msgs = chatMessagesRef.current;
-
-            if (isNaN(msgIdx) || isNaN(resultIdx)) return;
-            const msg = msgs[msgIdx];
-            if (!msg?.results?.[resultIdx]) return;
-
-            console.log(`[Citation DOM-fallback] msg[${msgIdx}].results[${resultIdx}]`, msg.results[resultIdx]?.filename, 'p.' + msg.results[resultIdx]?.page);
-            if (handleResultClickRef.current) {
-                handleResultClickRef.current(msg.results[resultIdx]);
-            }
-        };
-
-        document.addEventListener('click', handleCitationDomClick);
-        return () => document.removeEventListener('click', handleCitationDomClick);
-    }, []);
 
     // =============================================
     // UPLOAD HANDLER
@@ -1311,13 +1279,31 @@ const KnowhowDB = () => {
     };
 
     // =============================================
-    // MARKDOWN + CITATIONS — copied from ChatInterface.jsx (proven working)
+    // MARKDOWN + CITATIONS
     // =============================================
-    const processCitations = (text) => {
-        return text.replace(/(`*)\[\[(.*?)\]\]\1/g, (match, backticks, p1) => {
-            const cleanText = p1.includes('|') ? p1.split('|')[0].trim() + ' (' + p1.split('|')[1].trim() + ')' : p1;
-            return `[${cleanText.replace(/\|/g, '\\|')}](#citation-${encodeURIComponent(p1)})`;
-        });
+    // Strip [[...]] citations from text (they'll be rendered as separate React buttons)
+    const stripCitations = (text) => {
+        return text.replace(/(`*)\[\[(.*?)\]\]\1/g, '');
+    };
+
+    // Extract citation data from text for rendering as React buttons
+    const extractCitations = (text, results) => {
+        const citations = [];
+        const regex = /(`*)\[\[(.*?)\]\]\1/g;
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            const p1 = match[2];
+            const parts = p1.split('|');
+            const label = parts[0]?.trim() || p1;
+            const pageStr = parts[1]?.trim() || '';
+            let resultIdx = 0;
+            if (parts.length >= 4) {
+                const parsed = parseInt(parts[3]);
+                if (!isNaN(parsed) && parsed >= 0 && parsed < (results?.length || 0)) resultIdx = parsed;
+            }
+            citations.push({ label, pageStr, resultIdx, result: results?.[resultIdx] });
+        }
+        return citations;
     };
 
     // =============================================
@@ -1893,45 +1879,37 @@ const KnowhowDB = () => {
                                                     code: ({ node, inline, ...props }) => inline
                                                         ? <code className="bg-gray-100 px-1 py-0.5 rounded font-mono text-xs" {...props} />
                                                         : <code className="block bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto my-2" {...props} />,
-                                                    // Citation buttons use DOM event delegation (not React onClick)
-                                                    // Dual strategy: React onClick (via ref) + DOM data-* delegation
                                                     a: ({ node, href, children, ...props }) => {
                                                         if (href?.startsWith('#citation-')) {
-                                                            const keyword = decodeURIComponent(href.replace('#citation-', ''));
-                                                            const parts = keyword.split('|');
-                                                            let resultIdx = -1;
-                                                            if (parts.length >= 4) {
-                                                                const parsed = parseInt(parts[3]);
-                                                                if (!isNaN(parsed)) resultIdx = parsed;
-                                                            }
-                                                            const safeIdx = resultIdx >= 0 ? resultIdx : 0;
-                                                            return (
-                                                                <button
-                                                                    data-citation-msg-idx={idx}
-                                                                    data-citation-result-idx={safeIdx}
-                                                                    onClick={(e) => {
-                                                                        // Flag native event so DOM fallback handler skips it
-                                                                        if (e.nativeEvent) e.nativeEvent.__citationHandled = true;
-                                                                        const msgs = chatMessagesRef.current;
-                                                                        const m = msgs[idx];
-                                                                        if (m?.results?.[safeIdx] && handleResultClickRef.current) {
-                                                                            console.log(`[Citation React] onClick → msg[${idx}].results[${safeIdx}]`, m.results[safeIdx]?.filename);
-                                                                            handleResultClickRef.current(m.results[safeIdx]);
-                                                                        }
-                                                                    }}
-                                                                    className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
-                                                                    title={`"${parts[0]?.trim() || keyword}" 위치 찾기`}
-                                                                >
-                                                                    <Sparkles size={10} />
-                                                                    {children}
-                                                                </button>
-                                                            );
+                                                            // Render as styled inline text (not a button — buttons are rendered below)
+                                                            return <span className="text-blue-500 font-medium text-xs">{children}</span>;
                                                         }
                                                         return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
                                                     }
                                                 }}>
-                                                    {processCitations(msg.content)}
+                                                    {stripCitations(msg.content)}
                                                 </ReactMarkdown>
+                                                {/* Inline citation buttons — OUTSIDE ReactMarkdown, same pattern as bottom source links */}
+                                                {msg.results && msg.results.length > 0 && (() => {
+                                                    const cites = extractCitations(msg.content, msg.results);
+                                                    if (cites.length === 0) return null;
+                                                    return (
+                                                        <div className="flex flex-wrap gap-1.5 mt-2">
+                                                            {cites.map((cite, cIdx) => (
+                                                                cite.result && <button
+                                                                    key={cIdx}
+                                                                    onClick={() => handleResultClick(cite.result)}
+                                                                    className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-medium rounded-md border border-blue-200 transition-colors max-w-[240px]"
+                                                                    title={`${cite.result.filename} - Page ${cite.result.page}`}
+                                                                >
+                                                                    <Sparkles size={8} className="flex-shrink-0" />
+                                                                    <span className="truncate">{cite.label}</span>
+                                                                    {cite.pageStr && <span className="text-blue-400 font-normal ml-0.5 flex-shrink-0">({cite.pageStr})</span>}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         )}
                                         {msg.role === 'assistant' && msg.results && msg.results.length > 0 && (
