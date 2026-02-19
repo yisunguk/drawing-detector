@@ -958,7 +958,14 @@ const KnowhowDB = () => {
         const filename = result.filename;
         const page = result.page || 1;
         const keyword = overrideKeyword || query.trim() || lastQueryRef.current || null;
-        const resultUser = result.user_id || fileMapRef.current[filename]?.user_id || browseUsername || username;
+
+        // HARDENING: Default to '관리자' if user_id is missing to prevent 404s
+        let resultUser = result.user_id || fileMapRef.current[filename]?.user_id || browseUsername || username;
+        if (!resultUser) {
+            console.warn('[handleResultClick] user_id missing, defaulting to "관리자"');
+            resultUser = '관리자';
+        }
+
         const meta = { user_id: resultUser, filename, page, blob_path: result.blob_path || null };
 
         if (debugMode) {
