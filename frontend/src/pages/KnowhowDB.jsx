@@ -1804,19 +1804,7 @@ const KnowhowDB = () => {
                                             : 'bg-white text-[#333333] border border-[#e5e1d8] rounded-tl-none'
                                         }`}>
                                         {msg.role === 'user' ? msg.content : (
-                                            <div onClickCapture={(e) => {
-                                                const btn = e.target.closest('[data-citation]');
-                                                if (!btn) return;
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                const raw = btn.getAttribute('data-citation');
-
-                                                // 항상 citationHandlerRef 통해 문서 매칭 시도 (이미 열린 문서인지 확인도 그 안에서 처리됨)
-                                                citationHandlerRef.current(raw, msg.results || []);
-                                                return;
-
-
-                                            }}>
+                                            <div>
                                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                                                     table: ({ node, ...props }) => <div className="overflow-x-auto my-2"><table className="border-collapse border border-gray-300 w-full text-xs" {...props} /></div>,
                                                     thead: ({ node, ...props }) => <thead className="bg-gray-100" {...props} />,
@@ -1836,6 +1824,11 @@ const KnowhowDB = () => {
                                                             return (
                                                                 <button
                                                                     data-citation={keyword}
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        handleCitationClick(keyword, msg.results || []);
+                                                                    }}
                                                                     className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
                                                                     title={`"${keyword}" 위치 찾기`}
                                                                 >
