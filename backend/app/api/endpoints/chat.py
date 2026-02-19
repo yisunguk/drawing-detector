@@ -665,6 +665,17 @@ async def chat(
                     else:
                         highlight_text = cleaned[:300]
 
+                    blob_path = res.get("blob_path") or ""
+                
+                    # FALLBACK: If blob_path is empty, construct it
+                    if not blob_path:
+                        # Try to find user_id from result or request
+                        res_user_id = res.get("user_id") or request.username or "관리자"
+                        res_category = res.get("category") or "documents"
+                        res_filename = filename
+                        blob_path = f"{res_user_id}/{res_category}/{res_filename}"
+                        print(f"[Chat] WARNING: blob_path missing for {filename}. Constructed fallback: {blob_path}")
+
                     results.append({
                         "filename": filename,
                         "source": filename,
@@ -674,7 +685,7 @@ async def chat(
                         "score": score,
                         "@search.score": score,
                         "path": path,
-                        "blob_path": res.get("blob_path") or "",
+                        "blob_path": blob_path,
                         "coords": res.get("coords"),
                         "type": res.get("type"),
                         "category": res.get("category"),

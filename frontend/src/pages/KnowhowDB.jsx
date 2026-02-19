@@ -4,7 +4,7 @@ import {
     ArrowLeft, Folder, FolderOpen, FileText, Search as SearchIcon,
     Send, Bot, User, Loader2, Sparkles, ChevronRight,
     X, LogOut, Upload,
-    RefreshCcw, Trash2, List, Database, MessageSquare, Check
+    RefreshCcw, Trash2, List, Database, MessageSquare, Check, Bug
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import PDFViewer from '../components/PDFViewer';
@@ -40,25 +40,25 @@ const getFileType = (filename) => {
 };
 
 const getChatApiUrl = () => {
-    return API_BASE.endsWith('/api') ? `${API_BASE}/v1/chat/` : `${API_BASE}/api/v1/chat/`;
+    return API_BASE.endsWith('/api') ? `${API_BASE} /v1/chat / ` : `${API_BASE} /api/v1 / chat / `;
 };
 
 const getListApiUrl = (path) => {
-    return `${API_BASE}/api/v1/azure/list?path=${encodeURIComponent(path)}`;
+    return `${API_BASE} /api/v1 / azure / list ? path = ${encodeURIComponent(path)} `;
 };
 
 const getIndexStatusApiUrl = (username, folder = '') => {
-    let url = `${API_BASE}/api/v1/azure/index-status?username=${encodeURIComponent(username)}`;
-    if (folder) url += `&folder=${encodeURIComponent(folder)}`;
+    let url = `${API_BASE} /api/v1 / azure / index - status ? username = ${encodeURIComponent(username)} `;
+    if (folder) url += `& folder=${encodeURIComponent(folder)} `;
     return url;
 };
 
 const getReindexApiUrl = () => {
-    return `${API_BASE}/api/v1/azure/reindex-from-json`;
+    return `${API_BASE} /api/v1 / azure / reindex - from - json`;
 };
 
 const getCleanupIndexApiUrl = () => {
-    return `${API_BASE}/api/v1/azure/cleanup-index`;
+    return `${API_BASE} /api/v1 / azure / cleanup - index`;
 };
 
 const buildBlobUrl = (blobPath) => {
@@ -86,7 +86,8 @@ const KnowhowDB = () => {
     // === Left Sidebar State ===
     const [folders, setFolders] = useState([]);
     const [activeFolder, setActiveFolder] = useState(null);
-    const [files, setFiles] = useState([]);
+    const [failedFiles, setFailedFiles] = useState([]);
+    const [debugMode, setDebugMode] = useState(false);
     const [loadingFiles, setLoadingFiles] = useState(false);
     const [activeDoc, setActiveDoc] = useState(null);
     const [scopeUsers, setScopeUsers] = useState(new Set());  // admin: multi-user search scope
@@ -960,6 +961,11 @@ const KnowhowDB = () => {
         const resultUser = result.user_id || fileMapRef.current[filename]?.user_id || browseUsername || username;
         const meta = { user_id: resultUser, filename, page, blob_path: result.blob_path || null };
 
+        if (debugMode) {
+            alert(`[DEBUG]\nFilename: ${filename}\nPage: ${page}\nBlobPath: ${result.blob_path}\nUser: ${resultUser}\nScore: ${result.score}\nType: ${result.type}\nCategory: ${result.category}`);
+            console.log('[DEBUG] Result Click:', result);
+        }
+
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
             const url = buildBlobUrl(result.blob_path);
@@ -1679,9 +1685,18 @@ const KnowhowDB = () => {
                             </div>
                         )}
                         {mode === 'chat' && (
-                            <button onClick={handleResetChat} className="p-1.5 hover:bg-gray-100 rounded-md text-gray-400 hover:text-[#d97757]" title="대화 초기화">
-                                <RefreshCcw size={14} />
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => setDebugMode(!debugMode)}
+                                    className={`p-1.5 rounded-md transition-colors ${debugMode ? 'bg-red-100 text-red-600' : 'hover:bg-gray-100 text-gray-400'}`}
+                                    title="Debug Mode"
+                                >
+                                    <Bug size={14} />
+                                </button>
+                                <button onClick={handleResetChat} className="p-1.5 hover:bg-gray-100 rounded-md text-gray-400 hover:text-[#d97757]" title="대화 초기화">
+                                    <RefreshCcw size={14} />
+                                </button>
+                            </>
                         )}
                     </div>
                 </div>
