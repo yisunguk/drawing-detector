@@ -40,21 +40,21 @@ const getFileType = (filename) => {
 };
 
 const getChatApiUrl = () => {
-    return API_BASE.endsWith('/api') ? `${API_BASE} /v1/chat / ` : `${API_BASE} /api/v1 / chat / `;
+    return API_BASE.endsWith('/api') ? `${API_BASE}/v1/chat/` : `${API_BASE}/api/v1/chat/`;
 };
 
 const getListApiUrl = (path) => {
-    return `${API_BASE} /api/v1 / azure / list ? path = ${encodeURIComponent(path)} `;
+    return `${API_BASE}/api/v1/azure/list?path=${encodeURIComponent(path)}`;
 };
 
 const getIndexStatusApiUrl = (username, folder = '') => {
-    let url = `${API_BASE} /api/v1 / azure / index - status ? username = ${encodeURIComponent(username)} `;
-    if (folder) url += `& folder=${encodeURIComponent(folder)} `;
+    let url = `${API_BASE}/api/v1/azure/index-status?username=${encodeURIComponent(username)}`;
+    if (folder) url += `&folder=${encodeURIComponent(folder)}`;
     return url;
 };
 
 const getReindexApiUrl = () => {
-    return `${API_BASE} /api/v1 / azure / reindex - from - json`;
+    return `${API_BASE}/api/v1/azure/reindex-from-json`;
 };
 
 const getCleanupIndexApiUrl = () => {
