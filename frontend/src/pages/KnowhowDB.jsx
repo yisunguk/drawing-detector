@@ -160,6 +160,7 @@ const KnowhowDB = () => {
     const lastQueryRef = useRef('');
     const ocrPageCacheRef = useRef({}); // cache: "user/filename/page" → pageData
     const citationHandlerRef = useRef(null); // always-latest handleCitationClick (avoids stale closure in ReactMarkdown)
+    const handleResultClickRef = useRef(null); // always-latest handleResultClick (for direct citation calls)
 
     // =============================================
     // LOAD USER FOLDERS (Admin only - root level)
@@ -1117,8 +1118,9 @@ const KnowhowDB = () => {
         console.warn('[Citation] Could not resolve document for:', keyword);
     };
 
-    // Keep ref always pointing to latest handleCitationClick (avoids stale closure in ReactMarkdown buttons)
+    // Keep refs always pointing to latest handlers (avoids stale closure in ReactMarkdown buttons)
     citationHandlerRef.current = handleCitationClick;
+    handleResultClickRef.current = handleResultClick;
 
     // =============================================
     // UPLOAD HANDLER
@@ -1873,27 +1875,38 @@ const KnowhowDB = () => {
                                                         if (href?.startsWith('#citation-')) {
                                                             const keyword = decodeURIComponent(href.replace('#citation-', ''));
 
-                                                            const isButton = true; // simplifying for now, assuming style is handled by className
-
-                                                            if (isButton) {
-                                                                return (
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.preventDefault();
-                                                                            e.stopPropagation();
-                                                                            // ALWAYS call the latest handler via ref
-                                                                            if (citationHandlerRef.current) {
-                                                                                citationHandlerRef.current(keyword, msg.results || []);
+                                                            return (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        // Strategy A: Direct index match — identical to bottom source links
+                                                                        // This bypasses handleCitationClick entirely for maximum reliability
+                                                                        const parts = keyword.split('|');
+                                                                        const results = msg.results || [];
+                                                                        if (parts.length >= 4 && results.length > 0) {
+                                                                            const idx = parseInt(parts[3]);
+                                                                            if (!isNaN(idx) && idx >= 0 && idx < results.length) {
+                                                                                console.log(`[Citation] Direct index ${idx} → handleResultClick (same as bottom source)`, results[idx]?.filename);
+                                                                                if (handleResultClickRef.current) {
+                                                                                    handleResultClickRef.current(results[idx]);
+                                                                                    return;
+                                                                                }
                                                                             }
-                                                                        }}
-                                                                        className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
-                                                                        title={`"${keyword}" 위치 찾기`}
-                                                                    >
-                                                                        <Sparkles size={10} />
-                                                                        {children}
-                                                                    </button>
-                                                                );
-                                                            }
+                                                                        }
+                                                                        // Strategy B: Fallback to handleCitationClick for keyword-based resolution
+                                                                        console.log(`[Citation] Fallback to handleCitationClick for: "${keyword}"`);
+                                                                        if (citationHandlerRef.current) {
+                                                                            citationHandlerRef.current(keyword, results);
+                                                                        }
+                                                                    }}
+                                                                    className="mx-1 px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded cursor-pointer hover:bg-blue-100 font-medium inline-flex items-center gap-0.5 text-xs transition-colors border border-blue-200 relative z-10"
+                                                                    title={`"${keyword}" 위치 찾기`}
+                                                                >
+                                                                    <Sparkles size={10} />
+                                                                    {children}
+                                                                </button>
+                                                            );
                                                         }
                                                         return <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
                                                     }
