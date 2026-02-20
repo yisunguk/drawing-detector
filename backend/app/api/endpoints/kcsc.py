@@ -502,65 +502,89 @@ async def kcsc_chat(req: ChatRequest):
     bot = _get_bot()
     client = _get_oai_client()
 
-    # 1) Keyword extraction
-    keyword = bot.get_search_keyword(req.message)
-    print(f"[KCSC] keyword extracted: {keyword}", flush=True)
-
-    # 2) Search codes
-    if req.doc_type == "자동":
-        target_type, results = bot.search_all_types(keyword, top_k=req.top_k)
-    else:
-        target_type = req.doc_type
-        results = bot.search_codes_local(keyword, doc_type=target_type, top_k=req.top_k)
-        if not results:
-            other_types = [t for t in ["KDS", "KCS", "KWCS"] if t != target_type]
-            for t in other_types:
-                results = bot.search_codes_local(keyword, doc_type=t, top_k=req.top_k)
-                if results:
-                    target_type = t
-                    break
-
     name_keys = ["Name", "name", "TITLE", "Title"]
     code_keys = ["Code", "code", "CODE", "FullCode", "fullCode"]
 
-    search_candidates = []
-    for it in results:
-        search_candidates.append({
-            "Name": bot._get_first(it, name_keys),
-            "Code": bot._get_first(it, code_keys),
-        })
-
-    if not results:
-        return ChatResponse(
-            answer="관련 기준(코드)을 찾지 못했습니다. 검색어를 바꿔서 다시 시도해보세요.",
-            source_code="",
-            source_name="",
-            source_type="",
-            keyword=keyword,
-            sections=[],
-            search_candidates=search_candidates,
-            citations=[],
-        )
-
-    # 3) Fetch content from top candidates
     content = ""
     code = ""
     code_name = ""
     doc_name = ""
     sections: List[Dict[str, Any]] = []
+    search_candidates = []
+    target_type = req.doc_type if req.doc_type != "자동" else ""
+    keyword = ""
 
-    for candidate in results[:5]:
-        code = bot._get_first(candidate, code_keys)
-        code_name = bot._get_first(candidate, name_keys, default="Unknown")
-        item_type = str(candidate.get("codeType") or candidate.get("CodeType") or target_type)
-        print(f"[KCSC] trying: {code_name} ({item_type} {code})", flush=True)
+    # 0) Direct code detection: if user specifies e.g. "KCS 11 40 05"
+    direct_match = re.search(r"(KDS|KCS|KWCS)\s*(\d{2})\s*(\d{2})\s*(\d{2,3})", req.message)
+    if direct_match:
+        direct_type = direct_match.group(1)
+        direct_code = f"{direct_match.group(2)} {direct_match.group(3)} {direct_match.group(4)}"
+        print(f"[KCSC] direct code detected: {direct_type} {direct_code}", flush=True)
 
-        doc_name, content, sections = bot.get_content_for_llm(
-            code, doc_type=item_type, query=req.message, keyword=keyword
-        )
-        if content.strip():
-            target_type = item_type
-            break
+        try:
+            # Fetch full content (no relevance trimming) for direct code requests
+            doc_name, content, sections = bot.get_content_for_llm(
+                direct_code, doc_type=direct_type, query="", keyword=""
+            )
+            if content.strip():
+                code = direct_code
+                code_name = doc_name or f"{direct_type} {direct_code}"
+                target_type = direct_type
+                keyword = direct_code
+                print(f"[KCSC] direct fetch OK: {code_name} ({len(sections)} sections)", flush=True)
+        except Exception as e:
+            print(f"[KCSC] direct fetch failed: {e}", flush=True)
+
+    # 1) If direct fetch didn't work, do keyword search
+    if not content.strip():
+        keyword = bot.get_search_keyword(req.message)
+        print(f"[KCSC] keyword extracted: {keyword}", flush=True)
+
+        # 2) Search codes
+        if req.doc_type == "자동":
+            target_type, results = bot.search_all_types(keyword, top_k=req.top_k)
+        else:
+            target_type = req.doc_type
+            results = bot.search_codes_local(keyword, doc_type=target_type, top_k=req.top_k)
+            if not results:
+                other_types = [t for t in ["KDS", "KCS", "KWCS"] if t != target_type]
+                for t in other_types:
+                    results = bot.search_codes_local(keyword, doc_type=t, top_k=req.top_k)
+                    if results:
+                        target_type = t
+                        break
+
+        for it in results:
+            search_candidates.append({
+                "Name": bot._get_first(it, name_keys),
+                "Code": bot._get_first(it, code_keys),
+            })
+
+        if not results:
+            return ChatResponse(
+                answer="관련 기준(코드)을 찾지 못했습니다. 검색어를 바꿔서 다시 시도해보세요.",
+                source_code="",
+                source_name="",
+                source_type="",
+                keyword=keyword,
+                sections=[],
+                search_candidates=search_candidates,
+                citations=[],
+            )
+
+        # 3) Fetch content from top candidates
+        for candidate in results[:5]:
+            code = bot._get_first(candidate, code_keys)
+            code_name = bot._get_first(candidate, name_keys, default="Unknown")
+            item_type = str(candidate.get("codeType") or candidate.get("CodeType") or target_type)
+            print(f"[KCSC] trying: {code_name} ({item_type} {code})", flush=True)
+
+            doc_name, content, sections = bot.get_content_for_llm(
+                code, doc_type=item_type, query=req.message, keyword=keyword
+            )
+            if content.strip():
+                target_type = item_type
+                break
 
     if not content.strip():
         return ChatResponse(
