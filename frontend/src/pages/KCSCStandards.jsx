@@ -25,7 +25,7 @@ const getKcscSectionsUrl = (code, type) => `${API_BASE}/api/v1/kcsc/sections?cod
 const CitationButton = ({ sectionId, title, onClick }) => (
     <button
         onClick={(e) => { e.preventDefault(); onClick(sectionId); }}
-        className="inline-flex items-center gap-1 px-2 py-0.5 mx-0.5 text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-md hover:bg-rose-500/30 transition-colors cursor-pointer"
+        className="inline-flex items-center gap-1 px-2 py-0.5 mx-0.5 text-xs font-medium bg-[#f4f1ea] text-[#d97757] border border-[#e5e1d8] rounded-md hover:bg-[#e5e1d8] transition-colors cursor-pointer"
         title={`${title} 섹션으로 이동`}
     >
         <FileText className="w-3 h-3" />
@@ -55,7 +55,7 @@ const ChatMessageContent = React.memo(({ content, onCitationClick }) => {
     }
 
     return (
-        <div className="prose prose-invert prose-sm max-w-none">
+        <div className="prose prose-sm max-w-none">
             {parts.map((part, i) => {
                 if (part.type === 'citation') {
                     return (
@@ -72,11 +72,16 @@ const ChatMessageContent = React.memo(({ content, onCitationClick }) => {
                         components={{
                             table: ({ children }) => (
                                 <div className="overflow-x-auto my-2">
-                                    <table className="min-w-full border border-slate-600 text-xs">{children}</table>
+                                    <table className="min-w-full border border-gray-300 text-xs">{children}</table>
                                 </div>
                             ),
-                            th: ({ children }) => <th className="border border-slate-600 px-2 py-1 bg-slate-700">{children}</th>,
-                            td: ({ children }) => <td className="border border-slate-600 px-2 py-1">{children}</td>,
+                            th: ({ children }) => <th className="border border-gray-300 px-2 py-1 bg-gray-100 font-semibold">{children}</th>,
+                            td: ({ children }) => <td className="border border-gray-300 px-2 py-1">{children}</td>,
+                            p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                            strong: ({ children }) => <strong className="font-bold text-[#333333]">{children}</strong>,
+                            ul: ({ children }) => <ul className="list-disc pl-4 my-2 space-y-1">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal pl-4 my-2 space-y-1">{children}</ol>,
+                            li: ({ children }) => <li className="leading-relaxed">{children}</li>,
                         }}
                     >
                         {part.value}
@@ -336,12 +341,12 @@ const KCSCStandards = () => {
     };
 
     return (
-        <div className="h-screen flex flex-col bg-slate-900 text-slate-100">
+        <div className="h-screen flex flex-col bg-[#fcfaf7] text-gray-800">
             {/* Highlight flash animation */}
             <style>{`
                 @keyframes kcscFlash {
-                    0% { background-color: rgba(234, 179, 8, 0.3); }
-                    50% { background-color: rgba(234, 179, 8, 0.15); }
+                    0% { background-color: rgba(217, 119, 87, 0.25); }
+                    50% { background-color: rgba(217, 119, 87, 0.12); }
                     100% { background-color: transparent; }
                 }
                 .kcsc-highlight-flash {
@@ -355,13 +360,14 @@ const KCSCStandards = () => {
                 }
                 .kcsc-html-content th,
                 .kcsc-html-content td {
-                    border: 1px solid #475569;
+                    border: 1px solid #e5e1d8;
                     padding: 4px 8px;
                     text-align: left;
                 }
                 .kcsc-html-content th {
-                    background-color: #334155;
+                    background-color: #f4f1ea;
                     font-weight: 600;
+                    color: #333;
                 }
                 .kcsc-html-content img {
                     max-width: 100%;
@@ -380,27 +386,27 @@ const KCSCStandards = () => {
             `}</style>
 
             {/* Top Bar */}
-            <div className="flex items-center justify-between px-4 py-3 bg-slate-800/80 border-b border-slate-700/50 backdrop-blur-sm">
+            <div className="flex items-center justify-between px-4 h-12 bg-white border-b border-[#e5e1d8]">
                 <div className="flex items-center gap-3">
-                    <button onClick={() => navigate('/')} className="p-2 hover:bg-slate-700 rounded-lg transition-colors">
-                        <ArrowLeft className="w-5 h-5" />
+                    <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                        <ArrowLeft className="w-5 h-5 text-gray-600" />
                     </button>
-                    <Landmark className="w-6 h-6 text-rose-400" />
-                    <h1 className="text-lg font-bold">건설기준 AI</h1>
-                    <span className="text-xs text-slate-400 hidden sm:inline">KDS/KCS/KWCS</span>
+                    <Landmark className="w-5 h-5 text-[#d97757]" />
+                    <h1 className="text-base font-bold text-gray-800">건설기준 AI</h1>
+                    <span className="text-xs text-gray-400 hidden sm:inline">KDS/KCS/KWCS</span>
                 </div>
                 <div className="flex items-center gap-2">
                     {viewerSections.length > 0 && (
                         <button
                             onClick={() => setShowViewer(!showViewer)}
-                            className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${showViewer ? 'bg-rose-500/20 border-rose-500/50 text-rose-300' : 'border-slate-600 text-slate-400 hover:text-slate-200'}`}
+                            className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${showViewer ? 'bg-[#d97757] text-white border-[#d97757]' : 'border-[#e5e1d8] text-gray-500 hover:bg-gray-100'}`}
                         >
                             <BookOpen className="w-4 h-4 inline mr-1" />
                             기준 뷰어
                         </button>
                     )}
-                    <button onClick={logout} className="p-2 hover:bg-slate-700 rounded-lg transition-colors" title="로그아웃">
-                        <LogOut className="w-4 h-4 text-slate-400" />
+                    <button onClick={logout} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="로그아웃">
+                        <LogOut className="w-4 h-4 text-gray-400" />
                     </button>
                 </div>
             </div>
@@ -408,18 +414,18 @@ const KCSCStandards = () => {
             {/* Main 3-panel layout */}
             <div className="flex flex-1 overflow-hidden">
                 {/* Left Sidebar */}
-                <div className="w-72 flex-shrink-0 bg-slate-800/50 border-r border-slate-700/50 flex flex-col overflow-hidden">
+                <div className="w-72 flex-shrink-0 bg-[#f0f4f9] border-r border-gray-200 flex flex-col overflow-hidden">
                     {/* Sidebar tabs */}
-                    <div className="flex border-b border-slate-700/50">
+                    <div className="flex border-b border-gray-200 bg-white">
                         <button
                             onClick={() => setSidebarTab('settings')}
-                            className={`flex-1 py-2.5 text-xs font-medium transition-colors ${sidebarTab === 'settings' ? 'text-rose-400 border-b-2 border-rose-400' : 'text-slate-400 hover:text-slate-200'}`}
+                            className={`flex-1 py-2.5 text-xs font-medium transition-colors ${sidebarTab === 'settings' ? 'text-[#d97757] border-b-2 border-[#d97757]' : 'text-gray-400 hover:text-gray-600'}`}
                         >
                             설정
                         </button>
                         <button
                             onClick={() => setSidebarTab('history')}
-                            className={`flex-1 py-2.5 text-xs font-medium transition-colors ${sidebarTab === 'history' ? 'text-rose-400 border-b-2 border-rose-400' : 'text-slate-400 hover:text-slate-200'}`}
+                            className={`flex-1 py-2.5 text-xs font-medium transition-colors ${sidebarTab === 'history' ? 'text-[#d97757] border-b-2 border-[#d97757]' : 'text-gray-400 hover:text-gray-600'}`}
                         >
                             대화 기록
                         </button>
@@ -430,11 +436,11 @@ const KCSCStandards = () => {
                             <div className="space-y-4">
                                 {/* Doc type */}
                                 <div>
-                                    <label className="text-xs text-slate-400 mb-1 block">기준 종류</label>
+                                    <label className="text-xs text-gray-500 mb-1 block">기준 종류</label>
                                     <select
                                         value={docType}
                                         onChange={e => setDocType(e.target.value)}
-                                        className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-rose-500"
+                                        className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:border-[#d97757]"
                                     >
                                         <option value="자동">자동 (KDS/KCS/KWCS 전체)</option>
                                         <option value="KDS">KDS (설계기준)</option>
@@ -445,21 +451,21 @@ const KCSCStandards = () => {
 
                                 {/* Top K */}
                                 <div>
-                                    <label className="text-xs text-slate-400 mb-1 block">검색 후보 개수: {topK}</label>
+                                    <label className="text-xs text-gray-500 mb-1 block">검색 후보 개수: {topK}</label>
                                     <input
                                         type="range"
                                         min={3}
                                         max={30}
                                         value={topK}
                                         onChange={e => setTopK(Number(e.target.value))}
-                                        className="w-full accent-rose-500"
+                                        className="w-full accent-[#d97757]"
                                     />
                                 </div>
 
                                 {/* Search candidates */}
                                 {searchCandidates.length > 0 && (
                                     <div>
-                                        <h3 className="text-xs text-slate-400 mb-2 font-medium">검색 후보 ({searchCandidates.length})</h3>
+                                        <h3 className="text-xs text-gray-500 mb-2 font-medium">검색 후보 ({searchCandidates.length})</h3>
                                         <div className="space-y-1 max-h-80 overflow-y-auto">
                                             {searchCandidates.map((c, i) => (
                                                 <button
@@ -468,10 +474,10 @@ const KCSCStandards = () => {
                                                         const type = c.Code?.match(/^[A-Z]+/) ? c.Code.match(/^[A-Z]+/)[0] : docType === '자동' ? 'KDS' : docType;
                                                         loadSectionsIntoViewer(c.Code, type, c.Name);
                                                     }}
-                                                    className="w-full text-left p-2 text-xs bg-slate-700/50 hover:bg-slate-700 rounded-lg transition-colors"
+                                                    className="w-full text-left p-2 text-xs bg-white hover:bg-gray-50 rounded-lg transition-colors border border-gray-100"
                                                 >
-                                                    <span className="text-slate-200 block truncate">{c.Name}</span>
-                                                    <span className="text-slate-500 text-[10px]">{c.Code}</span>
+                                                    <span className="text-gray-700 block truncate">{c.Name}</span>
+                                                    <span className="text-gray-400 text-[10px]">{c.Code}</span>
                                                 </button>
                                             ))}
                                         </div>
@@ -482,7 +488,7 @@ const KCSCStandards = () => {
                             <div className="space-y-2">
                                 <button
                                     onClick={createNewSession}
-                                    className="w-full flex items-center gap-2 px-3 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 rounded-lg transition-colors text-sm"
+                                    className="w-full flex items-center gap-2 px-3 py-2 bg-[#d97757] hover:bg-[#c05535] text-white rounded-lg transition-colors text-sm"
                                 >
                                     <Plus className="w-4 h-4" />
                                     새 대화
@@ -490,7 +496,7 @@ const KCSCStandards = () => {
                                 {sessions.map(s => (
                                     <div
                                         key={s.id}
-                                        className={`group flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors text-xs ${currentSessionId === s.id ? 'bg-slate-700 text-slate-100' : 'hover:bg-slate-700/50 text-slate-400'}`}
+                                        className={`group flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors text-xs ${currentSessionId === s.id ? 'bg-white text-gray-800 shadow-sm' : 'hover:bg-white/60 text-gray-500'}`}
                                     >
                                         <button
                                             onClick={() => loadSession(s.id)}
@@ -501,7 +507,7 @@ const KCSCStandards = () => {
                                         </button>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
-                                            className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-all"
+                                            className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-all"
                                         >
                                             <Trash2 className="w-3 h-3" />
                                         </button>
@@ -513,14 +519,15 @@ const KCSCStandards = () => {
                 </div>
 
                 {/* Center: Chat Panel */}
-                <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex-1 flex flex-col min-w-0 bg-[#f9f8f6]">
                     {/* Messages */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    <div className="flex-1 overflow-y-auto p-4">
+                        <div className="max-w-3xl mx-auto space-y-4">
                         {messages.length === 0 && !isLoading && (
-                            <div className="flex flex-col items-center justify-center h-full text-center">
-                                <Landmark className="w-16 h-16 text-rose-400/30 mb-4" />
-                                <h2 className="text-2xl font-bold text-slate-300 mb-2">건설기준 AI</h2>
-                                <p className="text-slate-500 max-w-md">
+                            <div className="flex flex-col items-center justify-center h-full text-center pt-24">
+                                <Landmark className="w-16 h-16 text-[#d97757]/30 mb-4" />
+                                <h2 className="text-2xl font-bold text-gray-400 mb-2">건설기준 AI</h2>
+                                <p className="text-gray-400 max-w-md">
                                     국가건설기준(KDS/KCS)에 대해 질문하세요.<br />
                                     관련 기준을 검색하고 AI가 답변합니다.
                                 </p>
@@ -529,7 +536,7 @@ const KCSCStandards = () => {
                                         <button
                                             key={q}
                                             onClick={() => setInputValue(q)}
-                                            className="px-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-full text-slate-400 hover:text-rose-300 hover:border-rose-500/50 transition-colors"
+                                            className="px-3 py-1.5 text-xs bg-white border border-[#e5e1d8] rounded-full text-gray-500 hover:text-[#d97757] hover:border-[#d97757]/50 transition-colors shadow-sm"
                                         >
                                             {q}
                                         </button>
@@ -539,15 +546,19 @@ const KCSCStandards = () => {
                         )}
 
                         {messages.map((msg, i) => (
-                            <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                {msg.role === 'assistant' && (
-                                    <div className="w-8 h-8 rounded-lg bg-rose-500/20 flex items-center justify-center flex-shrink-0">
-                                        <Bot className="w-5 h-5 text-rose-400" />
+                            <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                {msg.role === 'assistant' ? (
+                                    <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center flex-shrink-0">
+                                        <Bot className="w-5 h-5 text-white" />
+                                    </div>
+                                ) : (
+                                    <div className="w-8 h-8 rounded-full bg-[#333333] flex items-center justify-center flex-shrink-0">
+                                        <User className="w-5 h-5 text-white" />
                                     </div>
                                 )}
-                                <div className={`max-w-[75%] rounded-2xl px-4 py-3 ${msg.role === 'user'
-                                        ? 'bg-rose-500/20 border border-rose-500/30 text-slate-100'
-                                        : 'bg-slate-800 border border-slate-700/50 text-slate-200'
+                                <div className={`max-w-[85%] rounded-2xl p-3 ${msg.role === 'user'
+                                        ? 'bg-[#333333] text-white rounded-tr-none'
+                                        : 'bg-white border border-[#e5e1d8] text-[#333333] rounded-tl-none shadow-sm'
                                     }`}>
                                     {msg.role === 'user' ? (
                                         <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
@@ -558,27 +569,22 @@ const KCSCStandards = () => {
                                         />
                                     )}
                                     {msg.source_info && (
-                                        <div className="mt-2 pt-2 border-t border-slate-700/50 text-[10px] text-slate-500">
+                                        <div className={`mt-2 pt-2 border-t text-[10px] ${msg.role === 'user' ? 'border-white/20 text-white/60' : 'border-[#e5e1d8] text-gray-400'}`}>
                                             출처: {msg.source_info}
                                         </div>
                                     )}
                                 </div>
-                                {msg.role === 'user' && (
-                                    <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center flex-shrink-0">
-                                        <User className="w-5 h-5 text-slate-400" />
-                                    </div>
-                                )}
                             </div>
                         ))}
 
                         {isLoading && (
                             <div className="flex gap-3">
-                                <div className="w-8 h-8 rounded-lg bg-rose-500/20 flex items-center justify-center flex-shrink-0">
-                                    <Bot className="w-5 h-5 text-rose-400" />
+                                <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center flex-shrink-0">
+                                    <Bot className="w-5 h-5 text-white" />
                                 </div>
-                                <div className="bg-slate-800 border border-slate-700/50 rounded-2xl px-4 py-3">
-                                    <div className="flex items-center gap-2 text-sm text-slate-400">
-                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                <div className="bg-white border border-[#e5e1d8] rounded-2xl rounded-tl-none px-4 py-3 shadow-sm">
+                                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                                        <Loader2 className="w-4 h-4 animate-spin text-[#d97757]" />
                                         {loadingStatus || '분석 중...'}
                                     </div>
                                 </div>
@@ -586,11 +592,12 @@ const KCSCStandards = () => {
                         )}
 
                         <div ref={chatEndRef} />
+                        </div>
                     </div>
 
                     {/* Input */}
-                    <div className="p-4 border-t border-slate-700/50 bg-slate-800/30">
-                        <div className="max-w-3xl mx-auto flex gap-2">
+                    <div className="p-4 border-t border-[#e5e1d8] bg-white">
+                        <div className="max-w-3xl mx-auto relative">
                             <textarea
                                 ref={inputRef}
                                 value={inputValue}
@@ -598,12 +605,12 @@ const KCSCStandards = () => {
                                 onKeyDown={handleKeyDown}
                                 placeholder="건설기준에 대해 질문하세요..."
                                 rows={1}
-                                className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:border-rose-500 placeholder-slate-500"
+                                className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm resize-none focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] placeholder-[#a0a0a0] h-[50px] max-h-[120px]"
                             />
                             <button
                                 onClick={handleSend}
                                 disabled={!inputValue.trim() || isLoading}
-                                className="px-4 py-3 bg-rose-500 hover:bg-rose-600 disabled:bg-slate-700 disabled:text-slate-500 rounded-xl transition-colors"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#d97757] hover:bg-[#c05535] disabled:opacity-50 rounded-lg transition-colors text-white"
                             >
                                 <Send className="w-5 h-5" />
                             </button>
@@ -613,22 +620,22 @@ const KCSCStandards = () => {
 
                 {/* Right: HTML Section Viewer */}
                 {showViewer && viewerSections.length > 0 && (
-                    <div className="w-[500px] flex-shrink-0 bg-slate-800/50 border-l border-slate-700/50 flex flex-col overflow-hidden">
+                    <div className="w-[500px] flex-shrink-0 bg-white border-l border-[#e5e1d8] flex flex-col overflow-hidden">
                         {/* Viewer header */}
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/50 bg-slate-800/80">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-[#e5e1d8] bg-white">
                             <div className="min-w-0">
-                                <h3 className="text-sm font-bold text-slate-200 truncate">{viewerTitle}</h3>
-                                <span className="text-[10px] text-slate-500">{viewerCode}</span>
+                                <h3 className="text-sm font-bold text-gray-800 truncate">{viewerTitle}</h3>
+                                <span className="text-[10px] text-gray-400">{viewerCode}</span>
                             </div>
-                            <button onClick={() => setShowViewer(false)} className="p-1 hover:bg-slate-700 rounded transition-colors">
-                                <X className="w-4 h-4 text-slate-400" />
+                            <button onClick={() => setShowViewer(false)} className="p-1 hover:bg-gray-100 rounded transition-colors">
+                                <X className="w-4 h-4 text-gray-400" />
                             </button>
                         </div>
 
                         {/* TOC Toggle */}
                         <button
                             onClick={() => setShowToc(!showToc)}
-                            className="flex items-center gap-2 px-4 py-2 text-xs text-slate-400 hover:text-slate-200 border-b border-slate-700/30 transition-colors"
+                            className="flex items-center gap-2 px-4 py-2 text-xs text-gray-500 hover:text-gray-700 border-b border-[#e5e1d8]/50 transition-colors"
                         >
                             <List className="w-3 h-3" />
                             목차
@@ -637,12 +644,12 @@ const KCSCStandards = () => {
 
                         {/* TOC */}
                         {showToc && (
-                            <div className="max-h-48 overflow-y-auto border-b border-slate-700/30 px-3 py-2 bg-slate-900/30">
+                            <div className="max-h-48 overflow-y-auto border-b border-[#e5e1d8]/50 px-3 py-2 bg-[#f9f8f6]">
                                 {viewerSections.filter(s => s.Title).map((sec) => (
                                     <button
                                         key={sec.section_id}
                                         onClick={() => handleCitationClick(sec.section_id)}
-                                        className="w-full text-left py-1 px-2 text-[11px] text-slate-400 hover:text-rose-300 hover:bg-slate-800/50 rounded transition-colors truncate"
+                                        className="w-full text-left py-1 px-2 text-[11px] text-gray-500 hover:text-[#d97757] hover:bg-white rounded transition-colors truncate"
                                     >
                                         {sec.Title}
                                     </button>
@@ -656,15 +663,15 @@ const KCSCStandards = () => {
                                 <div
                                     key={sec.section_id}
                                     id={sec.section_id}
-                                    className="rounded-lg border border-slate-700/30 p-4 transition-colors"
+                                    className="rounded-lg border border-[#e5e1d8] p-4 transition-colors bg-white"
                                 >
                                     {sec.Title && (
-                                        <h4 className="text-sm font-bold text-rose-300 mb-3 pb-2 border-b border-slate-700/30">
+                                        <h4 className="text-sm font-bold text-[#d97757] mb-3 pb-2 border-b border-[#e5e1d8]">
                                             {sec.Title}
                                         </h4>
                                     )}
                                     <div
-                                        className="kcsc-html-content text-xs text-slate-300 leading-relaxed"
+                                        className="kcsc-html-content text-xs text-gray-600 leading-relaxed"
                                         dangerouslySetInnerHTML={{ __html: sec.Contents }}
                                     />
                                 </div>
