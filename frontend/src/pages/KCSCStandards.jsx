@@ -395,7 +395,6 @@ const KCSCStandards = () => {
                     </button>
                     <Landmark className="w-5 h-5 text-[#d97757]" />
                     <h1 className="text-base font-bold text-gray-800">국가건설기준 AI</h1>
-                    <span className="text-xs text-gray-400 hidden sm:inline">KDS/KCS/KWCS</span>
                 </div>
                 <div className="flex items-center gap-2">
                     {viewerSections.length > 0 && (
@@ -453,7 +452,7 @@ const KCSCStandards = () => {
 
                                 {/* Top K */}
                                 <div>
-                                    <label className="text-xs text-gray-500 mb-1 block">검색 후보 개수: {topK}</label>
+                                    <label className="text-xs text-gray-500 mb-1 block">검색 DB: {topK}</label>
                                     <input
                                         type="range"
                                         min={3}
@@ -467,7 +466,7 @@ const KCSCStandards = () => {
                                 {/* Search candidates */}
                                 {searchCandidates.length > 0 && (
                                     <div>
-                                        <h3 className="text-xs text-gray-500 mb-2 font-medium">검색 후보 ({searchCandidates.length})</h3>
+                                        <h3 className="text-xs text-gray-500 mb-2 font-medium">검색 기준 리스트 ({searchCandidates.length})</h3>
                                         <div className="space-y-1 max-h-80 overflow-y-auto">
                                             {searchCandidates.map((c, i) => (
                                                 <button
