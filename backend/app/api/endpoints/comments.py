@@ -109,10 +109,11 @@ async def extract_comments(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"PDF 파일을 열 수 없습니다: {str(e)}")
 
     drawing_no = _extract_drawing_no(file.filename)
+    total_pages = len(doc)
     comments = []
     idx = 1
 
-    for page_num in range(len(doc)):
+    for page_num in range(total_pages):
         page = doc[page_num]
         for annot in page.annots() or []:
             annot_type = annot.type[0] if annot.type else -1
@@ -143,7 +144,7 @@ async def extract_comments(file: UploadFile = File(...)):
     return {
         "filename": file.filename,
         "drawing_no": drawing_no,
-        "total_pages": len(doc),
+        "total_pages": total_pages,
         "total_comments": len(comments),
         "comments": comments,
     }
