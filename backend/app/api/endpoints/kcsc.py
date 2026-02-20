@@ -518,25 +518,34 @@ async def kcsc_chat(req: ChatRequest):
     direct_match = re.search(r"(KDS|KCS|KWCS)\s*(\d{2})\s*(\d{2})\s*(\d{2,3})", req.message)
     if direct_match:
         direct_type = direct_match.group(1)
-        direct_code = f"{direct_match.group(2)} {direct_match.group(3)} {direct_match.group(4)}"
-        print(f"[KCSC] direct code detected: {direct_type} {direct_code}", flush=True)
+        d2, d3, d4 = direct_match.group(2), direct_match.group(3), direct_match.group(4)
+        # Try multiple code formats: with spaces, compact, with dots
+        code_variants = [
+            f"{d2} {d3} {d4}",   # "17 10 00"
+            f"{d2}{d3}{d4}",     # "171000"
+            f"{d2} {d3} {d4.lstrip('0') or '0'}",  # "17 10 0" (strip leading zeros)
+        ]
+        print(f"[KCSC] direct code detected: {direct_type} variants={code_variants}", flush=True)
 
-        # Try the specified type first, then try all types
+        # Try the specified type first, then try all types × all code formats
         try_types = [direct_type] + [t for t in ["KDS", "KCS", "KWCS"] if t != direct_type]
         for try_type in try_types:
-            try:
-                doc_name, content, sections = bot.get_content_for_llm(
-                    direct_code, doc_type=try_type, query="", keyword=""
-                )
-                if content.strip():
-                    code = direct_code
-                    code_name = doc_name or f"{try_type} {direct_code}"
-                    target_type = try_type
-                    keyword = direct_code
-                    print(f"[KCSC] direct fetch OK: {code_name} ({try_type} {direct_code}, {len(sections)} sections)", flush=True)
-                    break
-            except Exception as e:
-                print(f"[KCSC] direct fetch failed for {try_type} {direct_code}: {e}", flush=True)
+            for try_code in code_variants:
+                try:
+                    doc_name, content, sections = bot.get_content_for_llm(
+                        try_code, doc_type=try_type, query="", keyword=""
+                    )
+                    if content.strip():
+                        code = try_code
+                        code_name = doc_name or f"{try_type} {d2} {d3} {d4}"
+                        target_type = try_type
+                        keyword = f"{d2} {d3} {d4}"
+                        print(f"[KCSC] direct fetch OK: {code_name} ({try_type} {try_code}, {len(sections)} sections)", flush=True)
+                        break
+                except Exception as e:
+                    print(f"[KCSC] direct fetch failed for {try_type} {try_code}: {e}", flush=True)
+            if content.strip():
+                break
 
     # 1) If direct fetch didn't work, do keyword search
     if not content.strip():
