@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Upload, FileText, Trash2, Plus, Download,
     MessageSquareText, Loader2, LogOut, X, Edit3, Check,
-    ChevronRight, AlertCircle
+    ChevronRight, AlertCircle, Home, Users, Settings
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../firebase';
@@ -252,13 +252,6 @@ const CommentExtractor = () => {
             <div className="w-72 bg-[#f5f1eb] border-r border-[#e5e1d8] flex flex-col">
                 {/* Sidebar Header */}
                 <div className="p-4 border-b border-[#e5e1d8]">
-                    <button
-                        onClick={() => navigate('/')}
-                        className="flex items-center gap-2 text-sm text-[#8b7e6a] hover:text-[#5a4f3f] transition-colors mb-3"
-                    >
-                        <ArrowLeft className="w-4 h-4" />
-                        메인으로 돌아가기
-                    </button>
                     <div className="flex items-center gap-2">
                         <MessageSquareText className="w-5 h-5 text-lime-600" />
                         <h1 className="text-lg font-bold text-[#333]">PDF 코멘트 추출</h1>
@@ -319,19 +312,25 @@ const CommentExtractor = () => {
                     ))}
                 </div>
 
-                {/* User menu */}
-                <div className="p-3 border-t border-[#e5e1d8]">
-                    <div className="flex items-center justify-between">
-                        <div className="min-w-0">
-                            <p className="text-sm font-medium truncate">{currentUser?.email}</p>
+                {/* Bottom menu */}
+                <div className="border-t border-[#e5e1d8]">
+                    <button onClick={() => navigate('/')} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-[#8b7e6a] hover:bg-[#ebe7df] transition-colors">
+                        <Home className="w-4 h-4" /> 메인으로 돌아가기
+                    </button>
+                    <button onClick={() => navigate('/admin/users')} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-[#8b7e6a] hover:bg-[#ebe7df] transition-colors">
+                        <Users className="w-4 h-4" /> 사용자 관리
+                    </button>
+                    <button onClick={handleLogout} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-[#8b7e6a] hover:bg-[#ebe7df] transition-colors">
+                        <LogOut className="w-4 h-4" /> 로그아웃
+                    </button>
+                    <div className="p-3 flex items-center gap-3 border-t border-[#e5e1d8]">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-lime-500 to-green-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
+                            {currentUser?.displayName?.charAt(0)?.toUpperCase() || currentUser?.email?.charAt(0)?.toUpperCase() || 'U'}
                         </div>
-                        <button
-                            onClick={handleLogout}
-                            className="p-1.5 hover:bg-[#e5e1d8] rounded-lg transition-colors"
-                            title="로그아웃"
-                        >
-                            <LogOut className="w-4 h-4 text-[#8b7e6a]" />
-                        </button>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-[#333] truncate">{currentUser?.displayName || 'User'}</p>
+                            <p className="text-xs text-[#8b7e6a] truncate">{currentUser?.email}</p>
+                        </div>
                     </div>
                 </div>
             </div>
