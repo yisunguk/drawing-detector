@@ -55,6 +55,7 @@ import LineList from './pages/LineList';
 import LessonsLearned from './pages/LessonsLearned';
 import RevisionMaster from './pages/RevisionMaster';
 import KCSCStandards from './pages/KCSCStandards';
+import CommentExtractor from './pages/CommentExtractor';
 
 const App = () => {
     return (
@@ -138,6 +139,15 @@ const App = () => {
                             element={
                                 <PrivateRoute>
                                     <KCSCStandards />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* PDF 코멘트 추출 */}
+                        <Route
+                            path="/comment-extractor"
+                            element={
+                                <PrivateRoute>
+                                    <CommentExtractor />
                                 </PrivateRoute>
                             }
                         />

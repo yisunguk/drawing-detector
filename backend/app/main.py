@@ -104,6 +104,13 @@ try:
 except Exception as e:
     print(f"Error loading kcsc module: {e}", flush=True)
 
+# Enable Comments Router (PDF Comment Extractor)
+try:
+    from app.api.endpoints import comments
+    app.include_router(comments.router, prefix=f"{settings.API_V1_STR}/comments", tags=["comments"])
+except Exception as e:
+    print(f"Error loading comments module: {e}", flush=True)
+
 # Enable Lessons Learned Router
 try:
     from app.api.endpoints import lessons
