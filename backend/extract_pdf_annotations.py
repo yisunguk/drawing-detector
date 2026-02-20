@@ -47,6 +47,19 @@ def _parse_date(date_str: str | None) -> str:
         return date_str
 
 
+def _split_comments(text: str) -> list[str]:
+    """Split multi-comment text into individual comments by code pattern (e.g., G1., M2., E1.)."""
+    if not text or not text.strip():
+        return [text or ""]
+    parts = re.split(r'(?=[A-Z]{1,3}\d{1,3}\.\s)', text)
+    results = []
+    for part in parts:
+        cleaned = part.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ').strip()
+        if cleaned:
+            results.append(cleaned)
+    return results if results else [text.strip()]
+
+
 def extract_pdf_annotations(pdf_path: str) -> list[dict]:
     """Extract annotations from a PDF file. Returns list of comment dicts."""
     doc = fitz.open(pdf_path)
@@ -64,18 +77,22 @@ def extract_pdf_annotations(pdf_path: str) -> list[dict]:
 
             info = annot.info or {}
             contents = info.get("content", "") or annot.get_text() or ""
+            annot_type_str = ANNOT_TYPE_MAP.get(annot_type, f"Unknown({annot_type})")
+            author = info.get("title", "")
+            created_date = _parse_date(info.get("creationDate", ""))
 
-            comments.append({
-                "no": idx,
-                "drawing_no": drawing_no,
-                "page": page_num + 1,
-                "type": ANNOT_TYPE_MAP.get(annot_type, f"Unknown({annot_type})"),
-                "author": info.get("title", ""),
-                "contents": contents.strip(),
-                "reply": "",
-                "created_date": _parse_date(info.get("creationDate", "")),
-            })
-            idx += 1
+            for single_comment in _split_comments(contents.strip()):
+                comments.append({
+                    "no": idx,
+                    "drawing_no": drawing_no,
+                    "page": page_num + 1,
+                    "type": annot_type_str,
+                    "author": author,
+                    "contents": single_comment,
+                    "reply": "",
+                    "created_date": created_date,
+                })
+                idx += 1
 
     doc.close()
     return comments

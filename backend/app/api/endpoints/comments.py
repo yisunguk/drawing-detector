@@ -63,6 +63,21 @@ def _parse_date(date_str: Optional[str]) -> str:
         return date_str or ""
 
 
+def _split_comments(text: str) -> list[str]:
+    """Split multi-comment text into individual comments by code pattern (e.g., G1., M2., E1.)."""
+    if not text or not text.strip():
+        return [text or ""]
+    # Lookahead split on comment codes: 1-3 uppercase letters + 1-3 digits + dot
+    # e.g., G1., M2., M10., E1., P1.
+    parts = re.split(r'(?=[A-Z]{1,3}\d{1,3}\.\s)', text)
+    results = []
+    for part in parts:
+        cleaned = part.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ').strip()
+        if cleaned:
+            results.append(cleaned)
+    return results if results else [text.strip()]
+
+
 ANNOT_TYPE_MAP = {
     0: "Text",
     1: "Link",
@@ -127,17 +142,24 @@ async def extract_comments(file: UploadFile = File(...)):
                 # FreeText: try getting text from the annotation rect
                 contents = annot.get_text() or ""
 
-            comments.append({
-                "no": idx,
-                "drawing_no": drawing_no,
-                "page": page_num + 1,
-                "type": ANNOT_TYPE_MAP.get(annot_type, f"Unknown({annot_type})"),
-                "author": info.get("title", ""),
-                "contents": contents.strip(),
-                "reply": "",
-                "created_date": _parse_date(info.get("creationDate", "")),
-            })
-            idx += 1
+            # Split multi-comment annotations (e.g., "G1. xxx G2. yyy\rM1. zzz")
+            split_contents = _split_comments(contents.strip())
+            annot_type_str = ANNOT_TYPE_MAP.get(annot_type, f"Unknown({annot_type})")
+            author = info.get("title", "")
+            created_date = _parse_date(info.get("creationDate", ""))
+
+            for single_comment in split_contents:
+                comments.append({
+                    "no": idx,
+                    "drawing_no": drawing_no,
+                    "page": page_num + 1,
+                    "type": annot_type_str,
+                    "author": author,
+                    "contents": single_comment,
+                    "reply": "",
+                    "created_date": created_date,
+                })
+                idx += 1
 
     doc.close()
 
