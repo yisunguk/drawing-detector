@@ -92,7 +92,7 @@ const LandingPage = () => {
                             </h2>
                             <p className="text-slate-400 mb-8 leading-relaxed">
                                 중앙 집중식 지식 저장소. 기술 사양,
-                                교훈 및 엔지니어링 표준을 효율적으로 관리합니다.
+                                레슨런 및 엔지니어링 표준을 효율적으로 관리합니다.
                             </p>
 
                             <div className="flex items-center text-blue-400 font-medium group-hover:translate-x-2 transition-transform">
