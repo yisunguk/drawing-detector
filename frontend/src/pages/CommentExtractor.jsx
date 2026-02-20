@@ -423,20 +423,19 @@ const CommentExtractor = () => {
                                     </div>
                                 </div>
                             ) : (
-                                <table className="w-full border-collapse text-sm">
+                                <table className="w-full border-collapse text-sm table-fixed">
                                     <thead className="sticky top-0 z-10">
                                         <tr className="bg-[#f0ece4]">
                                             {COLUMNS.map(col => (
                                                 <th
                                                     key={col.key}
                                                     className="px-3 py-2.5 text-left text-xs font-semibold text-[#5a4f3f] border-b border-[#d5cfc3] whitespace-nowrap"
-                                                    style={{ minWidth: col.width }}
+                                                    style={{ width: col.width }}
                                                 >
                                                     {col.label}
-                                                    {col.editable && <Edit3 className="w-3 h-3 inline ml-1 text-[#b0a58e]" />}
                                                 </th>
                                             ))}
-                                            <th className="px-2 py-2.5 text-center text-xs font-semibold text-[#5a4f3f] border-b border-[#d5cfc3] w-10">
+                                            <th className="px-2 py-2.5 text-center text-xs font-semibold text-[#5a4f3f] border-b border-[#d5cfc3]" style={{ width: 44 }}>
                                                 삭제
                                             </th>
                                         </tr>
@@ -449,15 +448,28 @@ const CommentExtractor = () => {
                                             >
                                                 {COLUMNS.map(col => {
                                                     const isEditing = editCell?.rowIdx === rowIdx && editCell?.colKey === col.key;
+                                                    const cellValue = row[col.key] ?? '';
+                                                    const isEmpty = String(cellValue).trim() === '';
+                                                    const isLongText = col.key === 'contents' || col.key === 'reply';
                                                     return (
                                                         <td
                                                             key={col.key}
-                                                            className={`px-3 py-2 ${col.editable ? 'cursor-text' : ''}`}
+                                                            className={`px-3 py-2 align-top ${col.editable ? 'cursor-text group/cell' : ''}`}
                                                             onClick={() => startEdit(rowIdx, col.key)}
-                                                            style={{ minWidth: col.width }}
+                                                            style={{ width: col.width }}
                                                         >
                                                             {isEditing ? (
-                                                                <div className="flex items-center gap-1">
+                                                                isLongText ? (
+                                                                    <textarea
+                                                                        autoFocus
+                                                                        rows={3}
+                                                                        value={editValue}
+                                                                        onChange={(e) => setEditValue(e.target.value)}
+                                                                        onKeyDown={(e) => { if (e.key === 'Escape') cancelEdit(); }}
+                                                                        onBlur={commitEdit}
+                                                                        className="w-full px-2 py-1 border border-lime-400 rounded bg-white text-sm focus:outline-none focus:ring-2 focus:ring-lime-500 resize-y"
+                                                                    />
+                                                                ) : (
                                                                     <input
                                                                         autoFocus
                                                                         type="text"
@@ -465,18 +477,20 @@ const CommentExtractor = () => {
                                                                         onChange={(e) => setEditValue(e.target.value)}
                                                                         onKeyDown={handleEditKeyDown}
                                                                         onBlur={commitEdit}
-                                                                        className="w-full px-2 py-1 border border-lime-400 rounded bg-white text-sm focus:outline-none focus:ring-1 focus:ring-lime-500"
+                                                                        className="w-full px-2 py-1 border border-lime-400 rounded bg-white text-sm focus:outline-none focus:ring-2 focus:ring-lime-500"
                                                                     />
-                                                                </div>
+                                                                )
                                                             ) : (
-                                                                <span className={`block truncate ${col.key === 'contents' || col.key === 'reply' ? 'max-w-xs' : ''}`} title={String(row[col.key] ?? '')}>
-                                                                    {row[col.key] ?? ''}
-                                                                </span>
+                                                                <div className={`whitespace-pre-wrap break-words text-sm ${col.editable ? 'min-h-[1.5rem]' : ''} ${col.editable && isEmpty ? 'text-[#c5bfb0] italic' : ''} ${col.editable ? 'hover:bg-lime-50 rounded px-1 -mx-1 transition-colors' : ''}`}>
+                                                                    {isEmpty && col.editable
+                                                                        ? (col.key === 'reply' ? '클릭하여 답변 입력...' : '클릭하여 편집...')
+                                                                        : cellValue}
+                                                                </div>
                                                             )}
                                                         </td>
                                                     );
                                                 })}
-                                                <td className="px-2 py-2 text-center">
+                                                <td className="px-2 py-2 text-center align-top" style={{ width: 44 }}>
                                                     <button
                                                         onClick={() => deleteRow(rowIdx)}
                                                         className="p-1 hover:bg-red-100 rounded transition-colors"
