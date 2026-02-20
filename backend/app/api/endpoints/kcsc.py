@@ -115,27 +115,53 @@ class KCSCBot:
 
     # ---------- Keyword Extraction ----------
     def get_search_keyword(self, user_query: str) -> str:
+        """Legacy wrapper - returns keyword only."""
+        _, keyword = self.get_code_suggestion(user_query)
+        return keyword
+
+    def get_code_suggestion(self, user_query: str) -> Tuple[List[str], str]:
+        """Ask LLM to suggest specific KDS/KCS codes AND search keywords.
+        Returns (list of 'TYPE CODE' strings, keyword string).
+        """
         prompt = (
-            f"사용자 질문: '{user_query}'\n"
-            "국가건설기준(KDS/KCS) 검색용 핵심 단어를 1~3개만 뽑아 공백으로 구분해 출력해.\n"
-            "너무 긴 합성어 대신 기준서 제목에 들어갈 법한 단어를 사용해. 예: 피복두께 염해 내구성\n"
-            "설명/문장/따옴표/특수문자 없이 단어만."
+            f"사용자 질문: '{user_query}'\n\n"
+            "당신은 국가건설기준(KDS/KCS/KWCS) 전문가입니다. 아래 두 가지를 출력하세요:\n\n"
+            "1행: 이 질문과 가장 관련된 KDS/KCS 기준 코드를 최대 3개, 쉼표로 구분\n"
+            "   예: KDS 14 20 30, KCS 14 20 10\n"
+            "   모르면 '없음'이라고 쓰세요.\n"
+            "2행: 기준서 제목 검색용 핵심 단어 1~3개 (공백 구분)\n"
+            "   예: 콘크리트 사용성 균열\n\n"
+            "설명 없이 2행만 출력하세요."
         )
+        codes: List[str] = []
+        keyword = user_query
         try:
             client = _get_oai_client()
             response = client.chat.completions.create(
                 model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
                 messages=[
-                    {"role": "system", "content": "Output only Korean keywords separated by a single space."},
+                    {"role": "system", "content": "Output exactly 2 lines. Line 1: comma-separated KDS/KCS codes or '없음'. Line 2: Korean search keywords."},
                     {"role": "user", "content": prompt},
                 ],
             )
-            keyword = response.choices[0].message.content.strip().splitlines()[0]
-            keyword = re.sub(r"[^0-9A-Za-z가-힣\s]", " ", keyword)
-            keyword = " ".join(keyword.split())
-            return keyword if keyword else user_query
-        except Exception:
-            return user_query
+            lines = response.choices[0].message.content.strip().splitlines()
+            # Parse line 1: codes
+            if lines and lines[0].strip() != "없음":
+                for part in lines[0].split(","):
+                    part = part.strip()
+                    m = re.search(r"(KDS|KCS|KWCS)\s*(\d{2})\s*(\d{2})\s*(\d{2,3})", part, re.IGNORECASE)
+                    if m:
+                        codes.append(f"{m.group(1).upper()} {m.group(2)} {m.group(3)} {m.group(4)}")
+            # Parse line 2: keywords
+            if len(lines) >= 2:
+                kw = re.sub(r"[^0-9A-Za-z가-힣\s]", " ", lines[1])
+                kw = " ".join(kw.split())
+                if kw:
+                    keyword = kw
+            print(f"[KCSC] LLM suggested codes={codes}, keyword='{keyword}'", flush=True)
+        except Exception as e:
+            print(f"[KCSC] code suggestion failed: {e}", flush=True)
+        return codes, keyword
 
     # ---------- CodeList / Search ----------
     def get_code_list(self, doc_type: str = "KCS") -> List[Dict[str, Any]]:
@@ -571,10 +597,52 @@ async def kcsc_chat(req: ChatRequest):
                 "Code": f"{d2}{d3}{d4}",
             })
 
-    # 1) If direct fetch didn't work, do keyword search
+    # 1) If direct fetch didn't work, use LLM code suggestion + keyword search
     if not content.strip():
-        keyword = bot.get_search_keyword(req.message)
-        print(f"[KCSC] keyword extracted: {keyword}", flush=True)
+        suggested_codes, keyword = bot.get_code_suggestion(req.message)
+        print(f"[KCSC] LLM suggestion: codes={suggested_codes}, keyword='{keyword}'", flush=True)
+
+        # 1-a) Try each LLM-suggested code via direct fetch
+        for suggested in suggested_codes:
+            # suggested is like "KDS 14 20 30"
+            sm = re.match(r"(KDS|KCS|KWCS)\s+(\d{2})\s+(\d{2})\s+(\d{2,3})", suggested, re.IGNORECASE)
+            if not sm:
+                continue
+            s_type = sm.group(1).upper()
+            s2, s3, s4 = sm.group(2), sm.group(3), sm.group(4)
+            s_variants = [
+                f"{s2} {s3} {s4}",
+                f"{s2}{s3}{s4}",
+                f"{s2} {s3} {s4.lstrip('0') or '0'}",
+            ]
+            s_try_types = [s_type] + [t for t in ["KDS", "KCS", "KWCS"] if t != s_type]
+            for st in s_try_types:
+                for sv in s_variants:
+                    try:
+                        doc_name, content, sections = bot.get_content_for_llm(
+                            sv, doc_type=st, query=req.message, keyword=keyword
+                        )
+                        if content.strip():
+                            code = sv
+                            code_name = doc_name or f"{st} {s2} {s3} {s4}"
+                            target_type = st
+                            print(f"[KCSC] LLM-suggested code fetch OK: {code_name} ({st} {sv})", flush=True)
+                            # Add as first search candidate
+                            search_candidates.append({
+                                "Name": code_name,
+                                "Code": f"{s2}{s3}{s4}",
+                            })
+                            break
+                    except Exception as e:
+                        print(f"[KCSC] LLM-suggested fetch failed: {st} {sv}: {e}", flush=True)
+                if content.strip():
+                    break
+            if content.strip():
+                break
+
+    # 1-b) If LLM-suggested codes didn't work, fall back to keyword search
+    if not content.strip():
+        print(f"[KCSC] falling back to keyword search: '{keyword}'", flush=True)
 
         # 2) Search codes
         if req.doc_type == "자동":
