@@ -640,55 +640,59 @@ async def kcsc_chat(req: ChatRequest):
             if content.strip():
                 break
 
-    # 1-b) If LLM-suggested codes didn't work, fall back to keyword search
-    if not content.strip():
-        print(f"[KCSC] falling back to keyword search: '{keyword}'", flush=True)
-
-        # 2) Search codes
+    # 1-b) Keyword search: populate sidebar candidates (always), fetch content (if needed)
+    content_found_by_suggestion = bool(content.strip())
+    if keyword:
+        print(f"[KCSC] keyword search for sidebar: '{keyword}'", flush=True)
         if req.doc_type == "자동":
-            target_type, results = bot.search_all_types(keyword, top_k=req.top_k)
+            _kw_type, kw_results = bot.search_all_types(keyword, top_k=req.top_k)
         else:
-            target_type = req.doc_type
-            results = bot.search_codes_local(keyword, doc_type=target_type, top_k=req.top_k)
-            if not results:
-                other_types = [t for t in ["KDS", "KCS", "KWCS"] if t != target_type]
-                for t in other_types:
-                    results = bot.search_codes_local(keyword, doc_type=t, top_k=req.top_k)
-                    if results:
-                        target_type = t
+            _kw_type = req.doc_type
+            kw_results = bot.search_codes_local(keyword, doc_type=_kw_type, top_k=req.top_k)
+            if not kw_results:
+                for t in [t for t in ["KDS", "KCS", "KWCS"] if t != _kw_type]:
+                    kw_results = bot.search_codes_local(keyword, doc_type=t, top_k=req.top_k)
+                    if kw_results:
+                        _kw_type = t
                         break
 
-        for it in results:
-            search_candidates.append({
-                "Name": bot._get_first(it, name_keys),
-                "Code": bot._get_first(it, code_keys),
-            })
+        # Add to sidebar (skip duplicates of already-added codes)
+        existing_codes = {c["Code"] for c in search_candidates}
+        for it in kw_results:
+            c = bot._get_first(it, code_keys)
+            if c not in existing_codes:
+                search_candidates.append({
+                    "Name": bot._get_first(it, name_keys),
+                    "Code": c,
+                })
+                existing_codes.add(c)
 
-        if not results:
-            return ChatResponse(
-                answer="관련 기준(코드)을 찾지 못했습니다. 검색어를 바꿔서 다시 시도해보세요.",
-                source_code="",
-                source_name="",
-                source_type="",
-                keyword=keyword,
-                sections=[],
-                search_candidates=search_candidates,
-                citations=[],
-            )
+        # If LLM suggestion didn't find content, use keyword results to fetch
+        if not content_found_by_suggestion:
+            if not kw_results:
+                return ChatResponse(
+                    answer="관련 기준(코드)을 찾지 못했습니다. 검색어를 바꿔서 다시 시도해보세요.",
+                    source_code="",
+                    source_name="",
+                    source_type="",
+                    keyword=keyword,
+                    sections=[],
+                    search_candidates=search_candidates,
+                    citations=[],
+                )
 
-        # 3) Fetch content from top candidates
-        for candidate in results[:5]:
-            code = bot._get_first(candidate, code_keys)
-            code_name = bot._get_first(candidate, name_keys, default="Unknown")
-            item_type = str(candidate.get("codeType") or candidate.get("CodeType") or target_type)
-            print(f"[KCSC] trying: {code_name} ({item_type} {code})", flush=True)
+            for candidate in kw_results[:5]:
+                code = bot._get_first(candidate, code_keys)
+                code_name = bot._get_first(candidate, name_keys, default="Unknown")
+                item_type = str(candidate.get("codeType") or candidate.get("CodeType") or _kw_type)
+                print(f"[KCSC] trying: {code_name} ({item_type} {code})", flush=True)
 
-            doc_name, content, sections = bot.get_content_for_llm(
-                code, doc_type=item_type, query=req.message, keyword=keyword
-            )
-            if content.strip():
-                target_type = item_type
-                break
+                doc_name, content, sections = bot.get_content_for_llm(
+                    code, doc_type=item_type, query=req.message, keyword=keyword
+                )
+                if content.strip():
+                    target_type = item_type
+                    break
 
     if not content.strip():
         return ChatResponse(
