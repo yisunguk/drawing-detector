@@ -521,19 +521,22 @@ async def kcsc_chat(req: ChatRequest):
         direct_code = f"{direct_match.group(2)} {direct_match.group(3)} {direct_match.group(4)}"
         print(f"[KCSC] direct code detected: {direct_type} {direct_code}", flush=True)
 
-        try:
-            # Fetch full content (no relevance trimming) for direct code requests
-            doc_name, content, sections = bot.get_content_for_llm(
-                direct_code, doc_type=direct_type, query="", keyword=""
-            )
-            if content.strip():
-                code = direct_code
-                code_name = doc_name or f"{direct_type} {direct_code}"
-                target_type = direct_type
-                keyword = direct_code
-                print(f"[KCSC] direct fetch OK: {code_name} ({len(sections)} sections)", flush=True)
-        except Exception as e:
-            print(f"[KCSC] direct fetch failed: {e}", flush=True)
+        # Try the specified type first, then try all types
+        try_types = [direct_type] + [t for t in ["KDS", "KCS", "KWCS"] if t != direct_type]
+        for try_type in try_types:
+            try:
+                doc_name, content, sections = bot.get_content_for_llm(
+                    direct_code, doc_type=try_type, query="", keyword=""
+                )
+                if content.strip():
+                    code = direct_code
+                    code_name = doc_name or f"{try_type} {direct_code}"
+                    target_type = try_type
+                    keyword = direct_code
+                    print(f"[KCSC] direct fetch OK: {code_name} ({try_type} {direct_code}, {len(sections)} sections)", flush=True)
+                    break
+            except Exception as e:
+                print(f"[KCSC] direct fetch failed for {try_type} {direct_code}: {e}", flush=True)
 
     # 1) If direct fetch didn't work, do keyword search
     if not content.strip():
@@ -643,7 +646,7 @@ async def kcsc_chat(req: ChatRequest):
     ])
 
     prompt_parts = [
-        f"기준서 내용 (질문과 관련된 섹션 발췌):\n{content[:15000]}",
+        f"[{doc_name or code_name} ({target_type} {code})] 기준서 내용:\n{content[:15000]}",
     ]
     if xref_content:
         prompt_parts.append(f"\n교차 참조 기준서 내용:\n{xref_content}")
@@ -658,9 +661,13 @@ async def kcsc_chat(req: ChatRequest):
 ## 톤 & 스타일
 
 - **컨설턴트 톤**: "~에 따르면", "설계기준에서는", "실무적으로는" 등 전문가가 조언하는 어투를 사용하세요.
-- "발췌 내용에 의하면", "제공된 텍스트에서" 같은 메타 표현은 절대 쓰지 마세요. 기준서 내용을 직접 알고 있는 전문가처럼 설명하세요.
 - 단순히 기준서를 읽어주는 것이 아니라, **왜 그런 기준이 있는지**, **실무에서 어떻게 적용하는지** 맥락을 함께 설명하세요.
 - 마지막에 "추가로 확인이 필요한 사항이 있으시면 말씀해 주세요" 같은 컨설팅 마무리 멘트를 넣으세요.
+
+## 절대 금지 표현 (이 단어들은 답변에 절대 사용하지 마세요)
+
+"발췌", "제공된 텍스트", "제공된 내용", "첨부하신", "주신 자료", "현재 데이터", "제공 범위", "발췌본", "텍스트에서", "자료에 의하면"
+→ 대신 기준서 이름을 직접 언급하세요. 예: "KDS 17 10 00(내진설계 일반)에 따르면..."
 
 ## 답변 구조
 
