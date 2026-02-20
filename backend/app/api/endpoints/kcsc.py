@@ -625,17 +625,25 @@ async def kcsc_chat(req: ChatRequest):
         prompt_parts.append(f"\n교차 참조 기준서 내용:\n{xref_content}")
     prompt_parts.append(f"\n사용 가능한 섹션 목록:\n{section_ref}")
     prompt_parts.append(f"\n질문: {req.message}")
-    prompt_parts.append(
-        "\n위 기준서 내용을 근거로, 실무자가 이해하기 쉽도록 요점 위주로 답변해줘. "
-        "교차 참조된 기준서 내용이 제공된 경우, 해당 기준의 구체적인 수치/조건도 포함해서 답변해줘. "
-        "답변 내에서 근거가 되는 섹션을 인용할 때는 반드시 [[sec-N|섹션 제목]] 형식으로 표기해. "
-        "가능하면 '근거 문장(기준서 발췌)'도 함께 제시해줘. "
-        "[그림] 표시가 있으면 해당 그림/도표를 참조해야 한다고 안내해줘."
-    )
     final_prompt = "\n".join(prompt_parts)
 
+    system_prompt = """You are a Korean construction standards (KDS/KCS) expert assistant.
+Always respond in well-structured **Markdown** format using Korean.
+
+## 답변 작성 규칙
+
+1. **구조**: 답변을 ## 제목, ### 소제목으로 명확히 구분해라.
+2. **핵심 요약**: 맨 위에 1~2문장으로 핵심 결론을 **볼드**로 작성해라.
+3. **구체적 수치**: 기준값, 온도, 두께 등 수치가 있으면 반드시 포함해라. "~에 따른다"로 끝내지 말고, 교차 참조 기준서 내용이 제공된 경우 해당 수치를 직접 인용해라.
+4. **표(table)**: 조건별 수치나 비교 항목이 있으면 마크다운 표로 정리해라.
+5. **근거 인용**: 근거 섹션은 [[sec-N|섹션 제목]] 형식으로 인용하되, 문장 끝에 자연스럽게 배치해라. 인용을 남발하지 말고 핵심 근거만 표시해라.
+6. **근거 문장**: 중요한 기준서 원문은 > 인용 블록(blockquote)으로 표시해라.
+7. **리스트**: 나열 항목은 bullet(-)이나 번호(1.)로 정리해라.
+8. **[그림]**: 본문에 [그림] 표시가 있으면 "해당 기준서 원문의 그림/도표를 참조하세요"라고 안내해라.
+9. **간결함**: 불필요한 반복을 피하고, 실무자가 바로 활용할 수 있는 정보 위주로 작성해라."""
+
     messages_payload = [
-        {"role": "system", "content": "You are a helpful assistant explaining Korean construction standards (KDS/KCS). When citing sections, use the format [[sec-N|Section Title]]. When cross-referenced standards are provided, include their specific values, thresholds, and conditions in your answer rather than just saying '~에 따른다'."},
+        {"role": "system", "content": system_prompt},
     ]
     for m in req.history:
         messages_payload.append({"role": m.get("role", "user"), "content": m.get("content", "")})
