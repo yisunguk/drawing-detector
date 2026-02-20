@@ -574,23 +574,68 @@ async def kcsc_chat(req: ChatRequest):
             citations=[],
         )
 
+    # 3-b) Cross-reference resolution: detect referenced standards and fetch them
+    xref_content = ""
+    xref_pattern = re.compile(r"(KDS|KCS|KWCS)\s*(\d{2})\s*(\d{2})\s*(\d{2,3})")
+    current_code_normalized = re.sub(r"[\s\-\.]", "", code)
+    found_refs: set = set()
+    for m in xref_pattern.finditer(content):
+        ref_type = m.group(1)
+        ref_code = f"{m.group(2)} {m.group(3)} {m.group(4)}"
+        ref_code_normalized = re.sub(r"[\s\-\.]", "", ref_code)
+        ref_key = f"{ref_type}_{ref_code_normalized}"
+        if ref_code_normalized == current_code_normalized or ref_key in found_refs:
+            continue
+        found_refs.add(ref_key)
+
+    # Fetch up to 2 cross-referenced standards
+    xref_parts: List[str] = []
+    for ref_key in list(found_refs)[:2]:
+        ref_type, ref_code_norm = ref_key.split("_", 1)
+        # Reconstruct code with spaces: "114005" -> "11 40 05"
+        if len(ref_code_norm) == 6:
+            ref_code_fmt = f"{ref_code_norm[:2]} {ref_code_norm[2:4]} {ref_code_norm[4:]}"
+        elif len(ref_code_norm) == 7:
+            ref_code_fmt = f"{ref_code_norm[:2]} {ref_code_norm[2:4]} {ref_code_norm[4:]}"
+        else:
+            ref_code_fmt = ref_code_norm
+        try:
+            print(f"[KCSC] cross-ref: fetching {ref_type} {ref_code_fmt}", flush=True)
+            ref_name, ref_text, _ = bot.get_content_for_llm(
+                ref_code_fmt, doc_type=ref_type, query=req.message, keyword=keyword
+            )
+            if ref_text.strip():
+                trimmed = ref_text[:6000]
+                xref_parts.append(f"\n--- 참조 기준: {ref_name} ({ref_type} {ref_code_fmt}) ---\n{trimmed}")
+        except Exception as e:
+            print(f"[KCSC] cross-ref fetch failed for {ref_type} {ref_code_fmt}: {e}", flush=True)
+
+    if xref_parts:
+        xref_content = "\n".join(xref_parts)
+
     # 4) Build section reference for LLM
     section_ref = "\n".join([
         f"- [[{s['section_id']}|{s['Title']}]]" for s in sections if s["Title"]
     ])
 
-    final_prompt = (
-        f"기준서 내용 (질문과 관련된 섹션 발췌):\n{content[:15000]}\n\n"
-        f"사용 가능한 섹션 목록:\n{section_ref}\n\n"
-        f"질문: {req.message}\n\n"
-        "위 기준서 내용을 근거로, 실무자가 이해하기 쉽도록 요점 위주로 답변해줘. "
+    prompt_parts = [
+        f"기준서 내용 (질문과 관련된 섹션 발췌):\n{content[:15000]}",
+    ]
+    if xref_content:
+        prompt_parts.append(f"\n교차 참조 기준서 내용:\n{xref_content}")
+    prompt_parts.append(f"\n사용 가능한 섹션 목록:\n{section_ref}")
+    prompt_parts.append(f"\n질문: {req.message}")
+    prompt_parts.append(
+        "\n위 기준서 내용을 근거로, 실무자가 이해하기 쉽도록 요점 위주로 답변해줘. "
+        "교차 참조된 기준서 내용이 제공된 경우, 해당 기준의 구체적인 수치/조건도 포함해서 답변해줘. "
         "답변 내에서 근거가 되는 섹션을 인용할 때는 반드시 [[sec-N|섹션 제목]] 형식으로 표기해. "
         "가능하면 '근거 문장(기준서 발췌)'도 함께 제시해줘. "
         "[그림] 표시가 있으면 해당 그림/도표를 참조해야 한다고 안내해줘."
     )
+    final_prompt = "\n".join(prompt_parts)
 
     messages_payload = [
-        {"role": "system", "content": "You are a helpful assistant explaining Korean construction standards (KDS/KCS). When citing sections, use the format [[sec-N|Section Title]]."},
+        {"role": "system", "content": "You are a helpful assistant explaining Korean construction standards (KDS/KCS). When citing sections, use the format [[sec-N|Section Title]]. When cross-referenced standards are provided, include their specific values, thresholds, and conditions in your answer rather than just saying '~에 따른다'."},
     ]
     for m in req.history:
         messages_payload.append({"role": m.get("role", "user"), "content": m.get("content", "")})
