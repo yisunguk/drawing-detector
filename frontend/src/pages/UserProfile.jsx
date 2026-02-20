@@ -1007,11 +1007,19 @@ const UserProfile = () => {
                                                         <div className="flex flex-wrap gap-3">
                                                             {selectedFeedback.attachments.map((att, idx) => (
                                                                 <div key={idx} className="border border-[#e5e1d8] rounded-lg overflow-hidden bg-white shadow-sm">
-                                                                    <img
-                                                                        src={att.url}
-                                                                        alt={att.name || `attachment-${idx}`}
-                                                                        className="max-w-full h-auto object-contain max-h-[400px]"
-                                                                    />
+                                                                    <a href={att.url} target="_blank" rel="noopener noreferrer">
+                                                                        <img
+                                                                            src={att.url}
+                                                                            alt={att.name || `attachment-${idx}`}
+                                                                            referrerPolicy="no-referrer"
+                                                                            crossOrigin="anonymous"
+                                                                            className="max-w-full h-auto object-contain max-h-[400px]"
+                                                                            onError={(e) => {
+                                                                                e.target.style.display = 'none';
+                                                                                e.target.parentElement.innerHTML = '<div style="padding:16px;color:#666;font-size:14px;">이미지를 불러올 수 없습니다. 클릭하여 새 탭에서 열기</div>';
+                                                                            }}
+                                                                        />
+                                                                    </a>
                                                                 </div>
                                                             ))}
                                                         </div>
