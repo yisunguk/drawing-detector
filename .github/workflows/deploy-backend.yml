@@ -65,6 +65,7 @@ jobs:
             AZURE_DOC_INTEL_KEY=${{ secrets.AZURE_DOC_INTEL_KEY }}
             AZURE_SEARCH_INDEX_NAME=${{ secrets.AZURE_SEARCH_INDEX_NAME }}
             CRON_SECRET=${{ secrets.CRON_SECRET }}
+            KCSC_API_KEY=${{ secrets.KCSC_API_KEY }}
 
       # FIREBASE_SERVICE_ACCOUNT_JSON contains commas/special chars,
       # so set via gcloud with custom delimiter after deploy
