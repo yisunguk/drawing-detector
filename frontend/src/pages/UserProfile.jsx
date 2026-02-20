@@ -178,24 +178,25 @@ const UserProfile = () => {
 
         setFeedbackStatus('submitting');
         try {
-            // Upload attachments first
+            // Try uploading attachments (may fail due to Storage CORS)
             const uploadedRefUrls = [];
             if (feedbackAttachments.length > 0) {
                 for (const att of feedbackAttachments) {
-                    const filename = `feedback_att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                    const storageRef = ref(storage, `feedback/${currentUser.uid}/${filename}`);
-                    await uploadString(storageRef, att.preview, 'data_url');
-                    const downloadURL = await getDownloadURL(storageRef);
-                    uploadedRefUrls.push({
-                        url: downloadURL,
-                        type: 'image',
-                        name: 'pasted_image.png'
-                    });
+                    try {
+                        const filename = `feedback_att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                        const storageRef = ref(storage, `feedback/${currentUser.uid}/${filename}`);
+                        await uploadString(storageRef, att.preview, 'data_url');
+                        const downloadURL = await getDownloadURL(storageRef);
+                        uploadedRefUrls.push({
+                            url: downloadURL,
+                            type: 'image',
+                            name: 'pasted_image.png'
+                        });
+                    } catch (uploadErr) {
+                        console.warn("Attachment upload skipped (CORS or permission):", uploadErr.message);
+                    }
                 }
             }
-
-            // Screenshot capture disabled - was causing infinite loading
-            let screenshot = null;
 
             await addDoc(collection(db, 'feedback'), {
                 content: feedbackContent.trim(),
@@ -203,8 +204,7 @@ const UserProfile = () => {
                 userEmail: currentUser.email,
                 timestamp: serverTimestamp(),
                 status: 'unread',
-                screenshot: screenshot, // Save base64 string
-                attachments: uploadedRefUrls || []
+                attachments: uploadedRefUrls
             });
 
             // Log Feedback Activity
