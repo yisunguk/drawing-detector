@@ -233,7 +233,9 @@ const KnowhowDB = () => {
     // === Upload State ===
     const [isUploading, setIsUploading] = useState(false);
     const [uploadStatus, setUploadStatus] = useState('');
+    const [uploadProgress, setUploadProgress] = useState(0);
     const fileInputRef = useRef(null);
+    const knowhowInputRef = useRef(null);
 
     // === Index Status State (Admin) ===
     const [indexStatus, setIndexStatus] = useState({});
@@ -1299,23 +1301,49 @@ const KnowhowDB = () => {
     citationHandlerRef.current = handleCitationClick;
 
     // =============================================
-    // UPLOAD HANDLER
+    // UPLOAD HANDLER (knowhow 등록)
     // =============================================
-    const handleFileSelect = async (e) => {
+    const handleKnowhowUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         e.target.value = '';
+
+        if (!file.name.toLowerCase().endsWith('.pdf')) {
+            alert('PDF 파일만 업로드할 수 있습니다.');
+            return;
+        }
+
+        const targetUser = browseUsername || username;
         setIsUploading(true);
-        setUploadStatus('Reading file...');
+        setUploadProgress(0);
+        setUploadStatus('파일 읽는 중...');
 
         try {
+            // Step 1: Count pages
             const totalPages = await countPdfPages(file);
-            setUploadStatus('Preparing upload...');
-            const { upload_url } = await getUploadSas(file.name, browseUsername || username);
-            await uploadToAzure(upload_url, file, (percent) => setUploadStatus(`Uploading... ${percent}%`));
-            setUploadStatus('Starting analysis...');
-            await startAnalysis(file.name, totalPages, browseUsername || username, 'knowhow');
+            setUploadProgress(2);
+            setUploadStatus('업로드 준비 중...');
 
+            // Step 2: Get SAS URL (knowhow category)
+            const { upload_url } = await getUploadSas(file.name, targetUser);
+            setUploadProgress(3);
+
+            // Step 3: Upload to Azure Blob Storage
+            setUploadStatus('클라우드로 전송 중...');
+            await uploadToAzure(upload_url, file, (percent) => {
+                const prog = 3 + Math.round((percent / 100) * 7); // 3~10%
+                setUploadProgress(prog);
+                setUploadStatus(`클라우드로 전송 중... (${percent}%)`);
+            });
+            setUploadProgress(10);
+
+            // Step 4: Start DI analysis
+            setUploadStatus('AI 분석 요청 중...');
+            await startAnalysis(file.name, totalPages, targetUser, 'knowhow');
+            setUploadProgress(12);
+
+            // Step 5: Poll analysis status
+            setUploadStatus('서버에서 분석 중...');
             await pollAnalysisStatus(file.name, (statusData) => {
                 if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
                     const completedChunks = statusData.completed_chunks || [];
@@ -1324,19 +1352,37 @@ const KnowhowDB = () => {
                         const [start, end] = chunkRange.split('-').map(Number);
                         pagesCompleted += (end - start + 1);
                     }
-                    setUploadStatus(`Processing... (${pagesCompleted}/${totalPages} pages)`);
+                    const actualPct = totalPages > 0 ? Math.round((pagesCompleted / totalPages) * 100) : 0;
+                    const displayProg = 12 + Math.round((actualPct / 100) * 83); // 12~95%
+                    setUploadProgress(Math.min(displayProg, 95));
+                    if (statusData.status === 'finalizing') {
+                        setUploadStatus('마무리 작업 중... (파일 정리 및 저장)');
+                    } else {
+                        setUploadStatus(`분석 중... (${pagesCompleted}/${totalPages} 페이지)`);
+                    }
                 }
             }, totalPages);
 
-            setUploadStatus('Done!');
+            // Done
+            setUploadProgress(100);
+            setUploadStatus('분석 완료!');
             if (activeFolder === 'knowhow') await loadFiles('knowhow');
+
+            // Auto-close after 1.5s
+            await new Promise(r => setTimeout(r, 1500));
         } catch (error) {
             console.error('Upload failed:', error);
-            alert(`Upload failed: ${error.message}`);
+            alert(`업로드 실패: ${error.message}`);
         } finally {
             setIsUploading(false);
             setUploadStatus('');
+            setUploadProgress(0);
         }
+    };
+
+    // Legacy upload handler (for file list Upload button)
+    const handleFileSelect = async (e) => {
+        handleKnowhowUpload(e);
     };
 
     // =============================================
@@ -1500,6 +1546,19 @@ const KnowhowDB = () => {
                         </select>
                     </div>
                 )}
+
+                {/* Knowhow Upload Button */}
+                <div className="px-3 pt-2 pb-1">
+                    <button
+                        onClick={() => knowhowInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-gradient-to-r from-[#d97757] to-[#c4623f] hover:from-[#c4623f] hover:to-[#b5553a] disabled:from-gray-400 disabled:to-gray-400 text-white rounded-lg text-sm font-medium transition-all shadow-sm"
+                    >
+                        <Upload className="w-4 h-4" />
+                        노하우 등록하기
+                    </button>
+                    <input type="file" ref={knowhowInputRef} onChange={handleKnowhowUpload} className="hidden" accept=".pdf" />
+                </div>
 
                 {/* Folders */}
                 <div data-folders className="overflow-y-auto px-3 py-2 min-h-[80px]" style={activeFolder ? { height: folderHeight || undefined, maxHeight: folderHeight ? undefined : '40%', flexShrink: 0 } : undefined}>
@@ -1814,11 +1873,17 @@ const KnowhowDB = () => {
                     )}
                 </div>
 
-                {/* Upload Status */}
+                {/* Upload Status (compact in sidebar) */}
                 {isUploading && (
                     <div className="px-4 py-2 bg-blue-50 border-t border-blue-100 text-xs text-blue-700 flex items-center gap-2">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        <span className="truncate">{uploadStatus}</span>
+                        <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                            <span className="truncate block">{uploadStatus}</span>
+                            <div className="w-full h-1 bg-blue-200 rounded-full mt-1 overflow-hidden">
+                                <div className="h-full bg-blue-500 transition-all duration-300 rounded-full" style={{ width: `${uploadProgress}%` }} />
+                            </div>
+                        </div>
+                        <span className="text-[10px] font-mono flex-shrink-0">{uploadProgress}%</span>
                     </div>
                 )}
 
@@ -1849,6 +1914,50 @@ const KnowhowDB = () => {
 
             {/* Hidden File Input */}
             <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept=".pdf" />
+
+            {/* Upload Progress Modal */}
+            {isUploading && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 w-[420px] text-center border border-[#e5e1d8]">
+                        {/* Spinner */}
+                        <div className="mb-6 relative">
+                            {uploadProgress >= 100 ? (
+                                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                                    <Check className="w-8 h-8 text-green-600" />
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="w-16 h-16 border-4 border-blue-100 border-t-[#d97757] rounded-full animate-spin mx-auto" />
+                                    <div className="absolute inset-0 flex items-center justify-center font-bold text-[#d97757] text-xs">AI</div>
+                                </>
+                            )}
+                        </div>
+
+                        <h3 className="text-lg font-bold text-gray-800 mb-2">
+                            {uploadProgress >= 100 ? '노하우 등록 완료!' : '노하우를 등록하고 있습니다'}
+                        </h3>
+                        <p className="text-sm text-gray-500 mb-6 animate-pulse">{uploadStatus}</p>
+
+                        {/* Progress Bar */}
+                        <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden mb-2">
+                            <div
+                                className={`h-full rounded-full transition-all duration-500 ease-out ${uploadProgress >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-[#d97757] to-[#e8956e]'}`}
+                                style={{ width: `${uploadProgress}%` }}
+                            />
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-400 font-mono">
+                            <span>Progress</span>
+                            <span>{uploadProgress}%</span>
+                        </div>
+
+                        {uploadProgress < 100 && (
+                            <div className="mt-6 text-xs text-gray-400 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                창을 닫지 마세요. 파일 크기에 따라 1~2분 소요될 수 있습니다.
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* ===== CENTER AREA ===== */}
             <div className="flex-1 flex flex-col h-full min-w-0">
