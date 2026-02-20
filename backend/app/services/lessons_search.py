@@ -451,9 +451,10 @@ class LessonsSearchService:
 
     def hybrid_search(self, query: str, category: Optional[str] = None,
                       username: Optional[str] = None, top: int = 20,
-                      source_file: Optional[str] = None) -> List[Dict]:
+                      source_file: Optional[str] = None, exact_match: bool = False) -> List[Dict]:
         """
         Hybrid search: keyword + vector search with optional category/source_file filter.
+        When exact_match=True, skip vector queries (keyword-only search).
         Returns Azure Search highlights when available.
         """
         if not self.client:
@@ -473,21 +474,22 @@ class LessonsSearchService:
 
         filter_str = " and ".join(filters) if filters else None
 
-        # Generate query embedding
-        query_vector = self._generate_embedding(query)
-
-        vector_query = VectorizedQuery(
-            vector=query_vector,
-            k_nearest_neighbors=top,
-            fields="content_embedding"
-        )
+        # Generate query embedding (skip for exact_match)
+        vector_queries = []
+        if not exact_match:
+            query_vector = self._generate_embedding(query)
+            vector_queries = [VectorizedQuery(
+                vector=query_vector,
+                k_nearest_neighbors=top,
+                fields="content_embedding"
+            )]
 
         try:
             select_fields = "doc_id,file_nm,mclass,dclass,category,content,pjt_nm,pjt_cd,creator_name,reg_date,username,source_file,file_path"
             try:
                 results = self.client.search(
                     search_text=query,
-                    vector_queries=[vector_query],
+                    vector_queries=vector_queries if vector_queries else None,
                     filter=filter_str,
                     top=top,
                     select=select_fields,

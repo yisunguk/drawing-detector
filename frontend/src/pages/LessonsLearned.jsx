@@ -50,6 +50,7 @@ const LessonsLearned = () => {
     // === Center State ===
     const [mode, setMode] = useState(saved.mode || 'search');
     const [query, setQuery] = useState(saved.query || '');
+    const [exactMatch, setExactMatch] = useState(false);
     const [searchResults, setSearchResults] = useState(saved.searchResults || []);
     const [isSearching, setIsSearching] = useState(false);
     const [hasSearched, setHasSearched] = useState(saved.hasSearched || false);
@@ -513,6 +514,7 @@ const LessonsLearned = () => {
                     category: selectedCategory,
                     source_file: selectedSourceFile,
                     mode: 'search',
+                    exact_match: exactMatch,
                     top: 20
                 })
             });
@@ -1177,23 +1179,41 @@ const LessonsLearned = () => {
 
                 {/* Input Area */}
                 <div className="px-4 py-3 border-t border-gray-200 bg-white">
-                    <div className="flex items-center gap-2 max-w-3xl mx-auto">
-                        <input
-                            type="text"
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder={mode === 'search' ? '키워드로 검색... (예: NCR, 품질개선, 가열로)' : '질문을 입력하세요...'}
-                            className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
-                            disabled={isSearching || isChatLoading}
-                        />
-                        <button
-                            onClick={handleSubmit}
-                            disabled={!query.trim() || isSearching || isChatLoading}
-                            className="p-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-xl transition-colors"
-                        >
-                            {mode === 'search' ? <SearchIcon className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-                        </button>
+                    <div className="max-w-3xl mx-auto">
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="text"
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder={mode === 'search' ? '키워드로 검색... (예: NCR, 품질개선, 가열로)' : '질문을 입력하세요...'}
+                                className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors"
+                                disabled={isSearching || isChatLoading}
+                            />
+                            <button
+                                onClick={handleSubmit}
+                                disabled={!query.trim() || isSearching || isChatLoading}
+                                className="p-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white rounded-xl transition-colors"
+                            >
+                                {mode === 'search' ? <SearchIcon className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+                            </button>
+                        </div>
+                        {mode === 'search' && (
+                            <div className="flex items-center mt-1.5 ml-1">
+                                <button
+                                    onClick={() => setExactMatch(!exactMatch)}
+                                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${exactMatch ? 'bg-purple-600' : 'bg-gray-300'}`}
+                                >
+                                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${exactMatch ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                                </button>
+                                <span className={`ml-1.5 text-xs ${exactMatch ? 'text-purple-600 font-medium' : 'text-gray-400'}`}>
+                                    원문 검색
+                                </span>
+                                <span className="ml-1 text-[10px] text-gray-300">
+                                    {exactMatch ? '입력한 키워드가 포함된 문서만 표시' : 'AI 번역·유사어 포함'}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

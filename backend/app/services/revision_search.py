@@ -408,8 +408,10 @@ class RevisionSearchService:
 
     def hybrid_search(self, query: str, project_id: Optional[str] = None,
                       phase: Optional[str] = None, username: Optional[str] = None,
-                      top: int = 20) -> List[Dict]:
-        """Hybrid search: keyword + vector with page-level results."""
+                      top: int = 20, exact_match: bool = False) -> List[Dict]:
+        """Hybrid search: keyword + vector with page-level results.
+        When exact_match=True, skip vector queries (keyword-only search).
+        """
         if not self.client:
             return []
 
@@ -423,18 +425,19 @@ class RevisionSearchService:
 
         filter_str = " and ".join(filters) if filters else None
 
-        query_vector = self._generate_embedding(query)
-
-        vector_query = VectorizedQuery(
-            vector=query_vector,
-            k_nearest_neighbors=top,
-            fields="content_embedding"
-        )
+        vector_queries = []
+        if not exact_match:
+            query_vector = self._generate_embedding(query)
+            vector_queries = [VectorizedQuery(
+                vector=query_vector,
+                k_nearest_neighbors=top,
+                fields="content_embedding"
+            )]
 
         try:
             results = self.client.search(
                 search_text=query,
-                vector_queries=[vector_query],
+                vector_queries=vector_queries if vector_queries else None,
                 filter=filter_str,
                 top=top,
                 select="project_id,doc_id,doc_no,tag_no,title,phase,phase_name,revision,engineer_name,revision_date,project_name,username,change_description,content,blob_path,page_number,total_pages",

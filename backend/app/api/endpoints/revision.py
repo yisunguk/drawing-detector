@@ -176,6 +176,7 @@ class SearchRequest(BaseModel):
     mode: Optional[str] = "search"
     history: Optional[List[dict]] = None
     top: Optional[int] = 20
+    exact_match: Optional[bool] = False  # True: keyword-only (no vector/translation)
 
 
 # ── Upload Spec Endpoint ──
@@ -1812,6 +1813,7 @@ async def _handle_search(request: SearchRequest) -> dict:
         project_id=request.project_id,
         phase=request.phase,
         top=request.top or 20,
+        exact_match=request.exact_match,
     )
 
     for r in results:

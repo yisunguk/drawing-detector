@@ -165,6 +165,7 @@ class SearchRequest(BaseModel):
     mode: Optional[str] = "search"  # "search" or "chat"
     history: Optional[List[dict]] = None
     top: Optional[int] = 20
+    exact_match: Optional[bool] = False  # True: keyword-only (no vector/translation)
 
 
 class SearchResponse(BaseModel):
@@ -269,6 +270,7 @@ async def _handle_search(request: SearchRequest, username: str) -> SearchRespons
         username=None,  # Search across all users' lessons
         top=request.top or 20,
         source_file=request.source_file,
+        exact_match=request.exact_match,
     )
 
     # Supplement: filename-targeted search to catch docs matched by name

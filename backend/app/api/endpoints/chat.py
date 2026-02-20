@@ -198,6 +198,7 @@ class ChatRequest(BaseModel):
     target_user: Optional[str] = None  # Admin-only: filter search to a specific user folder
     target_users: Optional[List[str]] = None  # Admin-only: multi-user scope filter
     folder: Optional[str] = None  # Active folder: lessons, revision, etc.
+    exact_match: Optional[bool] = False  # True: keyword-only (no vector/translation), False: hybrid
 
 class ChatResponse(BaseModel):
     response: str
@@ -224,14 +225,14 @@ client = AzureOpenAI(
     api_version=settings.AZURE_OPENAI_API_VERSION
 )
 
-def _search_lessons_revision(search_query: str, username: str | None, is_admin: bool, top: int = 20):
+def _search_lessons_revision(search_query: str, username: str | None, is_admin: bool, top: int = 20, exact_match: bool = False):
     """Search lessons-learned-index and revision-master-index, return unified results."""
     extra_results = []
 
     # Lessons
     try:
         lr = lessons_search_service.hybrid_search(
-            query=search_query, username=username, top=top
+            query=search_query, username=username, top=top, exact_match=exact_match
         )
         for r in lr:
             full_raw = r.get("content", "") or r.get("content_preview", "")
@@ -262,7 +263,7 @@ def _search_lessons_revision(search_query: str, username: str | None, is_admin: 
     # Revision
     try:
         rr = revision_search_service.hybrid_search(
-            query=search_query, username=username, top=top
+            query=search_query, username=username, top=top, exact_match=exact_match
         )
         for r in rr:
             full_raw = r.get("content", "") or r.get("content_preview", "")
@@ -507,7 +508,8 @@ async def chat(
                     service_results = lessons_search_service.hybrid_search(
                         query=search_query,
                         username=folder_username,
-                        top=50
+                        top=50,
+                        exact_match=request.exact_match,
                     )
                     mapped_results = []
                     for r in service_results:
@@ -533,7 +535,8 @@ async def chat(
                     service_results = revision_search_service.hybrid_search(
                         query=search_query,
                         username=folder_username,
-                        top=50
+                        top=50,
+                        exact_match=request.exact_match,
                     )
                     mapped_results = []
                     for r in service_results:
@@ -699,7 +702,7 @@ async def chat(
                         cross_user = (request.target_users[0] if request.target_users else request.target_user) or None
                     else:
                         cross_user = safe_user_id
-                    extra = _search_lessons_revision(search_query, cross_user, is_admin, top=20)
+                    extra = _search_lessons_revision(search_query, cross_user, is_admin, top=20, exact_match=request.exact_match)
                     cross_search_extra = extra or []
                     if extra:
                         print(f"[Chat] Cross-search added {len(extra)} results from lessons/revision", flush=True)
@@ -718,6 +721,21 @@ async def chat(
                         r['score'] = r['_rerank_score']
                     r.pop('_rerank_score', None)
                     r.pop('@search.score', None)
+
+                # Exact match filter: keep only results where query keywords appear in content/filename
+                if request.exact_match and results:
+                    em_keywords = _extract_search_keywords(request.query)
+                    em_kws_lower = [kw.lower() for kw in em_keywords]
+                    if em_kws_lower:
+                        filtered = []
+                        for r in results:
+                            content_lower = (r.get("content", "") or "").lower()
+                            fname_lower = (r.get("filename", "") or "").lower()
+                            highlight_lower = (r.get("highlight", "") or "").lower()
+                            if any(kw in content_lower or kw in fname_lower or kw in highlight_lower for kw in em_kws_lower):
+                                filtered.append(r)
+                        print(f"[Chat] Exact match filter: {len(results)} → {len(filtered)} results", flush=True)
+                        results = filtered
 
                 print(f"[Chat] Keyword Search found {len(results)} unique pages.")
                 return ChatResponse(

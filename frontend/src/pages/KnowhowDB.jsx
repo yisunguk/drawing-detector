@@ -205,6 +205,7 @@ const KnowhowDB = () => {
     // === Center State ===
     const [mode, setMode] = useState('search');
     const [query, setQuery] = useState('');
+    const [exactMatch, setExactMatch] = useState(false);
     const [searchResults, setSearchResults] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
@@ -975,6 +976,7 @@ const KnowhowDB = () => {
                 context: null,
                 doc_ids: activeDoc ? [activeDoc.name] : null,
                 mode: 'search',
+                exact_match: exactMatch,
                 ...(activeFolder && { folder: activeFolder }),
                 ...(isAdmin && scopeUsers.size > 0 && { target_users: [...scopeUsers] }),
                 ...(isAdmin && scopeUsers.size === 0 && (selectedUserFolder || treeActiveUser) && { target_user: selectedUserFolder || treeActiveUser })
@@ -2154,35 +2156,53 @@ const KnowhowDB = () => {
                 </div>
 
                 {/* Input Area */}
-                <div className="p-4 bg-white border-t border-[#e5e1d8] flex-shrink-0">
-                    <div className="max-w-3xl mx-auto relative">
-                        <textarea
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            placeholder={
-                                mode === 'search'
-                                    ? (scopeUsers.size > 0
-                                        ? `${[...scopeUsers].join(', ')} 사용자 문서에서 검색...`
-                                        : activeDoc
-                                            ? `"${activeDoc.name}" 내 검색...`
-                                            : '전체 문서 검색...')
-                                    : (scopeUsers.size > 0
-                                        ? `${[...scopeUsers].join(', ')} 사용자 문서에 대해 질문...`
-                                        : activeDoc
-                                            ? `"${activeDoc.name}"에 대해 질문...`
-                                            : '문서에 대해 질문...')
-                            }
-                            className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all resize-none h-[50px] max-h-[120px] overflow-y-auto placeholder-[#a0a0a0]"
-                            disabled={isSearching || isChatLoading}
-                        />
-                        <button
-                            onClick={handleSubmit}
-                            disabled={!query.trim() || isSearching || isChatLoading}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#d97757] text-white rounded-lg hover:bg-[#c05535] disabled:opacity-50 transition-colors"
-                        >
-                            <Send size={14} />
-                        </button>
+                <div className="px-4 pt-3 pb-2 bg-white border-t border-[#e5e1d8] flex-shrink-0">
+                    <div className="max-w-3xl mx-auto">
+                        <div className="relative">
+                            <textarea
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder={
+                                    mode === 'search'
+                                        ? (scopeUsers.size > 0
+                                            ? `${[...scopeUsers].join(', ')} 사용자 문서에서 검색...`
+                                            : activeDoc
+                                                ? `"${activeDoc.name}" 내 검색...`
+                                                : '전체 문서 검색...')
+                                        : (scopeUsers.size > 0
+                                            ? `${[...scopeUsers].join(', ')} 사용자 문서에 대해 질문...`
+                                            : activeDoc
+                                                ? `"${activeDoc.name}"에 대해 질문...`
+                                                : '문서에 대해 질문...')
+                                }
+                                className="w-full bg-[#f4f1ea] border border-[#e5e1d8] rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-[#d97757] focus:ring-1 focus:ring-[#d97757] transition-all resize-none h-[50px] max-h-[120px] overflow-y-auto placeholder-[#a0a0a0]"
+                                disabled={isSearching || isChatLoading}
+                            />
+                            <button
+                                onClick={handleSubmit}
+                                disabled={!query.trim() || isSearching || isChatLoading}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#d97757] text-white rounded-lg hover:bg-[#c05535] disabled:opacity-50 transition-colors"
+                            >
+                                <Send size={14} />
+                            </button>
+                        </div>
+                        {mode === 'search' && (
+                            <div className="flex items-center mt-1.5 ml-1">
+                                <button
+                                    onClick={() => setExactMatch(!exactMatch)}
+                                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${exactMatch ? 'bg-[#d97757]' : 'bg-gray-300'}`}
+                                >
+                                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${exactMatch ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                                </button>
+                                <span className={`ml-1.5 text-xs ${exactMatch ? 'text-[#d97757] font-medium' : 'text-gray-400'}`}>
+                                    원문 검색
+                                </span>
+                                <span className="ml-1 text-[10px] text-gray-300">
+                                    {exactMatch ? '입력한 키워드가 포함된 문서만 표시' : 'AI 번역·유사어 포함'}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

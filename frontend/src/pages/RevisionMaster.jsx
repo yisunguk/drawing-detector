@@ -177,6 +177,7 @@ const RevisionMaster = () => {
     const [searchMode, setSearchMode] = useState(false);
     const [mode, setMode] = useState(saved.mode || 'search');
     const [query, setQuery] = useState('');
+    const [exactMatch, setExactMatch] = useState(false);
     const [searchResults, setSearchResults] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
     const [chatMessages, setChatMessages] = useState(saved.chatMessages?.length > 0 ? saved.chatMessages : defaultChat);
@@ -635,7 +636,7 @@ const RevisionMaster = () => {
             const res = await fetch(getRevisionApiUrl('search'), {
                 method: 'POST', headers,
                 body: JSON.stringify({
-                    query, project_id: selectedProject, mode: 'search', top: 20,
+                    query, project_id: selectedProject, mode: 'search', exact_match: exactMatch, top: 20,
                 }),
             });
             const data = await res.json();
@@ -1158,6 +1159,22 @@ const RevisionMaster = () => {
                                         {isSearching || isChatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : mode === 'chat' ? <Send className="w-4 h-4" /> : <SearchIcon className="w-4 h-4" />}
                                     </button>
                                 </div>
+                                {mode === 'search' && (
+                                    <div className="flex items-center mt-1.5 ml-1">
+                                        <button
+                                            onClick={() => setExactMatch(!exactMatch)}
+                                            className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${exactMatch ? 'bg-cyan-600' : 'bg-gray-300'}`}
+                                        >
+                                            <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${exactMatch ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                                        </button>
+                                        <span className={`ml-1.5 text-xs ${exactMatch ? 'text-cyan-600 font-medium' : 'text-gray-400'}`}>
+                                            원문 검색
+                                        </span>
+                                        <span className="ml-1 text-[10px] text-gray-300">
+                                            {exactMatch ? '입력한 키워드가 포함된 문서만 표시' : 'AI 번역·유사어 포함'}
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
