@@ -146,7 +146,7 @@ const LandingPage = () => {
                             </p>
 
                             <div className="flex items-center text-purple-400 font-medium group-hover:translate-x-2 transition-transform">
-                                교훈 분석 시작 <ArrowRight className="w-4 h-4 ml-2" />
+                                레슨런 분석 시작 <ArrowRight className="w-4 h-4 ml-2" />
                             </div>
                         </div>
                     </div>
