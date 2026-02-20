@@ -609,7 +609,7 @@ const KnowhowDB = () => {
                             }
                             setUploadStatus(`Analyzing ${file.name}... (${done}/${totalPages}p)`);
                         }
-                    }, totalPages);
+                    }, totalPages, browseUsername);
                 } catch (e) {
                     console.error(`Analysis failed for ${file.name}:`, e);
                 }
@@ -1361,7 +1361,7 @@ const KnowhowDB = () => {
                         setUploadStatus(`분석 중... (${pagesCompleted}/${totalPages} 페이지)`);
                     }
                 }
-            }, totalPages);
+            }, totalPages, targetUser);
 
             // Done
             setUploadProgress(100);
@@ -1790,7 +1790,7 @@ const KnowhowDB = () => {
                                                                         }
                                                                         setUploadStatus(`Analyzing ${file.name}... (${done}/${totalPages}p)`);
                                                                     }
-                                                                }, totalPages);
+                                                                }, totalPages, browseUsername);
                                                                 setUploadStatus('Done!');
                                                                 await loadIndexStatus(browseUsername, activeFolder);
                                                             } catch (err) {
@@ -1822,7 +1822,7 @@ const KnowhowDB = () => {
                                                                     totalPages = pdf.numPages;
                                                                 } catch { }
                                                                 await startAnalysis(file.name, totalPages, username, 'knowhow', true);
-                                                                await pollAnalysisStatus(file.name, () => { }, totalPages);
+                                                                await pollAnalysisStatus(file.name, () => { }, totalPages, username);
                                                                 loadFiles('knowhow');
                                                             } catch (err) {
                                                                 alert('Re-analysis failed: ' + err.message);

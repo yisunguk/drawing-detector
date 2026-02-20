@@ -111,7 +111,7 @@ export const reindexDocument = async (filename, totalPages, username, category =
 };
 
 // 4. Poll Status
-export const pollAnalysisStatus = async (filename, onStatus, totalPages = 0) => {
+export const pollAnalysisStatus = async (filename, onStatus, totalPages = 0, username = null) => {
     let isComplete = false;
     let result = null;
 
@@ -120,12 +120,13 @@ export const pollAnalysisStatus = async (filename, onStatus, totalPages = 0) => 
 
     while (!isComplete) {
         if (Date.now() - startTime > timeout) {
-            throw new Error('Analysis timed out. Please check "My Documents" later.');
+            throw new Error('분석 시간이 초과되었습니다. 잠시 후 다시 확인해 주세요.');
         }
 
         await new Promise(r => setTimeout(r, 2000)); // Poll every 2s
 
-        const res = await fetch(`${API_URL}/api/v1/analyze/status/${encodeURIComponent(filename)}`);
+        const userParam = username ? `?username=${encodeURIComponent(username)}` : '';
+        const res = await fetch(`${API_URL}/api/v1/analyze/status/${encodeURIComponent(filename)}${userParam}`);
 
         if (res.ok) {
             const data = await res.json();
