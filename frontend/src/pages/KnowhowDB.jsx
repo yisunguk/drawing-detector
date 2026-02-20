@@ -2156,9 +2156,9 @@ const KnowhowDB = () => {
                 </div>
 
                 {/* Input Area */}
-                <div className="px-4 pt-3 pb-2 bg-white border-t border-[#e5e1d8] flex-shrink-0">
-                    <div className="max-w-3xl mx-auto">
-                        <div className="relative">
+                <div className="px-4 py-3 bg-white border-t border-[#e5e1d8] flex-shrink-0">
+                    <div className="max-w-3xl mx-auto flex items-center gap-2">
+                        <div className="relative flex-1">
                             <textarea
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
@@ -2188,20 +2188,18 @@ const KnowhowDB = () => {
                             </button>
                         </div>
                         {mode === 'search' && (
-                            <div className="flex items-center mt-1.5 ml-1">
-                                <button
-                                    onClick={() => setExactMatch(!exactMatch)}
-                                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${exactMatch ? 'bg-[#d97757]' : 'bg-gray-300'}`}
-                                >
-                                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${exactMatch ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
-                                </button>
-                                <span className={`ml-1.5 text-xs ${exactMatch ? 'text-[#d97757] font-medium' : 'text-gray-400'}`}>
-                                    원문 검색
-                                </span>
-                                <span className="ml-1 text-[10px] text-gray-300">
-                                    {exactMatch ? '입력한 키워드가 포함된 문서만 표시' : 'AI 번역·유사어 포함'}
-                                </span>
-                            </div>
+                            <button
+                                onClick={() => setExactMatch(!exactMatch)}
+                                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium whitespace-nowrap transition-all flex-shrink-0 ${
+                                    exactMatch
+                                        ? 'bg-[#d97757] text-white border-[#d97757]'
+                                        : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                                }`}
+                                title={exactMatch ? '입력한 키워드가 포함된 문서만 표시' : 'AI 번역·유사어 포함 검색'}
+                            >
+                                <span className={`inline-block w-2 h-2 rounded-full ${exactMatch ? 'bg-white' : 'bg-gray-300'}`} />
+                                원문
+                            </button>
                         )}
                     </div>
                 </div>
