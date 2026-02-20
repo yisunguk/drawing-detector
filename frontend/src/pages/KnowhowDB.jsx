@@ -11,7 +11,7 @@ import PDFViewer from '../components/PDFViewer';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
 import { auth, db } from '../firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import {
     getUploadSas,
     uploadToAzure,
@@ -174,8 +174,11 @@ const ChatMessageContent = React.memo(({ content, results, onResultClick }) => {
 const KnowhowDB = () => {
     const navigate = useNavigate();
     const { currentUser } = useAuth();
-    const username = currentUser?.displayName || currentUser?.email?.split('@')[0];
     const isAdmin = currentUser?.email === 'admin@poscoenc.com' || currentUser?.displayName?.includes('관리자');
+
+    // === User identity: Firestore name > displayName > email prefix ===
+    const [firestoreName, setFirestoreName] = useState(null);
+    const username = firestoreName || currentUser?.displayName || currentUser?.email?.split('@')[0];
 
     // === Admin User Folder State ===
     const [userFolders, setUserFolders] = useState([]);
@@ -184,11 +187,9 @@ const KnowhowDB = () => {
     const [treeActiveUser, setTreeActiveUser] = useState(null);
     const [expandedUsers, setExpandedUsers] = useState(new Set());
     const [userSubFolders, setUserSubFolders] = useState({});
-    // Resolved blob folder name for non-admin users (may differ from displayName/email)
-    const [resolvedUsername, setResolvedUsername] = useState(null);
     const browseUsername = isAdmin
         ? (selectedUserFolder || treeActiveUser || null)
-        : (resolvedUsername || username);
+        : username;
 
     // === Left Sidebar State ===
     const [folders, setFolders] = useState([]);
@@ -297,84 +298,51 @@ const KnowhowDB = () => {
     }, [isAdmin]);
 
     // =============================================
-    // RESOLVE BLOB FOLDER NAME (Non-admin users)
-    // Try displayName → email prefix → search root folders
+    // FETCH USER NAME FROM FIRESTORE (Non-admin)
+    // Firestore users/{uid}.name is the source of truth
     // =============================================
     useEffect(() => {
-        if (isAdmin || !currentUser) return;
-
-        const displayName = currentUser.displayName;
-        const emailPrefix = currentUser.email?.split('@')[0];
-        const candidates = [];
-        if (displayName) candidates.push(displayName);
-        if (emailPrefix && emailPrefix !== displayName) candidates.push(emailPrefix);
-
+        if (isAdmin || !currentUser?.uid) return;
         (async () => {
-            setLoadingFolders(true);
-            // Try each candidate name to find matching blob folder
-            for (const name of candidates) {
-                try {
-                    const res = await fetch(getListApiUrl(`${name}/`));
-                    if (!res.ok) continue;
-                    const data = await res.json();
-                    const items = Array.isArray(data) ? data : (data.items || []);
-                    const folderItems = items.filter(
-                        item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase())
-                    );
-                    if (folderItems.length > 0) {
-                        setResolvedUsername(name);
-                        setFolders(folderItems);
-                        setLoadingFolders(false);
-                        return;
-                    }
-                } catch (e) {
-                    console.error(`Failed to check folder for ${name}:`, e);
-                }
-            }
-
-            // Fallback: search root-level folders for a match
             try {
-                const res = await fetch(getListApiUrl(''));
-                if (res.ok) {
-                    const data = await res.json();
-                    const items = Array.isArray(data) ? data : (data.items || []);
-                    const rootFolders = items
-                        .filter(item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase()))
-                        .map(item => item.name);
-
-                    // Check if any root folder matches email prefix (case-insensitive)
-                    const match = rootFolders.find(f =>
-                        f.toLowerCase() === emailPrefix?.toLowerCase() ||
-                        f.toLowerCase() === displayName?.toLowerCase()
-                    );
-                    if (match) {
-                        const subRes = await fetch(getListApiUrl(`${match}/`));
-                        if (subRes.ok) {
-                            const subData = await subRes.json();
-                            const subItems = Array.isArray(subData) ? subData : (subData.items || []);
-                            const folderItems = subItems.filter(
-                                item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase())
-                            );
-                            setResolvedUsername(match);
-                            setFolders(folderItems);
-                            setLoadingFolders(false);
-                            return;
-                        }
-                    }
+                const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+                if (userDoc.exists()) {
+                    const name = userDoc.data().name;
+                    if (name) setFirestoreName(name);
                 }
             } catch (e) {
-                console.error('Failed to search root folders:', e);
+                console.error('Failed to fetch user name from Firestore:', e);
             }
-
-            // No folders found
-            setResolvedUsername(candidates[0] || emailPrefix);
-            setFolders([]);
-            setLoadingFolders(false);
         })();
-    }, [isAdmin, currentUser]);
+    }, [isAdmin, currentUser?.uid]);
 
     // =============================================
-    // LOAD FOLDERS ON MOUNT / USER CHANGE (Admin only)
+    // LOAD FOLDERS (Non-admin: after username resolved)
+    // =============================================
+    useEffect(() => {
+        if (isAdmin || !username) return;
+        setLoadingFolders(true);
+        (async () => {
+            try {
+                const res = await fetch(getListApiUrl(`${username}/`));
+                if (!res.ok) throw new Error('Failed to list folders');
+                const data = await res.json();
+                const items = Array.isArray(data) ? data : (data.items || []);
+                const folderItems = items.filter(
+                    item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase())
+                );
+                setFolders(folderItems);
+            } catch (e) {
+                console.error('Failed to load folders:', e);
+                setFolders([]);
+            } finally {
+                setLoadingFolders(false);
+            }
+        })();
+    }, [isAdmin, username]);
+
+    // =============================================
+    // LOAD FOLDERS ON USER CHANGE (Admin only)
     // =============================================
     useEffect(() => {
         if (!browseUsername) return;
@@ -1860,7 +1828,7 @@ const KnowhowDB = () => {
                             {username?.charAt(0)?.toUpperCase() || 'U'}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-800 truncate">{currentUser?.displayName || 'User'}</p>
+                            <p className="text-sm font-medium text-gray-800 truncate">{username || 'User'}</p>
                             <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
                         </div>
                     </div>
