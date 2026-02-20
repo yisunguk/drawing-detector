@@ -54,6 +54,7 @@ import KnowhowDB from './pages/KnowhowDB';
 import LineList from './pages/LineList';
 import LessonsLearned from './pages/LessonsLearned';
 import RevisionMaster from './pages/RevisionMaster';
+import KCSCStandards from './pages/KCSCStandards';
 
 const App = () => {
     return (
@@ -128,6 +129,15 @@ const App = () => {
                             element={
                                 <PrivateRoute>
                                     <RevisionMaster />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* KCSC 건설기준 AI */}
+                        <Route
+                            path="/kcsc-standards"
+                            element={
+                                <PrivateRoute>
+                                    <KCSCStandards />
                                 </PrivateRoute>
                             }
                         />

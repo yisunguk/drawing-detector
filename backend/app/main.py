@@ -97,6 +97,13 @@ try:
 except Exception as e:
     print(f"Error loading linelist module: {e}")
 
+# Enable KCSC Router
+try:
+    from app.api.endpoints import kcsc
+    app.include_router(kcsc.router, prefix=f"{settings.API_V1_STR}/kcsc", tags=["kcsc"])
+except Exception as e:
+    print(f"Error loading kcsc module: {e}", flush=True)
+
 # Enable Lessons Learned Router
 try:
     from app.api.endpoints import lessons

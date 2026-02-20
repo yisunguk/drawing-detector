@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     AZURE_SEARCH_KEY: str = ""
     AZURE_SEARCH_INDEX_NAME: str = "pdf-search-index" # Default index name
 
+    # KCSC (국가건설기준센터) API
+    KCSC_API_KEY: str = ""
+
     # Cron / Cloud Scheduler (daily batch cleanup)
     CRON_SECRET: str = ""
 

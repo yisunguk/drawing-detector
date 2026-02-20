@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSearch, Database, ArrowRight, LogOut, LayoutGrid, ListChecks, BookOpen, ClipboardCheck } from 'lucide-react';
+import { FileSearch, Database, ArrowRight, LogOut, LayoutGrid, ListChecks, BookOpen, ClipboardCheck, Landmark } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const LandingPage = () => {
@@ -50,7 +50,7 @@ const LandingPage = () => {
                     </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 px-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 px-4">
                     {/* Card 1: Drawing Analysis AI */}
                     <div
                         onClick={() => window.open('/drawing-ai', '_blank')}
@@ -172,6 +172,31 @@ const LandingPage = () => {
 
                             <div className="flex items-center text-cyan-400 font-medium group-hover:translate-x-2 transition-transform">
                                 리비전 관리 시작 <ArrowRight className="w-4 h-4 ml-2" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Card 6: KCSC 건설기준 AI */}
+                    <div
+                        onClick={() => window.open('/kcsc-standards', '_blank')}
+                        className="group relative cursor-pointer"
+                    >
+                        <div className="absolute -inset-0.5 bg-gradient-to-r from-rose-500 to-pink-500 rounded-2xl opacity-20 group-hover:opacity-100 blur transition duration-500"></div>
+                        <div className="relative h-full bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-8 hover:border-rose-500/50 transition-all duration-300 transform group-hover:-translate-y-1">
+                            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-500/20 to-pink-500/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                                <Landmark className="w-8 h-8 text-rose-400" />
+                            </div>
+
+                            <h2 className="text-2xl font-bold text-slate-100 mb-3 group-hover:text-rose-400 transition-colors">
+                                건설기준 AI
+                            </h2>
+                            <p className="text-slate-400 mb-8 leading-relaxed">
+                                국가건설기준(KDS/KCS) 실시간 검색 및 AI 해석.
+                                설계·시공 기준을 질문하면 관련 조항을 찾아 설명합니다.
+                            </p>
+
+                            <div className="flex items-center text-rose-400 font-medium group-hover:translate-x-2 transition-transform">
+                                건설기준 검색 <ArrowRight className="w-4 h-4 ml-2" />
                             </div>
                         </div>
                     </div>
