@@ -390,9 +390,6 @@ const KCSCStandards = () => {
             {/* Top Bar */}
             <div className="flex items-center justify-between px-4 h-12 bg-white border-b border-[#e5e1d8]">
                 <div className="flex items-center gap-3">
-                    <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                        <ArrowLeft className="w-5 h-5 text-gray-600" />
-                    </button>
                     <Landmark className="w-5 h-5 text-[#d97757]" />
                     <h1 className="text-base font-bold text-gray-800">국가건설기준 AI</h1>
                 </div>
@@ -406,9 +403,6 @@ const KCSCStandards = () => {
                             기준 뷰어
                         </button>
                     )}
-                    <button onClick={logout} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="로그아웃">
-                        <LogOut className="w-4 h-4 text-gray-400" />
-                    </button>
                 </div>
             </div>
 
@@ -516,6 +510,22 @@ const KCSCStandards = () => {
                                 ))}
                             </div>
                         )}
+                    </div>
+
+                    {/* Bottom: User Menu */}
+                    <div className="border-t border-gray-200">
+                        <button onClick={() => navigate('/')} className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-600 hover:bg-gray-100 transition-colors">
+                            <ArrowLeft className="w-4 h-4" /> Return to Home
+                        </button>
+                        <div className="p-4 flex items-center gap-3 border-t border-gray-200">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
+                                {currentUser?.displayName?.charAt(0)?.toUpperCase() || currentUser?.email?.charAt(0)?.toUpperCase() || 'U'}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-800 truncate">{currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}</p>
+                                <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
