@@ -260,11 +260,28 @@ class KCSCBot:
         return cleaned
 
     def search_all_types(self, keyword: str, top_k: int = 10) -> Tuple[str, List[Dict[str, Any]]]:
-        results = self.search_codes_local(keyword, doc_type="KDS", top_k=top_k)
-        if results:
-            best_type = str(results[0].get("codeType") or results[0].get("CodeType") or "KDS")
-            return best_type, results
-        return "", []
+        all_results: List[Dict[str, Any]] = []
+        best_type = ""
+        for dtype in ["KDS", "KCS", "KWCS"]:
+            try:
+                results = self.search_codes_local(keyword, doc_type=dtype, top_k=top_k)
+                if results and not all_results:
+                    best_type = str(results[0].get("codeType") or results[0].get("CodeType") or dtype)
+                all_results.extend(results)
+            except Exception:
+                pass
+        # De-duplicate by code and return top_k
+        seen: set = set()
+        unique: List[Dict[str, Any]] = []
+        code_keys = ["Code", "code", "CODE", "FullCode", "fullCode"]
+        for it in all_results:
+            c = self._get_first(it, code_keys)
+            if c not in seen:
+                seen.add(c)
+                unique.append(it)
+            if len(unique) >= top_k:
+                break
+        return best_type, unique
 
     # ---------- CodeViewer ----------
     def _fetch_raw_sections(self, code: str, doc_type: str) -> Tuple[str, List[Dict[str, Any]]]:
@@ -514,10 +531,10 @@ async def kcsc_chat(req: ChatRequest):
     target_type = req.doc_type if req.doc_type != "자동" else ""
     keyword = ""
 
-    # 0) Direct code detection: if user specifies e.g. "KCS 11 40 05"
-    direct_match = re.search(r"(KDS|KCS|KWCS)\s*(\d{2})\s*(\d{2})\s*(\d{2,3})", req.message)
+    # 0) Direct code detection: if user specifies e.g. "KCS 11 40 05" or "kds171000"
+    direct_match = re.search(r"(KDS|KCS|KWCS)\s*(\d{2})\s*(\d{2})\s*(\d{2,3})", req.message, re.IGNORECASE)
     if direct_match:
-        direct_type = direct_match.group(1)
+        direct_type = direct_match.group(1).upper()
         d2, d3, d4 = direct_match.group(2), direct_match.group(3), direct_match.group(4)
         # Try multiple code formats: with spaces, compact, with dots
         code_variants = [
@@ -546,6 +563,13 @@ async def kcsc_chat(req: ChatRequest):
                     print(f"[KCSC] direct fetch failed for {try_type} {try_code}: {e}", flush=True)
             if content.strip():
                 break
+
+        # Add the found standard as first search candidate
+        if content.strip():
+            search_candidates.append({
+                "Name": code_name,
+                "Code": f"{d2}{d3}{d4}",
+            })
 
     # 1) If direct fetch didn't work, do keyword search
     if not content.strip():
@@ -612,7 +636,7 @@ async def kcsc_chat(req: ChatRequest):
 
     # 3-b) Cross-reference resolution: detect referenced standards and fetch them
     xref_content = ""
-    xref_pattern = re.compile(r"(KDS|KCS|KWCS)\s*(\d{2})\s*(\d{2})\s*(\d{2,3})")
+    xref_pattern = re.compile(r"(KDS|KCS|KWCS)\s*(\d{2})\s*(\d{2})\s*(\d{2,3})", re.IGNORECASE)
     current_code_normalized = re.sub(r"[\s\-\.]", "", code)
     found_refs: set = set()
     for m in xref_pattern.finditer(content):
