@@ -998,6 +998,26 @@ const UserProfile = () => {
                                                     </div>
                                                 )}
 
+                                                {/* Attachments */}
+                                                {selectedFeedback.attachments && selectedFeedback.attachments.length > 0 && (
+                                                    <div className="mb-6">
+                                                        <h4 className="text-sm font-bold text-[#555555] mb-2 flex items-center gap-2">
+                                                            <FileText size={16} /> 첨부 이미지
+                                                        </h4>
+                                                        <div className="flex flex-wrap gap-3">
+                                                            {selectedFeedback.attachments.map((att, idx) => (
+                                                                <div key={idx} className="border border-[#e5e1d8] rounded-lg overflow-hidden bg-white shadow-sm">
+                                                                    <img
+                                                                        src={att.url}
+                                                                        alt={att.name || `attachment-${idx}`}
+                                                                        className="max-w-full h-auto object-contain max-h-[400px]"
+                                                                    />
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
                                                 {/* Content */}
                                                 <div>
                                                     <h4 className="text-sm font-bold text-[#555555] mb-2 flex items-center gap-2">
