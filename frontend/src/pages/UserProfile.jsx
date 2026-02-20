@@ -194,26 +194,8 @@ const UserProfile = () => {
                 }
             }
 
-            // Capture Screenshot (Automatic) with timeout to prevent infinite loading
+            // Screenshot capture disabled - was causing infinite loading
             let screenshot = null;
-            try {
-                const capturePromise = html2canvas(document.body, {
-                    scale: 0.5,
-                    logging: false,
-                    useCORS: true,
-                    allowTaint: true,
-                    foreignObjectRendering: false,
-                    removeContainer: true,
-                    ignoreElements: (el) => el.tagName === 'CANVAS' || el.tagName === 'VIDEO' || el.tagName === 'IFRAME'
-                });
-                const timeoutPromise = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('Screenshot timeout')), 5000)
-                );
-                const canvas = await Promise.race([capturePromise, timeoutPromise]);
-                screenshot = canvas.toDataURL('image/jpeg', 0.5);
-            } catch (captureError) {
-                console.warn("Screenshot capture skipped:", captureError.message);
-            }
 
             await addDoc(collection(db, 'feedback'), {
                 content: feedbackContent.trim(),
