@@ -1202,12 +1202,11 @@ const LessonsLearned = () => {
                                 className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-medium whitespace-nowrap transition-all flex-shrink-0 ${
                                     exactMatch
                                         ? 'bg-purple-600 text-white border-purple-600'
-                                        : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                                        : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-500'
                                 }`}
-                                title={exactMatch ? '입력한 키워드가 포함된 문서만 표시' : 'AI 번역·유사어 포함 검색'}
+                                title={exactMatch ? '입력한 키워드가 포함된 문서만 표시합니다' : '번역·유사어도 함께 검색합니다'}
                             >
-                                <span className={`inline-block w-2 h-2 rounded-full ${exactMatch ? 'bg-white' : 'bg-gray-300'}`} />
-                                원문
+                                {exactMatch ? '원문만' : '번역 포함'}
                             </button>
                         )}
                     </div>
