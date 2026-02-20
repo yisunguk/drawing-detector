@@ -98,7 +98,6 @@ const ChatMessageContent = React.memo(({ content, onCitationClick }) => {
 const KCSCStandards = () => {
     const navigate = useNavigate();
     const { currentUser, logout } = useAuth();
-    const chatEndRef = useRef(null);
     const inputRef = useRef(null);
     const viewerRef = useRef(null);
 
@@ -272,7 +271,7 @@ const KCSCStandards = () => {
         setMessages(newMsgs);
         setInputValue('');
         setIsLoading(true);
-        setLoadingStatus('키워드 추출 중...');
+        setLoadingStatus('국가건설기준 DB와 연결 중입니다...');
 
         try {
             const history = messages.map(m => ({ role: m.role, content: m.content }));
@@ -327,9 +326,12 @@ const KCSCStandards = () => {
         }
     }, [inputValue, isLoading, messages, currentSessionId, docType, topK, sessionsCollectionPath, loadSessions, saveSessionMessages]);
 
-    // Auto-scroll chat
+    // Auto-scroll: scroll to latest user message so the question stays visible
+    const lastUserMsgRef = useRef(null);
     useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (lastUserMsgRef.current) {
+            lastUserMsgRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
     }, [messages, isLoading]);
 
     // Enter key handler
@@ -545,8 +547,11 @@ const KCSCStandards = () => {
                             </div>
                         )}
 
-                        {messages.map((msg, i) => (
-                            <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                        {messages.map((msg, i) => {
+                            // Attach ref to the last user message
+                            const isLastUser = msg.role === 'user' && !messages.slice(i + 1).some(m => m.role === 'user');
+                            return (
+                            <div key={i} ref={isLastUser ? lastUserMsgRef : null} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                                 {msg.role === 'assistant' ? (
                                     <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center flex-shrink-0">
                                         <Bot className="w-5 h-5 text-white" />
@@ -575,7 +580,8 @@ const KCSCStandards = () => {
                                     )}
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
 
                         {isLoading && (
                             <div className="flex gap-3">
@@ -591,7 +597,7 @@ const KCSCStandards = () => {
                             </div>
                         )}
 
-                        <div ref={chatEndRef} />
+                        <div />
                         </div>
                     </div>
 
