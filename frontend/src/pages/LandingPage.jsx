@@ -188,7 +188,7 @@ const LandingPage = () => {
                             </div>
 
                             <h2 className="text-2xl font-bold text-slate-100 mb-3 group-hover:text-rose-400 transition-colors">
-                                건설기준 AI
+                                국가건설기준 AI
                             </h2>
                             <p className="text-slate-400 mb-8 leading-relaxed">
                                 국가건설기준(KDS/KCS) 실시간 검색 및 AI 해석.

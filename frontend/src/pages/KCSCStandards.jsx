@@ -392,7 +392,7 @@ const KCSCStandards = () => {
                         <ArrowLeft className="w-5 h-5 text-gray-600" />
                     </button>
                     <Landmark className="w-5 h-5 text-[#d97757]" />
-                    <h1 className="text-base font-bold text-gray-800">건설기준 AI</h1>
+                    <h1 className="text-base font-bold text-gray-800">국가건설기준 AI</h1>
                     <span className="text-xs text-gray-400 hidden sm:inline">KDS/KCS/KWCS</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -526,13 +526,13 @@ const KCSCStandards = () => {
                         {messages.length === 0 && !isLoading && (
                             <div className="flex flex-col items-center justify-center h-full text-center pt-24">
                                 <Landmark className="w-16 h-16 text-[#d97757]/30 mb-4" />
-                                <h2 className="text-2xl font-bold text-gray-400 mb-2">건설기준 AI</h2>
+                                <h2 className="text-2xl font-bold text-gray-400 mb-2">국가건설기준 AI</h2>
                                 <p className="text-gray-400 max-w-md">
                                     국가건설기준(KDS/KCS)에 대해 질문하세요.<br />
                                     관련 기준을 검색하고 AI가 답변합니다.
                                 </p>
                                 <div className="mt-6 flex flex-wrap gap-2 justify-center">
-                                    {['피복두께 기준은?', '철근콘크리트 내구성 설계', '콘크리트 양생 온도'].map(q => (
+                                    {['내진설계 시 중요도계수 적용 기준', '철골 구조물 볼트 접합 설계기준', '콘크리트 균열 폭 허용 기준'].map(q => (
                                         <button
                                             key={q}
                                             onClick={() => setInputValue(q)}
