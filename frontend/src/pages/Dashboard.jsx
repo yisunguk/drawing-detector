@@ -915,8 +915,8 @@ const App = () => {
                 metaCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
             } else if (decodedPath.toLowerCase().includes('documents')) {
                 metaCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
-            } else if (decodedPath.toLowerCase().includes('my-documents')) {
-                metaCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+            } else if (decodedPath.toLowerCase().includes('knowhow')) {
+                metaCandidates.push(decodedPath.replace(/knowhow/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
             }
 
             for (const metaPath of metaCandidates) {
@@ -1116,8 +1116,8 @@ const App = () => {
                             metaCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
                         } else if (decodedPath.toLowerCase().includes('documents')) {
                             metaCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
-                        } else if (decodedPath.toLowerCase().includes('my-documents')) {
-                            metaCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+                        } else if (decodedPath.toLowerCase().includes('knowhow')) {
+                            metaCandidates.push(decodedPath.replace(/knowhow/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
                         }
 
                         for (const metaPath of metaCandidates) {
@@ -1152,9 +1152,9 @@ const App = () => {
                             } else if (decodedPath.toLowerCase().includes('documents')) {
                                 jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
                                 jsonCandidates.push(decodedPath.replace(/documents/i, 'json') + '.json');
-                            } else if (decodedPath.toLowerCase().includes('my-documents')) {
-                                jsonCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '.json'));
-                                jsonCandidates.push(decodedPath.replace(/my-documents/i, 'json') + '.json');
+                            } else if (decodedPath.toLowerCase().includes('knowhow')) {
+                                jsonCandidates.push(decodedPath.replace(/knowhow/i, 'json').replace(/\.pdf$/i, '.json'));
+                                jsonCandidates.push(decodedPath.replace(/knowhow/i, 'json') + '.json');
                             }
                             const uName = userProfile?.name || currentUser?.displayName;
                             if (uName) {
@@ -1251,8 +1251,8 @@ const App = () => {
                             metaCandidates.push(decodedPath.replace(/drawings/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
                         } else if (decodedPath.toLowerCase().includes('documents')) {
                             metaCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
-                        } else if (decodedPath.toLowerCase().includes('my-documents')) {
-                            metaCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
+                        } else if (decodedPath.toLowerCase().includes('knowhow')) {
+                            metaCandidates.push(decodedPath.replace(/knowhow/i, 'json').replace(/\.pdf$/i, '') + '/meta.json');
                         }
 
                         for (const metaPath of metaCandidates) {
@@ -1289,9 +1289,9 @@ const App = () => {
                                     } else if (decodedPath.toLowerCase().includes('documents')) {
                                         jsonCandidates.push(decodedPath.replace(/documents/i, 'json').replace(/\.pdf$/i, '.json'));
                                         jsonCandidates.push(decodedPath.replace(/documents/i, 'json') + '.json');
-                                    } else if (decodedPath.toLowerCase().includes('my-documents')) {
-                                        jsonCandidates.push(decodedPath.replace(/my-documents/i, 'json').replace(/\.pdf$/i, '.json'));
-                                        jsonCandidates.push(decodedPath.replace(/my-documents/i, 'json') + '.json');
+                                    } else if (decodedPath.toLowerCase().includes('knowhow')) {
+                                        jsonCandidates.push(decodedPath.replace(/knowhow/i, 'json').replace(/\.pdf$/i, '.json'));
+                                        jsonCandidates.push(decodedPath.replace(/knowhow/i, 'json') + '.json');
                                     }
                                     const uName = userProfile?.name || currentUser?.displayName;
                                     if (uName) {
@@ -1797,7 +1797,7 @@ const App = () => {
             let uName = userProfile?.name || currentUser?.displayName;
             if (doc.blobPath) {
                 const pathParts = decodeURIComponent(doc.blobPath).split('/');
-                const knownFolders = ['temp', 'drawings', 'documents', 'my-documents', 'json'];
+                const knownFolders = ['temp', 'drawings', 'documents', 'knowhow', 'json'];
                 if (pathParts.length >= 2 && !knownFolders.includes(pathParts[0].toLowerCase())) {
                     uName = pathParts[0]; // First segment is the username
                 }

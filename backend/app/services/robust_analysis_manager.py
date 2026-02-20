@@ -33,7 +33,7 @@ class RobustAnalysisManager:
     def _compute_json_folder(self, blob_name, filename):
         """Compute the JSON folder path from blob_name."""
         json_parts = blob_name.split('/')
-        known_folders = ["temp", "my-documents", "documents", "drawings"]
+        known_folders = ["temp", "knowhow", "documents", "drawings"]
         matched_folder = None
         for folder in known_folders:
             if folder in json_parts:
@@ -370,7 +370,7 @@ class RobustAnalysisManager:
                 parts[idx] = category
                 final_blob_name = "/".join(parts)
             else:
-                category_folders = ["my-documents", "documents", "drawings"]
+                category_folders = ["knowhow", "documents", "drawings"]
                 replaced = False
                 for folder in category_folders:
                     if folder in parts:

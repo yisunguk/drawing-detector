@@ -26,7 +26,7 @@ async def analyze_local_file(
         container_client = get_container_client()
         
         # Validate category
-        target_folder = category if category in ["drawings", "documents", "my-documents"] else "drawings"
+        target_folder = category if category in ["drawings", "documents", "knowhow"] else "drawings"
         
         # Determine path (Force common folders, ignore username for folder structure)
         # Always save to {target_folder}/{filename}
@@ -264,7 +264,7 @@ async def analyze_document_sync(
         print(f"[AnalyzeSync] Analysis complete: {len(all_chunks)} pages processed")
         
         # 5. Prepare paths
-        final_folder = category if category in ["drawings", "documents", "my-documents"] else "drawings"
+        final_folder = category if category in ["drawings", "documents", "knowhow"] else "drawings"
         folder_prefix = f"{username}/{final_folder}" if username else final_folder
         final_blob_name = f"{folder_prefix}/{filename}"
         
@@ -761,7 +761,7 @@ async def reindex_document(
             print(f"[Reindex] Found PDF in temp: {temp_path}")
         else:
             # Search all category folders
-            search_folders = [category, "drawings", "documents", "my-documents"]
+            search_folders = [category, "drawings", "documents", "knowhow"]
             # Remove duplicates while preserving order
             seen = set()
             unique_folders = []
@@ -955,7 +955,7 @@ async def finalize_analysis(
         
         # 2. Move File from temp/ to final location
         temp_blob_name = f"temp/{filename}"
-        target_folder = category if category in ["drawings", "documents", "my-documents"] else "drawings"
+        target_folder = category if category in ["drawings", "documents", "knowhow"] else "drawings"
         final_blob_name = f"{target_folder}/{filename}"
         
         source_blob = container_client.get_blob_client(temp_blob_name)

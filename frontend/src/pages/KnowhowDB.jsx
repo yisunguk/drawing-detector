@@ -331,10 +331,14 @@ const KnowhowDB = () => {
                 const folderItems = items.filter(
                     item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase())
                 );
+                // Ensure 'knowhow' folder always appears
+                if (!folderItems.some(f => f.name === 'knowhow')) {
+                    folderItems.push({ name: 'knowhow', type: 'folder' });
+                }
                 setFolders(folderItems);
             } catch (e) {
                 console.error('Failed to load folders:', e);
-                setFolders([]);
+                setFolders([{ name: 'knowhow', type: 'folder' }]);
             } finally {
                 setLoadingFolders(false);
             }
@@ -361,6 +365,10 @@ const KnowhowDB = () => {
             const folderItems = items.filter(
                 item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase())
             );
+            // Ensure 'knowhow' folder always appears
+            if (!folderItems.some(f => f.name === 'knowhow')) {
+                folderItems.push({ name: 'knowhow', type: 'folder' });
+            }
             setFolders(folderItems);
         } catch (e) {
             console.error('Failed to load folders:', e);
@@ -380,6 +388,10 @@ const KnowhowDB = () => {
             const folderItems = items.filter(
                 item => item.type === 'folder' && !EXCLUDED_FOLDERS.includes(item.name.toLowerCase())
             );
+            // Ensure 'knowhow' folder always appears
+            if (!folderItems.some(f => f.name === 'knowhow')) {
+                folderItems.push({ name: 'knowhow', type: 'folder' });
+            }
             setUserSubFolders(prev => ({ ...prev, [user]: folderItems }));
         } catch (e) {
             console.error(`Failed to load subfolders for ${user}:`, e);
@@ -790,9 +802,9 @@ const KnowhowDB = () => {
                             jsonFolder = `${dir}/${revisionMatch[1]}_di`;
                         }
 
-                        // 도면분석: drawings|documents|my-documents|temp → json
+                        // 도면분석: drawings|documents|knowhow|temp → json
                         if (!jsonFolder) {
-                            const folderPattern = /\/(drawings|documents|my-documents|temp)\//i;
+                            const folderPattern = /\/(drawings|documents|knowhow|temp)\//i;
                             if (folderPattern.test(decoded)) {
                                 jsonFolder = decoded.replace(folderPattern, '/json/').replace(/\.[^.]+$/, '');
                             }
@@ -1302,7 +1314,7 @@ const KnowhowDB = () => {
             const { upload_url } = await getUploadSas(file.name, browseUsername || username);
             await uploadToAzure(upload_url, file, (percent) => setUploadStatus(`Uploading... ${percent}%`));
             setUploadStatus('Starting analysis...');
-            await startAnalysis(file.name, totalPages, browseUsername || username, 'my-documents');
+            await startAnalysis(file.name, totalPages, browseUsername || username, 'knowhow');
 
             await pollAnalysisStatus(file.name, (statusData) => {
                 if (statusData.status === 'in_progress' || statusData.status === 'finalizing') {
@@ -1317,7 +1329,7 @@ const KnowhowDB = () => {
             }, totalPages);
 
             setUploadStatus('Done!');
-            if (activeFolder === 'my-documents') await loadFiles('my-documents');
+            if (activeFolder === 'knowhow') await loadFiles('knowhow');
         } catch (error) {
             console.error('Upload failed:', error);
             alert(`Upload failed: ${error.message}`);
@@ -1627,7 +1639,7 @@ const KnowhowDB = () => {
                                             {isIndexingAll ? 'Indexing...' : 'Index All'}
                                         </button>
                                     )}
-                                    {activeFolder === 'my-documents' && (
+                                    {activeFolder === 'knowhow' && (
                                         <button
                                             onClick={() => fileInputRef.current?.click()}
                                             disabled={isUploading}
@@ -1736,7 +1748,7 @@ const KnowhowDB = () => {
                                                         <Sparkles className="w-3 h-3" />
                                                     </button>
                                                 )}
-                                                {activeFolder === 'my-documents' && (
+                                                {activeFolder === 'knowhow' && (
                                                     <button
                                                         onClick={async (e) => {
                                                             e.stopPropagation();
@@ -1750,9 +1762,9 @@ const KnowhowDB = () => {
                                                                     const pdf = await pdfjs.getDocument(file.pdfUrl).promise;
                                                                     totalPages = pdf.numPages;
                                                                 } catch { }
-                                                                await startAnalysis(file.name, totalPages, username, 'my-documents', true);
+                                                                await startAnalysis(file.name, totalPages, username, 'knowhow', true);
                                                                 await pollAnalysisStatus(file.name, () => { }, totalPages);
-                                                                loadFiles('my-documents');
+                                                                loadFiles('knowhow');
                                                             } catch (err) {
                                                                 alert('Re-analysis failed: ' + err.message);
                                                             } finally {
@@ -1766,7 +1778,7 @@ const KnowhowDB = () => {
                                                         <RefreshCcw className="w-3 h-3" />
                                                     </button>
                                                 )}
-                                                {(activeFolder === 'my-documents' || isAdmin) && (
+                                                {(activeFolder === 'knowhow' || isAdmin) && (
                                                     <button
                                                         onClick={async (e) => {
                                                             e.stopPropagation();
