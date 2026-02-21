@@ -902,29 +902,24 @@ const RevisionMaster = () => {
                         </div>
                     )}
 
-                    {/* User Profile & Admin Menu */}
-                    <div className="border-t border-slate-200 shrink-0">
-                        <div className="p-3 flex items-center gap-2.5">
-                            <Link
-                                to="/profile"
-                                className="flex items-center gap-2.5 flex-1 min-w-0 hover:bg-slate-100 p-1.5 -m-1.5 rounded-lg transition-colors group"
-                            >
-                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-teal-500 flex items-center justify-center text-white font-bold text-xs shrink-0 group-hover:scale-105 transition-transform">
+                    {/* User Profile Footer */}
+                    <div className="p-3 border-t border-[#e5e1d8] bg-[#f4f1ea] shrink-0">
+                        <div className="flex items-center justify-between gap-2">
+                            <Link to="/profile" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-[#e5e1d8] p-1.5 -ml-1.5 rounded-lg transition-colors group">
+                                <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
                                     {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
                                 </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-slate-800 truncate">{currentUser?.displayName || username || 'User'}</p>
-                                    <p className="text-[10px] text-slate-400 truncate">{currentUser?.email}</p>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-sm font-medium text-[#333333] truncate">{currentUser?.displayName || username || 'User'}</span>
+                                    <span className="text-[10px] text-[#666666] truncate">{currentUser?.email}</span>
                                 </div>
                             </Link>
                             <button
-                                onClick={async () => {
-                                    try { await logout(); navigate('/login'); } catch {}
-                                }}
-                                className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors shrink-0"
+                                onClick={async () => { try { await logout(); navigate('/login'); } catch {} }}
+                                className="p-2 hover:bg-[#ffe0d6] text-[#555555] hover:text-[#c05535] rounded-md transition-colors"
                                 title="로그아웃"
                             >
-                                <LogOut className="w-4 h-4" />
+                                <LogOut size={18} />
                             </button>
                         </div>
                     </div>

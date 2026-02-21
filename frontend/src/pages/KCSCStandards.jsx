@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
-    ArrowLeft, Send, Bot, User, Loader2, Search as SearchIcon,
+    Send, Bot, User, Loader2, Search as SearchIcon,
     ChevronRight, X, LogOut, MessageSquare, Plus, Trash2,
     Landmark, BookOpen, List, ChevronDown, ChevronUp, FileText
 } from 'lucide-react';
@@ -512,19 +512,25 @@ const KCSCStandards = () => {
                         )}
                     </div>
 
-                    {/* Bottom: User Menu */}
-                    <div className="border-t border-gray-200">
-                        <button onClick={() => navigate('/')} className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-600 hover:bg-gray-100 transition-colors">
-                            <ArrowLeft className="w-4 h-4" /> Return to Home
-                        </button>
-                        <div className="p-4 flex items-center gap-3 border-t border-gray-200">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
-                                {currentUser?.displayName?.charAt(0)?.toUpperCase() || currentUser?.email?.charAt(0)?.toUpperCase() || 'U'}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-800 truncate">{currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}</p>
-                                <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
-                            </div>
+                    {/* User Profile Footer */}
+                    <div className="p-3 border-t border-[#e5e1d8] bg-[#f4f1ea]">
+                        <div className="flex items-center justify-between gap-2">
+                            <Link to="/profile" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-[#e5e1d8] p-1.5 -ml-1.5 rounded-lg transition-colors group">
+                                <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
+                                    {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-sm font-medium text-[#333333] truncate">{currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}</span>
+                                    <span className="text-[10px] text-[#666666] truncate">{currentUser?.email}</span>
+                                </div>
+                            </Link>
+                            <button
+                                onClick={async () => { try { await logout(); navigate('/login'); } catch {} }}
+                                className="p-2 hover:bg-[#ffe0d6] text-[#555555] hover:text-[#c05535] rounded-md transition-colors"
+                                title="로그아웃"
+                            >
+                                <LogOut size={18} />
+                            </button>
                         </div>
                     </div>
                 </div>

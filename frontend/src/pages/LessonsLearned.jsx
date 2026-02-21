@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
     ArrowLeft, Search as SearchIcon, Send, Bot, User, Loader2,
     ChevronRight, ChevronDown, ChevronLeft, X, Upload, Trash2,
@@ -934,33 +934,24 @@ const LessonsLearned = () => {
                     )}
                 </div>
 
-                {/* User Profile (bottom) */}
-                <div className="px-3 py-3 border-t border-gray-200 flex-shrink-0">
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
-                            {currentUser?.photoURL ? (
-                                <img src={currentUser.photoURL} alt="" className="w-8 h-8 rounded-full object-cover" />
-                            ) : (
-                                <User className="w-4 h-4 text-purple-600" />
-                            )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-gray-800 truncate">
-                                {currentUser?.displayName || currentUser?.email?.split('@')[0] || '사용자'}
+                {/* User Profile Footer */}
+                <div className="p-3 border-t border-[#e5e1d8] bg-[#f4f1ea] flex-shrink-0">
+                    <div className="flex items-center justify-between gap-2">
+                        <Link to="/profile" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-[#e5e1d8] p-1.5 -ml-1.5 rounded-lg transition-colors group">
+                            <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
+                                {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
                             </div>
-                            <div className="text-[10px] text-gray-400 truncate">
-                                {currentUser?.email || ''}
+                            <div className="flex flex-col min-w-0">
+                                <span className="text-sm font-medium text-[#333333] truncate">{currentUser?.displayName || currentUser?.email?.split('@')[0] || 'User'}</span>
+                                <span className="text-[10px] text-[#666666] truncate">{currentUser?.email}</span>
                             </div>
-                        </div>
+                        </Link>
                         <button
-                            onClick={async () => {
-                                if (!confirm('로그아웃 하시겠습니까?')) return;
-                                try { await logout(); navigate('/'); } catch {}
-                            }}
-                            className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
+                            onClick={async () => { try { await logout(); navigate('/login'); } catch {} }}
+                            className="p-2 hover:bg-[#ffe0d6] text-[#555555] hover:text-[#c05535] rounded-md transition-colors"
                             title="로그아웃"
                         >
-                            <LogOut className="w-4 h-4" />
+                            <LogOut size={18} />
                         </button>
                     </div>
                 </div>
