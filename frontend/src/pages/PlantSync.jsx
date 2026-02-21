@@ -3,8 +3,9 @@ import {
   Layers, Plus, Upload, Search, Filter, ChevronDown, ChevronRight,
   ArrowLeft, X, Send, Check, CheckCircle2, XCircle, Clock, AlertTriangle,
   FileText, MapPin, MessageSquare, ClipboardList, Trash2,
-  RotateCcw, Eye, Pencil, Shield, Loader2
+  RotateCcw, Eye, Pencil, Shield, Loader2, LogOut
 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../firebase';
 import PDFViewer from '../components/PDFViewer';
@@ -35,7 +36,8 @@ const REVIEW_STATUSES = {
 };
 
 const PlantSync = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, logout } = useAuth();
+  const navigate = useNavigate();
 
   // ── State ──
   const [projects, setProjects] = useState([]);
@@ -665,30 +667,43 @@ const PlantSync = () => {
   // ── 3-Panel Layout ──
   return (
     <div className="h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col overflow-hidden">
-      {/* Top Bar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700/50 bg-slate-900/80 backdrop-blur-sm flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <button onClick={() => { setSelectedProject(null); setProjectDetail(null); setSelectedDrawing(null); setPdfUrl(null); }}
-                  className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-lg transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500/20 to-cyan-500/20 flex items-center justify-center">
-            <Layers className="w-4 h-4 text-sky-400" />
+      {/* Main Layout */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left Panel - Drawing List (KnowhowDB style) */}
+        <div className="w-[280px] border-r border-slate-700/50 flex flex-col flex-shrink-0 bg-slate-900/60">
+          {/* Header - Project Info */}
+          <div className="p-4 border-b border-slate-700/50">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-500/20 to-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                <Layers className="w-5 h-5 text-sky-400" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-sm font-bold text-slate-100 truncate">{selectedProject.project_name}</h1>
+                <p className="text-xs text-slate-500">{drawings.length}건 도면</p>
+              </div>
+            </div>
           </div>
-          <div>
-            <h1 className="text-sm font-bold text-slate-100">{selectedProject.project_name}</h1>
-            <p className="text-xs text-slate-500">{drawings.length}건 도면</p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {/* Pin placement toggle */}
+          {/* Upload Button */}
+          <div className="px-3 pt-3 pb-1">
+            <input ref={fileInputRef} type="file" accept=".pdf" onChange={handleFileUpload} className="hidden" />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 disabled:from-slate-600 disabled:to-slate-600 text-white rounded-lg text-sm font-medium transition-all shadow-sm"
+            >
+              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {uploading ? '업로드 중...' : 'PDF 업로드'}
+            </button>
+          </div>
+
+          {/* Pin Controls (when drawing selected) */}
           {selectedDrawing && (
-            <div className="flex items-center gap-2 mr-4">
+            <div className="px-3 py-2 border-b border-slate-700/50 flex items-center gap-2">
               <select
                 value={pinDiscipline}
                 onChange={e => setPinDiscipline(e.target.value)}
-                className="px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-300 focus:outline-none"
+                className="flex-1 px-2 py-1.5 bg-slate-800/50 border border-slate-700/50 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-sky-500/50"
               >
                 {Object.entries(DISCIPLINES).map(([k, v]) => (
                   <option key={k} value={k}>{v.label}</option>
@@ -696,17 +711,17 @@ const PlantSync = () => {
               </select>
               <button
                 onClick={() => setIsPlacingPin(!isPlacingPin)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                   isPlacingPin
                     ? 'bg-sky-500 text-white'
                     : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50'
                 }`}
               >
-                <MapPin className="w-3.5 h-3.5" /> {isPlacingPin ? '배치중...' : '핀 추가'}
+                <MapPin className="w-3.5 h-3.5" /> {isPlacingPin ? '배치중' : '핀'}
               </button>
               {activeRequestId && (
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/20 border border-amber-500/30 rounded-lg">
-                  <span className="text-[10px] text-amber-400">요청 연결중</span>
+                <div className="flex items-center gap-1 px-1.5 py-1 bg-amber-500/20 border border-amber-500/30 rounded-lg">
+                  <span className="text-[9px] text-amber-400">연결중</span>
                   <button onClick={handleStopMarkup} className="text-amber-400 hover:text-amber-300">
                     <X className="w-3 h-3" />
                   </button>
@@ -715,28 +730,6 @@ const PlantSync = () => {
             </div>
           )}
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-          >
-            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-            {uploading ? '업로드 중...' : 'PDF 업로드'}
-          </button>
-        </div>
-      </div>
-
-      {/* Main 3-Panel */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Panel - Drawing List */}
-        <div className="w-[280px] border-r border-slate-700/50 flex flex-col flex-shrink-0 bg-slate-900/40">
           {/* Search & Filter */}
           <div className="p-3 border-b border-slate-700/50 space-y-2">
             <div className="relative">
@@ -875,6 +868,28 @@ const PlantSync = () => {
                 {drawings.length === 0 ? '도면을 업로드해 주세요' : '검색 결과가 없습니다'}
               </div>
             )}
+          </div>
+
+          {/* User Profile Footer */}
+          <div className="p-3 border-t border-slate-700/50 bg-slate-900/80 mt-auto">
+            <div className="flex items-center justify-between gap-2">
+              <Link to="/profile" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-slate-700/50 p-1.5 -ml-1.5 rounded-lg transition-colors group">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-500 to-cyan-500 flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform text-sm">
+                  {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-medium text-slate-200 truncate">{currentUser?.displayName || 'User'}</span>
+                  <span className="text-[10px] text-slate-500 truncate">{currentUser?.email}</span>
+                </div>
+              </Link>
+              <button
+                onClick={async () => { try { await logout(); navigate('/login'); } catch {} }}
+                className="p-2 hover:bg-slate-700/50 text-slate-500 hover:text-sky-400 rounded-md transition-colors"
+                title="로그아웃"
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
           </div>
         </div>
 
