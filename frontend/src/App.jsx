@@ -56,6 +56,7 @@ import LessonsLearned from './pages/LessonsLearned';
 import RevisionMaster from './pages/RevisionMaster';
 import KCSCStandards from './pages/KCSCStandards';
 import CommentExtractor from './pages/CommentExtractor';
+import ContractDeviation from './pages/ContractDeviation';
 
 const App = () => {
     return (
@@ -148,6 +149,15 @@ const App = () => {
                             element={
                                 <PrivateRoute>
                                     <CommentExtractor />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* 계약서 Deviation 관리 */}
+                        <Route
+                            path="/contract-deviation"
+                            element={
+                                <PrivateRoute>
+                                    <ContractDeviation />
                                 </PrivateRoute>
                             }
                         />

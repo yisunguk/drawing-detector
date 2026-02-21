@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSearch, Database, ArrowRight, LogOut, LayoutGrid, ListChecks, BookOpen, ClipboardCheck, Landmark, MessageSquareText } from 'lucide-react';
+import { FileSearch, Database, ArrowRight, LogOut, LayoutGrid, ListChecks, BookOpen, ClipboardCheck, Landmark, MessageSquareText, Scale } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const LandingPage = () => {
@@ -221,6 +221,30 @@ const LandingPage = () => {
 
                             <div className="flex items-center text-lime-400 font-medium group-hover:translate-x-2 transition-transform">
                                 코멘트 관리 시작 <ArrowRight className="w-4 h-4 ml-2" />
+                            </div>
+                        </div>
+                    </div>
+                    {/* Card 8: 계약 Deviation 관리 */}
+                    <div
+                        onClick={() => window.open('/contract-deviation', '_blank')}
+                        className="group relative cursor-pointer"
+                    >
+                        <div className="absolute -inset-0.5 bg-gradient-to-r from-indigo-500 to-sky-500 rounded-2xl opacity-20 group-hover:opacity-100 blur transition duration-500"></div>
+                        <div className="relative h-full bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-8 hover:border-indigo-500/50 transition-all duration-300 transform group-hover:-translate-y-1">
+                            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-sky-500/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                                <Scale className="w-8 h-8 text-indigo-400" />
+                            </div>
+
+                            <h2 className="text-2xl font-bold text-slate-100 mb-3 group-hover:text-indigo-400 transition-colors">
+                                계약 Deviation 관리
+                            </h2>
+                            <p className="text-slate-400 mb-8 leading-relaxed">
+                                계약서 PDF에서 조항을 자동 추출하고 발주처-시공사 간
+                                Deviation 협의 이력을 체계적으로 관리합니다.
+                            </p>
+
+                            <div className="flex items-center text-indigo-400 font-medium group-hover:translate-x-2 transition-transform">
+                                Deviation 관리 시작 <ArrowRight className="w-4 h-4 ml-2" />
                             </div>
                         </div>
                     </div>

@@ -125,6 +125,13 @@ try:
 except Exception as e:
     print(f"Error loading revision module: {e}")
 
+# Enable Contracts Router (Contract Deviation Management)
+try:
+    from app.api.endpoints import contracts
+    app.include_router(contracts.router, prefix=f"{settings.API_V1_STR}/contracts", tags=["contracts"])
+except Exception as e:
+    print(f"Error loading contracts module: {e}", flush=True)
+
 # Mount uploads directory to serve static files if it exists
 uploads_dir = Path("uploads")
 if not uploads_dir.exists():
