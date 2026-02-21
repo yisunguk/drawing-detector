@@ -119,7 +119,7 @@ def _parse_contract_articles(pages: list) -> dict:
     articles_map = {}  # art_no -> article dict (earliest page with content wins)
 
     # Regex patterns for Korean legal documents
-    chapter_re = re.compile(r'제\s*(\d+)\s*장\s+([^\n제]{2,30})')
+    chapter_re = re.compile(r'(?:^|\n)\s*제\s*(\d+)\s*장\s+([^\n제]{2,30})')
     article_re = re.compile(r'제\s*(\d+)\s*조\s*[\(（]([^)）]+)[\)）]')
     sub_clause_re = re.compile(r'[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]')
     # Also match numbered clauses like "1 ...", "2 ..."
