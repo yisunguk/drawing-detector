@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Loader2 } from 'lucide-react';
 
 const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSizeChange }) => {
     const [currentPage, setCurrentPage] = useState(doc?.page || 1);
+    const BASE_RENDER_SCALE = 2; // Fixed high-res render; zoom is CSS-only
     const [zoom, setZoom] = useState(1);
-    const [renderZoom, setRenderZoom] = useState(1); // Debounced zoom for high-quality render
     const [rotation, setRotation] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [hasRendered, setHasRendered] = useState(false); // track first successful render
@@ -16,14 +16,7 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
     const pdfCacheRef = useRef({});
     const renderTaskRef = useRef(null);
     const viewportRef = useRef(null);
-
-    // Debounce zoom for rendering to prevent "dizzy" flicker
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setRenderZoom(zoom);
-        }, 300); // 300ms debounce
-        return () => clearTimeout(timer);
-    }, [zoom]);
+    const pendingScrollRef = useRef(null);
 
     // Find document data
     const documentData = documents?.find(d => d.id === doc?.docId);
@@ -322,21 +315,45 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
         }
     }, [rotation]);
 
-    // Re-render when page or render-ready zoom changes
+    // Re-render only on page/rotation change (zoom is CSS-only, no re-render)
     useEffect(() => {
         if (documentData) {
-            loadAndRenderPage(documentData, currentPage, renderZoom);
+            loadAndRenderPage(documentData, currentPage, BASE_RENDER_SCALE);
         }
-    }, [documentData, currentPage, renderZoom, loadAndRenderPage]);
+    }, [documentData, currentPage, loadAndRenderPage]);
 
+    // Mouse-wheel zoom centered on cursor position
     const handleWheel = useCallback((e) => {
         e.preventDefault();
-        const delta = -e.deltaY;
+        const container = containerRef.current;
+        if (!container) return;
+
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
         setZoom(prevZoom => {
-            let newZoom = prevZoom + (delta > 0 ? 0.1 : -0.1);
-            return Math.min(Math.max(0.5, newZoom), 5.0);
+            const delta = -e.deltaY;
+            const newZoom = Math.min(Math.max(0.5, prevZoom + (delta > 0 ? 0.1 : -0.1)), 5.0);
+            if (newZoom === prevZoom) return prevZoom;
+
+            const ratio = newZoom / prevZoom;
+            pendingScrollRef.current = {
+                left: (container.scrollLeft + mouseX) * ratio - mouseX,
+                top: (container.scrollTop + mouseY) * ratio - mouseY,
+            };
+            return newZoom;
         });
     }, []);
+
+    // Apply scroll adjustment synchronously before paint (no flicker)
+    useLayoutEffect(() => {
+        if (pendingScrollRef.current && containerRef.current) {
+            containerRef.current.scrollLeft = pendingScrollRef.current.left;
+            containerRef.current.scrollTop = pendingScrollRef.current.top;
+            pendingScrollRef.current = null;
+        }
+    }, [zoom]);
 
     useEffect(() => {
         const container = containerRef.current;
@@ -402,8 +419,8 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
         );
     }
 
-    // CSS scaling factor for smooth zoom interaction
-    const cssScale = zoom / renderZoom;
+    // CSS-only zoom: scale relative to the fixed base render resolution
+    const cssScale = zoom / BASE_RENDER_SCALE;
 
     return (
         <div className="h-full flex flex-col bg-white">
@@ -451,7 +468,7 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
 
                 {/* Scaling Layer: Both Canvas and Highlights scale together via CSS */}
                 <div
-                    className="relative mx-auto mb-8 shadow-2xl transition-transform duration-100 ease-out"
+                    className="relative mx-auto mb-8 shadow-2xl"
                     style={{
                         width: canvasSize.width,
                         height: canvasSize.height,
