@@ -7,25 +7,38 @@ PlantSync AI - Plant Drawing Revision & Discipline Collaboration API
 - PATCH  /projects/{id}                               : Rename project
 - DELETE /projects/{id}                               : Delete project
 - POST   /projects/{id}/upload                        : Upload drawing PDF → DI → Title Block
+- POST   /projects/{id}/bulk-upload                   : Bulk upload multiple PDFs
 - PUT    /projects/{id}/drawings/{did}/title-block     : Confirm/edit Title Block
+- POST   /projects/{id}/drawings/{did}/register        : Register staged drawing
+- GET    /projects/{id}/staged                         : List staged drawings
 - GET    /projects/{id}/drawings/{did}/pdf-url         : Get PDF SAS URL
+- POST   /projects/{id}/drawings/{did}/diff-urls       : Get SAS URLs for two revisions (diff)
 - POST   /projects/{id}/drawings/{did}/markups         : Create markup (pin)
 - GET    /projects/{id}/drawings/{did}/markups          : List markups (filter: page, discipline)
 - PATCH  /projects/{id}/drawings/{did}/markups/{mid}   : Update markup status
 - POST   /projects/{id}/drawings/{did}/markups/{mid}/replies : Add reply
+- POST   /projects/{id}/drawings/{did}/nearby-text     : Find text near pin coordinate
+- POST   /projects/{id}/drawings/{did}/related-search  : Search related markups/documents
 - PUT    /projects/{id}/drawings/{did}/review           : Update discipline review status
 - POST   /projects/{id}/drawings/{did}/approve          : EM final approval
 - GET    /projects/{id}/dashboard                       : Dashboard stats
+- GET    /projects/{id}/export-excel                   : Export drawing register as Excel
+- GET    /projects/{id}/activity                       : Activity timeline
+- GET    /projects/{id}/drawings/{did}/review-gate     : Review gate check
+- POST   /projects/{id}/drawings/{did}/export-markup-pdf : Export PDF with markup overlays
 """
 
+import io
 import json
 import logging
+import math
 import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Header, UploadFile, File, Form, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -48,6 +61,17 @@ class ConfirmTitleBlockRequest(BaseModel):
     title: Optional[str] = None
     revision: Optional[str] = None
     discipline: Optional[str] = None
+    # EPC 관리 필드
+    vendor_drawing_number: Optional[str] = None
+    issue_purpose: Optional[str] = None  # IFA / IFI / IFC / As-Built
+    issue_date: Optional[str] = None
+    receive_date: Optional[str] = None
+    vendor_name: Optional[str] = None
+    reviewer_name: Optional[str] = None
+    has_dwg: Optional[bool] = None
+    related_drawings: Optional[List[str]] = None
+    change_log: Optional[str] = None
+    remarks: Optional[str] = None
 
 
 class CreateMarkupRequest(BaseModel):
@@ -161,6 +185,31 @@ def _markups_path(username: str, project_id: str) -> str:
 
 def _requests_path(username: str, project_id: str) -> str:
     return f"{username}/plantsync/{project_id}/requests.json"
+
+
+def _activity_path(username: str, project_id: str) -> str:
+    return f"{username}/plantsync/{project_id}/activity.json"
+
+
+def _log_activity(container, username: str, project_id: str, action: str, details: dict = None):
+    """Append an activity event to the project's activity log."""
+    try:
+        path = _activity_path(username, project_id)
+        activities = _load_json(container, path) or []
+        event = {
+            "event_id": str(uuid.uuid4())[:8],
+            "action": action,
+            "actor": username,
+            "details": details or {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        activities.insert(0, event)  # newest first
+        # Keep last 500 events
+        if len(activities) > 500:
+            activities = activities[:500]
+        _save_json(container, path, activities)
+    except Exception as e:
+        logger.debug(f"Activity log failed: {e}")
 
 
 def _list_projects(container, username: str) -> list:
@@ -483,6 +532,18 @@ async def upload_drawing(
             }],
             "review_status": _empty_review_status(),
             "em_approval": {"status": "pending"},
+            "staging_status": "staged",
+            # EPC 관리 필드
+            "vendor_drawing_number": "",
+            "issue_purpose": "",
+            "issue_date": "",
+            "receive_date": "",
+            "vendor_name": "",
+            "reviewer_name": "",
+            "has_dwg": False,
+            "related_drawings": [],
+            "change_log": "",
+            "remarks": "",
             "created_at": now,
             "updated_at": now,
         }
@@ -492,12 +553,37 @@ async def upload_drawing(
     meta["updated_at"] = now
     _save_json(container, _meta_path(username, project_id), meta)
 
+    _log_activity(container, username, project_id, "drawing_uploaded", {
+        "drawing_id": drawing_id,
+        "drawing_number": title_block.get("drawing_number", ""),
+        "filename": filename,
+        "is_new_revision": is_new_revision if 'is_new_revision' in dir() else (existing_drawing is not None),
+    })
+
+    # Extract words with confidence & polygon for staging overlay
+    title_block_words = []
+    di_page_layout = {"width": 0, "height": 0}
+    if di_result and len(di_result) > 0:
+        first_page = di_result[0]
+        di_page_layout = {
+            "width": first_page.get("width", 0),
+            "height": first_page.get("height", 0),
+        }
+        for word in first_page.get("words", []):
+            title_block_words.append({
+                "content": word.get("content", ""),
+                "confidence": word.get("confidence", 0),
+                "polygon": word.get("polygon", []),
+            })
+
     return {
         "status": "success",
         "drawing": drawing_data,
         "title_block": title_block,
         "is_new_revision": is_new_revision,
         "page_count": page_count,
+        "title_block_words": title_block_words,
+        "di_page_layout": di_page_layout,
     }
 
 
@@ -539,6 +625,17 @@ async def confirm_title_block(
             drawing["revisions"][-1]["revision"] = req.revision
     if req.discipline is not None:
         drawing["discipline"] = req.discipline
+
+    # EPC 관리 필드 처리
+    for field in [
+        "vendor_drawing_number", "issue_purpose", "issue_date", "receive_date",
+        "vendor_name", "reviewer_name", "has_dwg", "change_log", "remarks",
+    ]:
+        val = getattr(req, field, None)
+        if val is not None:
+            drawing[field] = val
+    if req.related_drawings is not None:
+        drawing["related_drawings"] = req.related_drawings
 
     drawing["updated_at"] = datetime.now(timezone.utc).isoformat()
     meta["updated_at"] = drawing["updated_at"]
@@ -688,6 +785,13 @@ async def create_markup(
     markups.append(markup)
     _save_json(container, markups_bp, markups)
 
+    _log_activity(container, username, project_id, "markup_created", {
+        "markup_id": markup_id,
+        "drawing_id": drawing_id,
+        "discipline": req.discipline,
+        "comment": req.comment[:100],
+    })
+
     return {"status": "success", "markup": markup}
 
 
@@ -741,6 +845,11 @@ async def update_markup(
     markup["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     _save_json(container, markups_bp, markups)
+
+    if req.status == "resolved":
+        _log_activity(container, username, project_id, "markup_resolved", {
+            "markup_id": markup_id, "drawing_id": drawing_id,
+        })
 
     return {"status": "success", "markup": markup}
 
@@ -815,6 +924,12 @@ async def update_review_status(
     meta["updated_at"] = now
     _save_json(container, _meta_path(username, project_id), meta)
 
+    _log_activity(container, username, project_id, "review_updated", {
+        "drawing_id": drawing_id,
+        "discipline": req.discipline,
+        "status": req.status,
+    })
+
     return {"status": "success", "review_status": review_status}
 
 
@@ -847,6 +962,11 @@ async def final_approval(
     drawing["updated_at"] = now
     meta["updated_at"] = now
     _save_json(container, _meta_path(username, project_id), meta)
+
+    _log_activity(container, username, project_id, "approval_decided", {
+        "drawing_id": drawing_id,
+        "decision": req.decision,
+    })
 
     return {"status": "success", "em_approval": drawing["em_approval"]}
 
@@ -968,6 +1088,13 @@ async def create_review_request(
     requests.append(review_request)
     _save_json(container, requests_bp, requests)
 
+    _log_activity(container, username, project_id, "request_created", {
+        "request_id": request_id,
+        "drawing_id": req.drawing_id,
+        "to_name": req.to_name,
+        "title": req.title,
+    })
+
     print(f"[PlantSync] Review request created: {request_id} ({username} → {req.to_name})", flush=True)
     return {"status": "success", "request": review_request}
 
@@ -1025,6 +1152,11 @@ async def update_review_request_status(
 
     _save_json(container, requests_bp, requests)
 
+    if req.status == "confirmed":
+        _log_activity(container, username, project_id, "request_confirmed", {
+            "request_id": request_id,
+        })
+
     return {"status": "success", "request": review_req}
 
 
@@ -1077,3 +1209,751 @@ async def delete_review_request(
     _save_json(container, requests_bp, requests)
 
     return {"status": "success", "deleted": request_id}
+
+
+# ── Feature 2: Staging Area ──
+
+class RegisterDrawingRequest(BaseModel):
+    drawing_number: Optional[str] = None
+    title: Optional[str] = None
+    revision: Optional[str] = None
+    discipline: Optional[str] = None
+    vendor_drawing_number: Optional[str] = None
+    issue_purpose: Optional[str] = None
+    issue_date: Optional[str] = None
+    receive_date: Optional[str] = None
+    vendor_name: Optional[str] = None
+    reviewer_name: Optional[str] = None
+    has_dwg: Optional[bool] = None
+    related_drawings: Optional[List[str]] = None
+    change_log: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+@router.post("/projects/{project_id}/drawings/{drawing_id}/register")
+async def register_drawing(
+    project_id: str,
+    drawing_id: str,
+    req: RegisterDrawingRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Move drawing from staged → registered, update metadata."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == drawing_id), None)
+    if not drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+
+    drawing["staging_status"] = "registered"
+
+    # Update all provided fields
+    for field in [
+        "drawing_number", "title", "discipline",
+        "vendor_drawing_number", "issue_purpose", "issue_date", "receive_date",
+        "vendor_name", "reviewer_name", "has_dwg", "change_log", "remarks",
+    ]:
+        val = getattr(req, field, None)
+        if val is not None:
+            drawing[field] = val
+    if req.revision is not None:
+        drawing["current_revision"] = req.revision
+        if drawing.get("revisions"):
+            drawing["revisions"][-1]["revision"] = req.revision
+    if req.related_drawings is not None:
+        drawing["related_drawings"] = req.related_drawings
+
+    drawing["updated_at"] = datetime.now(timezone.utc).isoformat()
+    meta["updated_at"] = drawing["updated_at"]
+    _save_json(container, _meta_path(username, project_id), meta)
+
+    _log_activity(container, username, project_id, "drawing_registered", {
+        "drawing_id": drawing_id,
+        "drawing_number": drawing.get("drawing_number", ""),
+    })
+
+    print(f"[PlantSync] Drawing registered: {drawing_id}", flush=True)
+    return {"status": "success", "drawing": drawing}
+
+
+@router.get("/projects/{project_id}/staged")
+async def list_staged_drawings(
+    project_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Return only staged (not yet registered) drawings."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    staged = [d for d in meta.get("drawings", []) if d.get("staging_status") == "staged"]
+    return {"status": "success", "staged": staged, "count": len(staged)}
+
+
+# ── Feature 3: Visual Diff Viewer ──
+
+class DiffUrlsRequest(BaseModel):
+    revision_id_a: str
+    revision_id_b: str
+
+
+@router.post("/projects/{project_id}/drawings/{drawing_id}/diff-urls")
+async def get_diff_urls(
+    project_id: str,
+    drawing_id: str,
+    req: DiffUrlsRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Return SAS URLs for two revisions to enable visual diff."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == drawing_id), None)
+    if not drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+
+    revisions = drawing.get("revisions", [])
+    rev_a = next((r for r in revisions if r["revision_id"] == req.revision_id_a), None)
+    rev_b = next((r for r in revisions if r["revision_id"] == req.revision_id_b), None)
+
+    if not rev_a or not rev_b:
+        raise HTTPException(status_code=404, detail="One or both revisions not found")
+
+    from app.services.blob_storage import generate_sas_url
+    url_a = generate_sas_url(rev_a["blob_path"])
+    url_b = generate_sas_url(rev_b["blob_path"])
+
+    return {
+        "status": "success",
+        "revision_a": {**rev_a, "pdf_url": url_a},
+        "revision_b": {**rev_b, "pdf_url": url_b},
+    }
+
+
+# ── Feature 4: Smart Markup Pin + AI 제안 ──
+
+class NearbyTextRequest(BaseModel):
+    page: int
+    x: float
+    y: float
+    radius: float = 0.05
+
+
+@router.post("/projects/{project_id}/drawings/{drawing_id}/nearby-text")
+async def get_nearby_text(
+    project_id: str,
+    drawing_id: str,
+    req: NearbyTextRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Find DI words/lines near a pin coordinate on a specific page."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == drawing_id), None)
+    if not drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+
+    # Find di_result.json
+    revisions = drawing.get("revisions", [])
+    if not revisions:
+        return {"status": "success", "words": [], "lines": []}
+
+    latest_rev = revisions[-1]
+    blob_dir = latest_rev["blob_path"].rsplit("/", 1)[0]
+    di_path = f"{blob_dir}/di_result.json"
+    di_result = _load_json(container, di_path)
+    if not di_result:
+        return {"status": "success", "words": [], "lines": []}
+
+    # Get the requested page (0-indexed in di_result)
+    page_idx = req.page - 1
+    if page_idx < 0 or page_idx >= len(di_result):
+        return {"status": "success", "words": [], "lines": []}
+
+    page_data = di_result[page_idx]
+    page_w = page_data.get("width", 1)
+    page_h = page_data.get("height", 1)
+
+    # Pin coords: normalized (0-1) → DI pixel space
+    pin_x = req.x * page_w
+    pin_y = req.y * page_h
+    radius_px = req.radius * max(page_w, page_h)
+
+    def polygon_center(polygon):
+        if not polygon or len(polygon) < 4:
+            return None, None
+        xs = [polygon[i] for i in range(0, len(polygon), 2)]
+        ys = [polygon[i] for i in range(1, len(polygon), 2)]
+        return sum(xs) / len(xs), sum(ys) / len(ys)
+
+    def dist(cx, cy):
+        return math.sqrt((cx - pin_x) ** 2 + (cy - pin_y) ** 2)
+
+    # Words
+    nearby_words = []
+    for w in page_data.get("words", []):
+        cx, cy = polygon_center(w.get("polygon", []))
+        if cx is None:
+            continue
+        d = dist(cx, cy)
+        if d <= radius_px:
+            nearby_words.append({
+                "content": w.get("content", ""),
+                "confidence": w.get("confidence", 0),
+                "distance": round(d, 2),
+            })
+    nearby_words.sort(key=lambda x: x["distance"])
+
+    # Lines
+    nearby_lines = []
+    for line in page_data.get("lines", []):
+        cx, cy = polygon_center(line.get("polygon", []))
+        if cx is None:
+            continue
+        d = dist(cx, cy)
+        if d <= radius_px * 2:  # larger radius for lines
+            nearby_lines.append({
+                "content": line.get("content", ""),
+                "distance": round(d, 2),
+            })
+    nearby_lines.sort(key=lambda x: x["distance"])
+
+    return {
+        "status": "success",
+        "words": nearby_words[:20],
+        "lines": nearby_lines[:10],
+    }
+
+
+class RelatedSearchRequest(BaseModel):
+    query: str
+
+
+@router.post("/projects/{project_id}/drawings/{drawing_id}/related-search")
+async def related_search(
+    project_id: str,
+    drawing_id: str,
+    req: RelatedSearchRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Search related markups in the project and Azure AI Search index."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    query = req.query.strip().lower()
+    if not query:
+        return {"status": "success", "markups": [], "documents": []}
+
+    # 1) Search markups.json for keyword matches
+    markups_bp = _markups_path(username, project_id)
+    all_markups = _load_json(container, markups_bp) or []
+    matched_markups = []
+    for m in all_markups:
+        text = (m.get("comment", "") + " " + " ".join(
+            r.get("content", "") for r in m.get("replies", [])
+        )).lower()
+        if query in text:
+            matched_markups.append({
+                "markup_id": m.get("markup_id"),
+                "drawing_id": m.get("drawing_id"),
+                "comment": m.get("comment", ""),
+                "discipline": m.get("discipline", ""),
+                "author_name": m.get("author_name", ""),
+                "status": m.get("status", ""),
+                "page": m.get("page", 1),
+            })
+
+    # 2) Search Azure AI Search (best-effort, skip if not configured)
+    search_results = []
+    try:
+        from app.services.azure_search import search_documents
+        hits = search_documents(query, top=5)
+        for h in hits:
+            search_results.append({
+                "type": "document",
+                "title": h.get("title", ""),
+                "content_snippet": h.get("content", "")[:200],
+                "score": h.get("@search.score", 0),
+                "source": h.get("source", ""),
+            })
+    except Exception as e:
+        logger.debug(f"Azure Search skipped: {e}")
+
+    return {
+        "status": "success",
+        "markups": matched_markups[:10],
+        "documents": search_results,
+    }
+
+
+# ── Feature 5: Excel Export ──
+
+@router.get("/projects/{project_id}/export-excel")
+async def export_excel(
+    project_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Export drawing register and markup details as Excel."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    markups = _load_json(container, _markups_path(username, project_id)) or []
+
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    except ImportError:
+        raise HTTPException(status_code=500, detail="openpyxl is not installed")
+
+    wb = openpyxl.Workbook()
+
+    # ── Sheet 1: 도면 대장 ──
+    ws1 = wb.active
+    ws1.title = "도면 대장"
+
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="2563EB", end_color="2563EB", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_border = Border(
+        left=Side(style="thin"), right=Side(style="thin"),
+        top=Side(style="thin"), bottom=Side(style="thin"),
+    )
+
+    headers1 = [
+        ("No", 5), ("도면번호", 25), ("타이틀", 40), ("리비전", 8),
+        ("디시플린", 10), ("Issue Purpose", 15), ("Vendor", 15),
+        ("등록일", 15),
+        ("공정", 8), ("기계", 8), ("배관", 8), ("전기", 8), ("계장", 8), ("토목", 8),
+        ("EM 승인", 10), ("마크업수", 8),
+    ]
+    for col_idx, (header, width) in enumerate(headers1, 1):
+        cell = ws1.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+        ws1.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+    cell_align = Alignment(vertical="top", wrap_text=True)
+    drawings = meta.get("drawings", [])
+    for row_idx, d in enumerate(drawings, 2):
+        rs = d.get("review_status", {})
+        markup_count = sum(1 for m in markups if m.get("drawing_id") == d.get("drawing_id"))
+        values = [
+            row_idx - 1,
+            d.get("drawing_number", ""),
+            d.get("title", ""),
+            d.get("current_revision", ""),
+            d.get("discipline", ""),
+            d.get("issue_purpose", ""),
+            d.get("vendor_name", ""),
+            d.get("created_at", "")[:10] if d.get("created_at") else "",
+            rs.get("process", {}).get("status", ""),
+            rs.get("mechanical", {}).get("status", ""),
+            rs.get("piping", {}).get("status", ""),
+            rs.get("electrical", {}).get("status", ""),
+            rs.get("instrument", {}).get("status", ""),
+            rs.get("civil", {}).get("status", ""),
+            d.get("em_approval", {}).get("status", "pending"),
+            markup_count,
+        ]
+        for col_idx, val in enumerate(values, 1):
+            cell = ws1.cell(row=row_idx, column=col_idx, value=val)
+            cell.alignment = cell_align
+            cell.border = thin_border
+
+    # ── Sheet 2: 마크업 내역 ──
+    ws2 = wb.create_sheet("마크업 내역")
+    headers2 = [
+        ("No", 5), ("도면번호", 25), ("페이지", 6), ("디시플린", 10),
+        ("코멘트", 50), ("작성자", 12), ("상태", 8), ("생성일", 18),
+    ]
+    for col_idx, (header, width) in enumerate(headers2, 1):
+        cell = ws2.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+        ws2.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+    # Build drawing_id → drawing_number map
+    did_to_num = {d["drawing_id"]: d.get("drawing_number", "") for d in drawings}
+
+    for row_idx, m in enumerate(markups, 2):
+        values = [
+            row_idx - 1,
+            did_to_num.get(m.get("drawing_id", ""), ""),
+            m.get("page", ""),
+            m.get("discipline", ""),
+            m.get("comment", ""),
+            m.get("author_name", ""),
+            m.get("status", ""),
+            m.get("created_at", ""),
+        ]
+        for col_idx, val in enumerate(values, 1):
+            cell = ws2.cell(row=row_idx, column=col_idx, value=val)
+            cell.alignment = cell_align
+            cell.border = thin_border
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    project_name = meta.get("project_name", "plantsync")
+    safe_filename = f"{project_name}_도면대장.xlsx"
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+    )
+
+
+# ── Feature 6: Bulk Upload ──
+
+@router.post("/projects/{project_id}/bulk-upload")
+async def bulk_upload_drawings(
+    project_id: str,
+    files: List[UploadFile] = File(...),
+    authorization: Optional[str] = Header(None)
+):
+    """Upload multiple drawing PDFs at once. Each file goes through the same DI → title block → staging flow."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    results = []
+    for file in files:
+        try:
+            file_content = await file.read()
+            if not file_content:
+                results.append({"filename": file.filename, "status": "error", "error": "Empty file"})
+                continue
+
+            drawing_id = str(uuid.uuid4())[:8]
+            filename = file.filename or f"{drawing_id}.pdf"
+
+            # Upload PDF to temp path
+            temp_blob_path = f"{username}/plantsync/{project_id}/temp/{drawing_id}/{filename}"
+            container.upload_blob(name=temp_blob_path, data=file_content, overwrite=True)
+
+            # Generate SAS URL for DI analysis
+            from app.services.blob_storage import generate_sas_url
+            pdf_url = generate_sas_url(temp_blob_path)
+
+            # Run Document Intelligence
+            di_result = []
+            title_block = {"drawing_number": "", "title": "", "revision": "", "discipline": ""}
+            try:
+                from app.services.azure_di import azure_di_service
+                di_result = azure_di_service.analyze_document_from_url(pdf_url)
+                title_block = _extract_title_block(di_result)
+            except Exception as e:
+                print(f"[PlantSync] DI analysis failed for {filename}: {e}", flush=True)
+
+            discipline = title_block.get("discipline") or "unknown"
+
+            # Move PDF to discipline folder
+            blob_path = f"{username}/plantsync/{project_id}/{discipline}/{drawing_id}/{filename}"
+            container.upload_blob(name=blob_path, data=file_content, overwrite=True)
+            try:
+                container.delete_blob(temp_blob_path)
+            except Exception:
+                pass
+
+            # Save DI result
+            if di_result:
+                di_path = f"{username}/plantsync/{project_id}/{discipline}/{drawing_id}/di_result.json"
+                _save_json(container, di_path, di_result)
+
+            page_count = len(di_result) if di_result else 1
+            now = datetime.now(timezone.utc).isoformat()
+
+            # Check for existing drawing with same number
+            existing_drawing = None
+            if title_block.get("drawing_number"):
+                for d in meta.get("drawings", []):
+                    if d.get("drawing_number") == title_block["drawing_number"]:
+                        existing_drawing = d
+                        break
+
+            if existing_drawing:
+                rev_entry = {
+                    "revision_id": drawing_id,
+                    "revision": title_block.get("revision", ""),
+                    "blob_path": blob_path,
+                    "uploaded_at": now,
+                    "page_count": page_count,
+                    "filename": filename,
+                }
+                existing_drawing["revisions"].append(rev_entry)
+                existing_drawing["current_revision"] = title_block.get("revision", existing_drawing.get("current_revision", ""))
+                existing_drawing["updated_at"] = now
+            else:
+                drawing_data = {
+                    "drawing_id": drawing_id,
+                    "drawing_number": title_block.get("drawing_number", ""),
+                    "title": title_block.get("title", filename),
+                    "discipline": discipline,
+                    "current_revision": title_block.get("revision", "A"),
+                    "revisions": [{
+                        "revision_id": drawing_id,
+                        "revision": title_block.get("revision", "A"),
+                        "blob_path": blob_path,
+                        "uploaded_at": now,
+                        "page_count": page_count,
+                        "filename": filename,
+                    }],
+                    "review_status": _empty_review_status(),
+                    "em_approval": {"status": "pending"},
+                    "staging_status": "staged",
+                    "vendor_drawing_number": "",
+                    "issue_purpose": "",
+                    "issue_date": "",
+                    "receive_date": "",
+                    "vendor_name": "",
+                    "reviewer_name": "",
+                    "has_dwg": False,
+                    "related_drawings": [],
+                    "change_log": "",
+                    "remarks": "",
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                meta["drawings"].append(drawing_data)
+
+            results.append({
+                "filename": filename,
+                "status": "success",
+                "drawing_id": drawing_id,
+                "drawing_number": title_block.get("drawing_number", ""),
+                "title": title_block.get("title", ""),
+                "discipline": discipline,
+                "is_new_revision": existing_drawing is not None,
+            })
+
+        except Exception as e:
+            results.append({"filename": file.filename, "status": "error", "error": str(e)})
+
+    meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_json(container, _meta_path(username, project_id), meta)
+
+    success_count = sum(1 for r in results if r["status"] == "success")
+    _log_activity(container, username, project_id, "drawing_uploaded", {
+        "bulk": True,
+        "total": len(files),
+        "success": success_count,
+    })
+
+    print(f"[PlantSync] Bulk upload: {success_count}/{len(files)} succeeded", flush=True)
+    return {"status": "success", "results": results, "success_count": success_count, "total": len(files)}
+
+
+# ── Feature 7: Activity Timeline ──
+
+@router.get("/projects/{project_id}/activity")
+async def get_activity(
+    project_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    authorization: Optional[str] = Header(None)
+):
+    """Return recent activity events for the project."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    activities = _load_json(container, _activity_path(username, project_id)) or []
+    return {"status": "success", "activities": activities[:limit]}
+
+
+# ── Feature 8: Review Gate ──
+
+@router.get("/projects/{project_id}/drawings/{drawing_id}/review-gate")
+async def review_gate(
+    project_id: str,
+    drawing_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Check if all discipline reviews are completed for EM approval."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == drawing_id), None)
+    if not drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+
+    review_status = drawing.get("review_status", _empty_review_status())
+
+    completed = []
+    incomplete = []
+    for disc in DISCIPLINES:
+        rs = review_status.get(disc, {})
+        st = rs.get("status", "not_started")
+        if st == "completed":
+            completed.append(disc)
+        else:
+            incomplete.append({"discipline": disc, "status": st})
+
+    total = len(DISCIPLINES)
+    completion_rate = round(len(completed) / total * 100) if total > 0 else 0
+    all_completed = len(incomplete) == 0
+
+    return {
+        "status": "success",
+        "all_completed": all_completed,
+        "completion_rate": completion_rate,
+        "completed_disciplines": completed,
+        "incomplete_disciplines": incomplete,
+        "total": total,
+    }
+
+
+# ── Feature 9: Markup PDF Export ──
+
+@router.post("/projects/{project_id}/drawings/{drawing_id}/export-markup-pdf")
+async def export_markup_pdf(
+    project_id: str,
+    drawing_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Render markup pins on the original PDF and return as download."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == drawing_id), None)
+    if not drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+
+    # Get latest revision PDF
+    revisions = drawing.get("revisions", [])
+    if not revisions:
+        raise HTTPException(status_code=404, detail="No revisions found")
+
+    latest_rev = revisions[-1]
+    blob_path = latest_rev["blob_path"]
+
+    # Download PDF from blob
+    try:
+        blob_client = container.get_blob_client(blob_path)
+        pdf_bytes = blob_client.download_blob().readall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download PDF: {e}")
+
+    # Load markups for this drawing
+    markups_list = _load_json(container, _markups_path(username, project_id)) or []
+    drawing_markups = [m for m in markups_list if m.get("drawing_id") == drawing_id]
+
+    if not drawing_markups:
+        # No markups — return original PDF
+        buffer = io.BytesIO(pdf_bytes)
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{drawing.get("drawing_number", drawing_id)}_markup.pdf"'},
+        )
+
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        raise HTTPException(status_code=500, detail="PyMuPDF (fitz) is not installed")
+
+    DISC_COLORS = {
+        "process":     (0.94, 0.27, 0.27),  # red
+        "mechanical":  (0.23, 0.51, 0.96),  # blue
+        "piping":      (0.13, 0.77, 0.37),  # green
+        "electrical":  (0.92, 0.70, 0.03),  # yellow
+        "instrument":  (0.66, 0.33, 0.97),  # purple
+        "civil":       (0.98, 0.45, 0.09),  # orange
+    }
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    # Group markups by page
+    markups_by_page = {}
+    for m in drawing_markups:
+        pg = m.get("page", 1)
+        markups_by_page.setdefault(pg, []).append(m)
+
+    for page_num, page_markups in markups_by_page.items():
+        page_idx = page_num - 1
+        if page_idx < 0 or page_idx >= len(doc):
+            continue
+
+        page = doc[page_idx]
+        rect = page.rect
+        pw, ph = rect.width, rect.height
+
+        for idx, m in enumerate(page_markups, 1):
+            x = m.get("x", 0) * pw
+            y = m.get("y", 0) * ph
+            disc = m.get("discipline", "")
+            color = DISC_COLORS.get(disc, (0.5, 0.5, 0.5))
+
+            # Draw filled circle
+            center = fitz.Point(x, y)
+            r = 12
+            circle_rect = fitz.Rect(x - r, y - r, x + r, y + r)
+            shape = page.new_shape()
+            shape.draw_circle(center, r)
+            shape.finish(color=color, fill=color, fill_opacity=0.85)
+            shape.commit()
+
+            # Draw number text inside circle
+            fontsize = 9
+            text = str(idx)
+            text_point = fitz.Point(x - fontsize * 0.3 * len(text), y + fontsize * 0.35)
+            page.insert_text(text_point, text, fontsize=fontsize, color=(1, 1, 1))
+
+            # Add annotation comment as a text note
+            comment = m.get("comment", "")
+            author = m.get("author_name", "")
+            status = m.get("status", "")
+            note_text = f"[{disc}] {comment}\n- {author} ({status})"
+
+            annot = page.add_text_annot(center, note_text)
+            annot.set_colors(stroke=color)
+            annot.update()
+
+    # Save to buffer
+    output = io.BytesIO()
+    doc.save(output)
+    doc.close()
+    output.seek(0)
+
+    safe_name = drawing.get("drawing_number", drawing_id)
+
+    return StreamingResponse(
+        output,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_markup.pdf"'},
+    )

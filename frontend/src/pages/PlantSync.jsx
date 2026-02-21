@@ -3,12 +3,14 @@ import {
   Layers, Plus, Upload, Search, Filter, ChevronDown, ChevronRight,
   ArrowLeft, X, Send, Check, CheckCircle2, XCircle, Clock, AlertTriangle,
   FileText, MapPin, MessageSquare, ClipboardList, Trash2,
-  RotateCcw, Eye, Pencil, Shield, Loader2, LogOut
+  RotateCcw, Eye, Pencil, Shield, Loader2, LogOut, GitCompare,
+  Sparkles, ExternalLink, File, Download, History, ShieldCheck, FileDown
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../firebase';
 import PDFViewer from '../components/PDFViewer';
+import DiffViewer from '../components/DiffViewer';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
 const getUrl = (path) => `${API_BASE}/api/v1/plantsync/${path}`;
@@ -78,6 +80,38 @@ const PlantSync = () => {
   const [requestForm, setRequestForm] = useState({ to_name: '', discipline: 'process', title: '', message: '', priority: 'normal' });
   const [requestReplyText, setRequestReplyText] = useState('');
   const [activeRequestId, setActiveRequestId] = useState(null); // for linking markups to request
+
+  // Feature 2: Staging Area
+  const [stagingWords, setStagingWords] = useState([]);
+  const [stagingLayout, setStagingLayout] = useState({ width: 0, height: 0 });
+  const [stagedCount, setStagedCount] = useState(0);
+
+  // Feature 3: Diff Viewer
+  const [showDiffViewer, setShowDiffViewer] = useState(false);
+  const [diffRevisions, setDiffRevisions] = useState({ a: null, b: null });
+  const [diffRevSelecting, setDiffRevSelecting] = useState(false);
+  const [diffRevA, setDiffRevA] = useState('');
+  const [diffRevB, setDiffRevB] = useState('');
+
+  // Feature 4: Smart Markup Pin
+  const [nearbyWords, setNearbyWords] = useState([]);
+  const [nearbyLines, setNearbyLines] = useState([]);
+  const [loadingNearby, setLoadingNearby] = useState(false);
+  const [relatedResults, setRelatedResults] = useState({ markups: [], documents: [] });
+  const [loadingRelated, setLoadingRelated] = useState(false);
+
+  // Feature 6: Bulk Upload
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+
+  // Feature 7: Activity Timeline
+  const [activities, setActivities] = useState([]);
+
+  // Feature 8: Review Gate
+  const [reviewGate, setReviewGate] = useState(null);
+
+  // Feature 9: Markup PDF Export
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -170,6 +204,36 @@ const PlantSync = () => {
     }
   }, []);
 
+  // Feature 7: Load activity timeline
+  const loadActivities = useCallback(async (projectId) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${projectId}/activity?limit=50`), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setActivities(data.activities || []);
+    } catch (e) {
+      console.error('Load activities error:', e);
+    }
+  }, []);
+
+  // Feature 8: Load review gate
+  const loadReviewGate = useCallback(async (projectId, drawingId) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${projectId}/drawings/${drawingId}/review-gate`), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setReviewGate(data);
+    } catch (e) {
+      console.error('Load review gate error:', e);
+    }
+  }, []);
+
   // ── Effects ──
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
@@ -179,16 +243,18 @@ const PlantSync = () => {
       loadProjectDetail(selectedProject.project_id);
       loadDashboard(selectedProject.project_id);
       loadReviewRequests(selectedProject.project_id);
+      loadActivities(selectedProject.project_id);
     }
-  }, [selectedProject, loadProjectDetail, loadDashboard, loadReviewRequests]);
+  }, [selectedProject, loadProjectDetail, loadDashboard, loadReviewRequests, loadActivities]);
 
   useEffect(() => {
     if (selectedProject && selectedDrawing) {
       loadPdfUrl(selectedProject.project_id, selectedDrawing.drawing_id);
       loadMarkups(selectedProject.project_id, selectedDrawing.drawing_id);
       loadReviewRequests(selectedProject.project_id, selectedDrawing.drawing_id);
+      loadReviewGate(selectedProject.project_id, selectedDrawing.drawing_id);
     }
-  }, [selectedProject, selectedDrawing, loadPdfUrl, loadMarkups, loadReviewRequests]);
+  }, [selectedProject, selectedDrawing, loadPdfUrl, loadMarkups, loadReviewRequests, loadReviewGate]);
 
   // ── Handlers ──
 
@@ -249,8 +315,43 @@ const PlantSync = () => {
   };
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedProject) return;
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0 || !selectedProject) return;
+
+    // Feature 6: Bulk upload for multiple files
+    if (fileList.length > 1) {
+      setBulkUploading(true);
+      setBulkProgress({ current: 0, total: fileList.length });
+      try {
+        const token = await getToken();
+        const formData = new FormData();
+        for (let i = 0; i < fileList.length; i++) {
+          formData.append('files', fileList[i]);
+        }
+        const res = await fetch(getUrl(`projects/${selectedProject.project_id}/bulk-upload`), {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData,
+        });
+        if (!res.ok) throw new Error('Bulk upload failed');
+        const data = await res.json();
+        setBulkProgress({ current: data.success_count, total: data.total });
+        await loadProjectDetail(selectedProject.project_id);
+        await loadActivities(selectedProject.project_id);
+        alert(`일괄 업로드 완료: ${data.success_count}/${data.total}건 성공`);
+      } catch (err) {
+        console.error('Bulk upload error:', err);
+        alert('일괄 업로드 실패: ' + err.message);
+      } finally {
+        setBulkUploading(false);
+        setBulkProgress({ current: 0, total: 0 });
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+      return;
+    }
+
+    // Single file upload (existing flow)
+    const file = fileList[0];
     setUploading(true);
     try {
       const token = await getToken();
@@ -264,12 +365,27 @@ const PlantSync = () => {
       if (!res.ok) throw new Error('Upload failed');
       const data = await res.json();
 
-      // Show title block confirmation modal
-      setTitleBlockData(data.title_block);
+      // Show title block confirmation modal + staging data
+      setTitleBlockData({
+        ...data.title_block,
+        vendor_drawing_number: '',
+        issue_purpose: '',
+        issue_date: '',
+        receive_date: '',
+        vendor_name: '',
+        reviewer_name: '',
+        has_dwg: false,
+        related_drawings: [],
+        change_log: '',
+        remarks: '',
+      });
       setPendingDrawingId(data.drawing?.drawing_id);
+      setStagingWords(data.title_block_words || []);
+      setStagingLayout(data.di_page_layout || { width: 0, height: 0 });
       setShowTitleBlockModal(true);
 
       await loadProjectDetail(selectedProject.project_id);
+      await loadActivities(selectedProject.project_id);
     } catch (e) {
       console.error('Upload error:', e);
       alert('Upload failed: ' + e.message);
@@ -283,27 +399,56 @@ const PlantSync = () => {
     if (!selectedProject || !pendingDrawingId || !titleBlockData) return;
     try {
       const token = await getToken();
-      await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${pendingDrawingId}/title-block`), {
-        method: 'PUT',
+      // Use register endpoint to move from staged → registered
+      await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${pendingDrawingId}/register`), {
+        method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(titleBlockData),
+        body: JSON.stringify({
+          ...titleBlockData,
+          revision: titleBlockData.revision,
+        }),
       });
       setShowTitleBlockModal(false);
+      setStagingWords([]);
+      setStagingLayout({ width: 0, height: 0 });
       await loadProjectDetail(selectedProject.project_id);
     } catch (e) {
       console.error('Confirm title block error:', e);
     }
   };
 
-  const handlePinPlace = (e) => {
+  const handlePinPlace = async (e) => {
     if (!isPlacingPin || !canvasSize.width || !canvasSize.height) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    // Use rect.width/height (CSS-scaled actual size) instead of canvasSize (unscaled)
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
-    // Store coords, show comment input
     setNewComment('');
+    setNearbyWords([]);
+    setNearbyLines([]);
+    setRelatedResults({ markups: [], documents: [] });
     setSelectedMarkup({ _pending: true, x, y, page: currentPage, discipline: pinDiscipline });
+
+    // Feature 4: Fetch nearby text
+    if (selectedProject && selectedDrawing) {
+      setLoadingNearby(true);
+      try {
+        const token = await getToken();
+        const res = await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${selectedDrawing.drawing_id}/nearby-text`), {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ page: currentPage, x, y, radius: 0.05 }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setNearbyWords(data.words || []);
+          setNearbyLines(data.lines || []);
+        }
+      } catch (err) {
+        console.error('Nearby text error:', err);
+      } finally {
+        setLoadingNearby(false);
+      }
+    }
   };
 
   const handleSaveNewMarkup = async () => {
@@ -523,6 +668,100 @@ const PlantSync = () => {
     setIsPlacingPin(false);
   };
 
+  // Feature 3: Diff Viewer
+  const handleOpenDiff = async () => {
+    if (!selectedProject || !selectedDrawing || !diffRevA || !diffRevB) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${selectedDrawing.drawing_id}/diff-urls`), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision_id_a: diffRevA, revision_id_b: diffRevB }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setDiffRevisions({ a: data.revision_a, b: data.revision_b });
+      setShowDiffViewer(true);
+      setDiffRevSelecting(false);
+    } catch (e) {
+      console.error('Diff URLs error:', e);
+    }
+  };
+
+  // Feature 4: Related search
+  const handleRelatedSearch = async (queryText) => {
+    if (!selectedProject || !selectedDrawing || !queryText?.trim()) return;
+    setLoadingRelated(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${selectedDrawing.drawing_id}/related-search`), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: queryText.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRelatedResults({ markups: data.markups || [], documents: data.documents || [] });
+      }
+    } catch (err) {
+      console.error('Related search error:', err);
+    } finally {
+      setLoadingRelated(false);
+    }
+  };
+
+  // Feature 5: Excel Export
+  const handleExportExcel = async () => {
+    if (!selectedProject) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${selectedProject.project_id}/export-excel`), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${selectedProject.project_name || 'plantsync'}_도면대장.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export excel error:', e);
+      alert('Excel 내보내기 실패');
+    }
+  };
+
+  // Feature 9: Markup PDF Export
+  const handleExportMarkupPdf = async () => {
+    if (!selectedProject || !selectedDrawing) return;
+    setExportingPdf(true);
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${selectedDrawing.drawing_id}/export-markup-pdf`), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${selectedDrawing.drawing_number || selectedDrawing.drawing_id}_markup.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export markup PDF error:', e);
+      alert('마크업 PDF 내보내기 실패');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   const handleEditDrawing = (d, e) => {
     e.stopPropagation();
     setEditingDrawing(d.drawing_id);
@@ -587,9 +826,10 @@ const PlantSync = () => {
     }
   }, [reviewRequests]);
 
-  // ── Filtered Drawings ──
+  // ── Filtered Drawings (exclude staged) ──
   const drawings = projectDetail?.drawings || [];
-  const filteredDrawings = drawings.filter(d => {
+  const registeredDrawings = drawings.filter(d => d.staging_status !== 'staged');
+  const filteredDrawings = registeredDrawings.filter(d => {
     if (disciplineFilter !== 'all' && d.discipline !== disciplineFilter) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -598,6 +838,7 @@ const PlantSync = () => {
     }
     return true;
   });
+  const currentStagedCount = drawings.filter(d => d.staging_status === 'staged').length;
 
   // Current page markups
   const pageMarkups = markups.filter(m => m.page === currentPage);
@@ -733,16 +974,47 @@ const PlantSync = () => {
             </div>
           </div>
 
-          {/* Upload Button */}
-          <div className="px-3 pt-3 pb-1">
-            <input ref={fileInputRef} type="file" accept=".pdf" onChange={handleFileUpload} className="hidden" />
+          {/* Staging Badge + Upload Button */}
+          <div className="px-3 pt-3 pb-1 space-y-1.5">
+            {currentStagedCount > 0 && (
+              <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <span className="text-[10px] text-amber-400">대기 {currentStagedCount}건</span>
+                <button
+                  onClick={() => {
+                    const staged = drawings.find(d => d.staging_status === 'staged');
+                    if (staged) {
+                      setTitleBlockData({
+                        drawing_number: staged.drawing_number || '',
+                        title: staged.title || '',
+                        revision: staged.current_revision || '',
+                        discipline: staged.discipline || '',
+                        vendor_drawing_number: staged.vendor_drawing_number || '',
+                        issue_purpose: staged.issue_purpose || '',
+                        issue_date: staged.issue_date || '',
+                        receive_date: staged.receive_date || '',
+                        vendor_name: staged.vendor_name || '',
+                        reviewer_name: staged.reviewer_name || '',
+                        has_dwg: staged.has_dwg || false,
+                        related_drawings: staged.related_drawings || [],
+                        change_log: staged.change_log || '',
+                        remarks: staged.remarks || '',
+                      });
+                      setPendingDrawingId(staged.drawing_id);
+                      setShowTitleBlockModal(true);
+                    }
+                  }}
+                  className="text-[10px] text-amber-400 hover:text-amber-300 underline"
+                >확인하기</button>
+              </div>
+            )}
+            <input ref={fileInputRef} type="file" accept=".pdf" multiple onChange={handleFileUpload} className="hidden" />
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
+              disabled={uploading || bulkUploading}
               className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 disabled:from-slate-600 disabled:to-slate-600 text-white rounded-lg text-sm font-medium transition-all shadow-sm"
             >
-              {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              {uploading ? '업로드 중...' : 'PDF 업로드'}
+              {uploading || bulkUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {bulkUploading ? `업로드 중 ${bulkProgress.current}/${bulkProgress.total}` : uploading ? '업로드 중...' : 'PDF 업로드'}
             </button>
           </div>
 
@@ -878,7 +1150,6 @@ const PlantSync = () => {
                         <p className="text-[11px] text-slate-500 truncate mt-0.5">{d.title || 'Untitled'}</p>
                       </div>
                       <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                        {/* Edit/Delete buttons - show on hover */}
                         <button onClick={e => handleEditDrawing(d, e)} title="Edit"
                                 className="p-0.5 text-slate-600 hover:text-sky-400 opacity-0 group-hover/item:opacity-100 transition-all">
                           <Pencil className="w-3 h-3" />
@@ -893,8 +1164,20 @@ const PlantSync = () => {
                         <span className="text-[10px] text-slate-500">Rev.{d.current_revision || '-'}</span>
                       </div>
                     </div>
-                    {/* Mini review status dots */}
+                    {/* Badges row: issue purpose + DWG + review dots */}
                     <div className="flex items-center gap-1 mt-1.5">
+                      {d.issue_purpose && (
+                        <span className={`text-[8px] px-1 py-0.5 rounded font-bold ${
+                          d.issue_purpose === 'IFC' ? 'bg-green-500/20 text-green-400' :
+                          d.issue_purpose === 'IFA' ? 'bg-amber-500/20 text-amber-400' :
+                          d.issue_purpose === 'IFI' ? 'bg-blue-500/20 text-blue-400' :
+                          d.issue_purpose === 'As-Built' ? 'bg-purple-500/20 text-purple-400' :
+                          'bg-slate-500/20 text-slate-400'
+                        }`}>{d.issue_purpose}</span>
+                      )}
+                      {d.has_dwg && (
+                        <span className="text-[8px] px-1 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-medium" title="DWG 파일 있음">DWG</span>
+                      )}
                       {Object.entries(d.review_status || {}).map(([disc, rs]) => (
                         <span
                           key={disc}
@@ -944,6 +1227,46 @@ const PlantSync = () => {
 
         {/* Center Panel - PDF Viewer */}
         <div className="flex-1 flex flex-col overflow-hidden bg-slate-800/30">
+          {/* Diff revision selector */}
+          {diffRevSelecting && selectedDrawing && (selectedDrawing.revisions || []).length >= 2 && (
+            <div className="px-3 py-2 bg-slate-800/80 border-b border-slate-700/50 flex items-center gap-2 flex-shrink-0">
+              <GitCompare className="w-4 h-4 text-sky-400 flex-shrink-0" />
+              <select value={diffRevA} onChange={e => setDiffRevA(e.target.value)}
+                      className="px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none">
+                <option value="">Before...</option>
+                {(selectedDrawing.revisions || []).map(r => (
+                  <option key={r.revision_id} value={r.revision_id}>Rev.{r.revision} ({r.revision_id})</option>
+                ))}
+              </select>
+              <span className="text-xs text-slate-500">vs</span>
+              <select value={diffRevB} onChange={e => setDiffRevB(e.target.value)}
+                      className="px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none">
+                <option value="">After...</option>
+                {(selectedDrawing.revisions || []).map(r => (
+                  <option key={r.revision_id} value={r.revision_id}>Rev.{r.revision} ({r.revision_id})</option>
+                ))}
+              </select>
+              <button onClick={handleOpenDiff} disabled={!diffRevA || !diffRevB || diffRevA === diffRevB}
+                      className="px-2.5 py-1 bg-sky-500 hover:bg-sky-400 disabled:bg-slate-600 text-white rounded text-xs font-medium">
+                비교
+              </button>
+              <button onClick={() => setDiffRevSelecting(false)} className="text-slate-500 hover:text-slate-300">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Revision compare button */}
+          {selectedDrawing && (selectedDrawing.revisions || []).length >= 2 && !diffRevSelecting && (
+            <div className="px-3 py-1.5 bg-slate-800/50 border-b border-slate-700/30 flex items-center justify-between flex-shrink-0">
+              <span className="text-[10px] text-slate-500">리비전 {(selectedDrawing.revisions || []).length}개</span>
+              <button onClick={() => { setDiffRevSelecting(true); setDiffRevA(''); setDiffRevB(''); }}
+                      className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px] hover:bg-sky-500/30 transition-colors">
+                <GitCompare className="w-3 h-3" /> 리비전 비교
+              </button>
+            </div>
+          )}
+
           {selectedDrawing && pdfUrl ? (
             <PDFViewer
               doc={{ page: currentPage, docId: pdfUrl }}
@@ -1013,6 +1336,7 @@ const PlantSync = () => {
               { key: 'markups', label: '마크업', icon: MapPin },
               { key: 'feedback', label: '피드백', icon: MessageSquare },
               { key: 'confirm', label: '확정', icon: CheckCircle2 },
+              { key: 'activity', label: '이력', icon: History },
             ].map(tab => (
               <button
                 key={tab.key}
@@ -1143,8 +1467,8 @@ const PlantSync = () => {
                     </div>
                   </div>
                 ) : selectedMarkup?._pending ? (
-                  /* New Pin Comment Input */
-                  <div className="p-4">
+                  /* New Pin Comment Input + AI Suggestion Chips (Feature 4) */
+                  <div className="p-4 flex flex-col h-full overflow-auto">
                     <div className="flex items-center gap-2 mb-3">
                       <MapPin className="w-4 h-4 text-sky-400" />
                       <span className="text-sm font-medium text-slate-200">새 마크업</span>
@@ -1157,15 +1481,100 @@ const PlantSync = () => {
                       onChange={e => setNewComment(e.target.value)}
                       placeholder="코멘트를 입력하세요..."
                       className="w-full px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-xs text-slate-300 placeholder-slate-500 focus:outline-none focus:border-sky-500/50 resize-none"
-                      rows={4}
+                      rows={3}
                       autoFocus
                     />
-                    <div className="flex gap-2 mt-2">
+
+                    {/* AI Suggestion Chips - nearby words */}
+                    {(loadingNearby || nearbyWords.length > 0) && (
+                      <div className="mt-2">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <Sparkles className="w-3 h-3 text-amber-400" />
+                          <span className="text-[10px] text-amber-400 font-medium">AI 추천 텍스트</span>
+                          {loadingNearby && <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />}
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {nearbyWords.map((w, i) => (
+                            <button
+                              key={i}
+                              onClick={() => setNewComment(prev => prev + (prev ? ' ' : '') + w.content)}
+                              className="px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded text-[10px] hover:bg-amber-500/20 transition-colors"
+                              title={`Confidence: ${Math.round(w.confidence * 100)}%`}
+                            >
+                              {w.content}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Nearby lines */}
+                    {nearbyLines.length > 0 && (
+                      <div className="mt-2">
+                        <span className="text-[10px] text-slate-500 mb-1 block">주변 텍스트 라인</span>
+                        <div className="space-y-0.5 max-h-24 overflow-auto">
+                          {nearbyLines.map((l, i) => (
+                            <button
+                              key={i}
+                              onClick={() => setNewComment(prev => prev + (prev ? '\n' : '') + l.content)}
+                              className="block w-full text-left px-2 py-0.5 bg-slate-800/50 text-[10px] text-slate-400 rounded hover:bg-slate-700/50 hover:text-slate-200 truncate transition-colors"
+                            >
+                              {l.content}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Related search button */}
+                    <div className="mt-2">
+                      <button
+                        onClick={() => handleRelatedSearch(newComment || nearbyWords.map(w => w.content).join(' '))}
+                        disabled={loadingRelated || (!newComment.trim() && nearbyWords.length === 0)}
+                        className="flex items-center gap-1 px-2 py-1 bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded text-[10px] hover:bg-purple-500/20 disabled:opacity-40 transition-colors"
+                      >
+                        {loadingRelated ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                        관련 이력 조회
+                      </button>
+                    </div>
+
+                    {/* Related results */}
+                    {(relatedResults.markups.length > 0 || relatedResults.documents.length > 0) && (
+                      <div className="mt-2 space-y-1.5 max-h-40 overflow-auto">
+                        {relatedResults.markups.length > 0 && (
+                          <>
+                            <span className="text-[10px] text-purple-400 font-medium block">관련 마크업 ({relatedResults.markups.length}건)</span>
+                            {relatedResults.markups.map((rm, i) => (
+                              <div key={i} className="px-2 py-1 bg-purple-500/5 border border-purple-500/10 rounded text-[10px]">
+                                <p className="text-slate-300 truncate">{rm.comment}</p>
+                                <p className="text-[9px] text-slate-500">{rm.discipline} · {rm.author_name} · {rm.status}</p>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {relatedResults.documents.length > 0 && (
+                          <>
+                            <span className="text-[10px] text-purple-400 font-medium block">관련 문서 ({relatedResults.documents.length}건)</span>
+                            {relatedResults.documents.map((doc, i) => (
+                              <div key={i} className="px-2 py-1 bg-purple-500/5 border border-purple-500/10 rounded text-[10px]">
+                                <div className="flex items-center gap-1">
+                                  <File className="w-3 h-3 text-purple-400 flex-shrink-0" />
+                                  <p className="text-slate-300 truncate">{doc.title || 'Document'}</p>
+                                </div>
+                                <p className="text-[9px] text-slate-500 truncate">{doc.content_snippet}</p>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 mt-3">
                       <button onClick={handleSaveNewMarkup}
                               className="flex-1 px-3 py-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded-lg text-xs font-medium">
                         마크업 저장
                       </button>
-                      <button onClick={() => { setSelectedMarkup(null); setIsPlacingPin(false); }}
+                      <button onClick={() => { setSelectedMarkup(null); setIsPlacingPin(false); setNearbyWords([]); setNearbyLines([]); setRelatedResults({ markups: [], documents: [] }); }}
                               className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs">
                         취소
                       </button>
@@ -1176,7 +1585,19 @@ const PlantSync = () => {
                   <div className="p-3 space-y-2">
                     {selectedDrawing ? (
                       <>
-                        <p className="text-xs text-slate-500 mb-2">마크업 {markups.length}건</p>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs text-slate-500">마크업 {markups.length}건</p>
+                          {markups.length > 0 && (
+                            <button
+                              onClick={handleExportMarkupPdf}
+                              disabled={exportingPdf}
+                              className="flex items-center gap-1 px-2 py-1 bg-purple-500/20 text-purple-400 rounded text-[10px] hover:bg-purple-500/30 disabled:opacity-40 transition-colors"
+                            >
+                              {exportingPdf ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />}
+                              마크업 PDF
+                            </button>
+                          )}
+                        </div>
                         {markups.map((m, i) => (
                           <div
                             key={m.markup_id}
@@ -1797,10 +2218,59 @@ const PlantSync = () => {
                   </div>
                 )}
 
+                {/* Feature 8: Review Gate */}
+                {selectedDrawing && reviewGate && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-300 mb-2">검토 완료 검증</p>
+                    <div className={`rounded-lg p-3 border ${
+                      reviewGate.all_completed
+                        ? 'bg-green-500/10 border-green-500/30'
+                        : 'bg-amber-500/10 border-amber-500/30'
+                    }`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        {reviewGate.all_completed ? (
+                          <>
+                            <ShieldCheck className="w-4 h-4 text-green-400" />
+                            <span className="text-xs font-medium text-green-400">모든 검토 완료</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle className="w-4 h-4 text-amber-400" />
+                            <span className="text-xs font-medium text-amber-400">미완료 디시플린 있음</span>
+                          </>
+                        )}
+                        <span className="text-[10px] text-slate-400 ml-auto">{reviewGate.completion_rate}%</span>
+                      </div>
+                      {/* Progress bar */}
+                      <div className="w-full h-1.5 bg-slate-700 rounded-full mb-2">
+                        <div
+                          className={`h-1.5 rounded-full transition-all ${reviewGate.all_completed ? 'bg-green-500' : 'bg-amber-500'}`}
+                          style={{ width: `${reviewGate.completion_rate}%` }}
+                        />
+                      </div>
+                      {!reviewGate.all_completed && reviewGate.incomplete_disciplines && (
+                        <div className="flex flex-wrap gap-1">
+                          {reviewGate.incomplete_disciplines.map(d => (
+                            <span key={d.discipline} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/50 text-amber-400">
+                              {DISCIPLINES[d.discipline]?.label || d.discipline}: {REVIEW_STATUSES[d.status]?.label || d.status}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* EM Final Approval (from old Review tab) */}
                 {selectedDrawing && (
                   <div>
                     <p className="text-xs font-medium text-slate-300 mb-2">EM 최종 승인</p>
+                    {/* Review gate warning */}
+                    {reviewGate && !reviewGate.all_completed && selectedDrawing.em_approval?.status === 'pending' && (
+                      <p className="text-[10px] text-amber-400 mb-2 flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> 일부 디시플린 검토가 완료되지 않았습니다
+                      </p>
+                    )}
                     <div className="bg-slate-800/50 rounded-lg p-3">
                       <div className="flex items-center justify-between mb-2">
                         <span className={`text-sm font-medium ${
@@ -1833,6 +2303,16 @@ const PlantSync = () => {
                     </div>
                   </div>
                 )}
+
+                {/* Feature 5: Excel Export */}
+                <div>
+                  <button
+                    onClick={handleExportExcel}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg text-xs font-medium hover:bg-green-500/30 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" /> 도면 대장 Excel 다운로드
+                  </button>
+                </div>
 
                 {/* Summary Stats (condensed from old Dashboard tab) */}
                 {dashboard && (
@@ -1868,76 +2348,259 @@ const PlantSync = () => {
                 )}
               </div>
             )}
+
+            {/* ── 이력 Tab (Feature 7) ── */}
+            {rightTab === 'activity' && (
+              <div className="flex flex-col h-full">
+                <div className="p-3 border-b border-slate-700/50 flex items-center justify-between flex-shrink-0">
+                  <p className="text-xs text-slate-400">활동 이력 {activities.length}건</p>
+                  <button
+                    onClick={() => selectedProject && loadActivities(selectedProject.project_id)}
+                    className="text-[10px] text-sky-400 hover:text-sky-300"
+                  >
+                    새로고침
+                  </button>
+                </div>
+                <div className="flex-1 overflow-auto">
+                  {activities.length > 0 ? (
+                    <div className="relative pl-6">
+                      {/* Timeline line */}
+                      <div className="absolute left-[11px] top-0 bottom-0 w-px bg-slate-700/50" />
+                      {activities.map((ev, idx) => {
+                        const actionConfig = {
+                          drawing_uploaded:   { icon: Upload,        color: 'text-sky-400',    bg: 'bg-sky-500/20',    label: '도면 업로드' },
+                          drawing_registered: { icon: CheckCircle2,  color: 'text-green-400',  bg: 'bg-green-500/20',  label: '도면 등록' },
+                          markup_created:     { icon: MapPin,        color: 'text-amber-400',  bg: 'bg-amber-500/20',  label: '마크업 생성' },
+                          markup_resolved:    { icon: Check,         color: 'text-green-400',  bg: 'bg-green-500/20',  label: '마크업 해결' },
+                          review_updated:     { icon: Eye,           color: 'text-blue-400',   bg: 'bg-blue-500/20',   label: '검토 업데이트' },
+                          request_created:    { icon: ClipboardList, color: 'text-purple-400', bg: 'bg-purple-500/20', label: '요청 생성' },
+                          request_confirmed:  { icon: CheckCircle2,  color: 'text-green-400',  bg: 'bg-green-500/20',  label: '요청 확정' },
+                          approval_decided:   { icon: Shield,        color: 'text-amber-400',  bg: 'bg-amber-500/20',  label: 'EM 승인' },
+                        };
+                        const cfg = actionConfig[ev.action] || { icon: History, color: 'text-slate-400', bg: 'bg-slate-500/20', label: ev.action };
+                        const IconComp = cfg.icon;
+                        const details = ev.details || {};
+                        let detailText = '';
+                        if (details.drawing_number) detailText += details.drawing_number;
+                        if (details.filename) detailText += detailText ? ` (${details.filename})` : details.filename;
+                        if (details.discipline) detailText += detailText ? ` · ${DISCIPLINES[details.discipline]?.label || details.discipline}` : (DISCIPLINES[details.discipline]?.label || details.discipline);
+                        if (details.comment) detailText += detailText ? ` — ${details.comment}` : details.comment;
+                        if (details.decision) detailText += detailText ? ` → ${details.decision}` : details.decision;
+                        if (details.status) detailText += detailText ? ` → ${details.status}` : details.status;
+                        if (details.bulk) detailText = `일괄 업로드 ${details.success}/${details.total}건`;
+                        if (details.title) detailText += detailText ? ` | ${details.title}` : details.title;
+                        if (details.to_name) detailText += ` → ${details.to_name}`;
+
+                        const timeStr = ev.timestamp ? new Date(ev.timestamp).toLocaleString() : '';
+                        return (
+                          <div key={ev.event_id || idx} className="relative pb-3">
+                            {/* Timeline dot */}
+                            <div className={`absolute -left-[13px] top-1 w-5 h-5 rounded-full flex items-center justify-center ${cfg.bg}`}>
+                              <IconComp className={`w-3 h-3 ${cfg.color}`} />
+                            </div>
+                            <div className="pl-3 pt-0.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-[10px] font-medium ${cfg.color}`}>{cfg.label}</span>
+                                <span className="text-[9px] text-slate-600">{ev.actor}</span>
+                              </div>
+                              {detailText && (
+                                <p className="text-[10px] text-slate-400 mt-0.5 truncate">{detailText}</p>
+                              )}
+                              <p className="text-[9px] text-slate-600 mt-0.5">{timeStr}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="p-6 text-center text-slate-500 text-xs">
+                      <History className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p>활동 이력이 없습니다</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Title Block Confirmation Modal */}
+      {/* Split-View Staging Modal (Feature 1 + 2) */}
       {showTitleBlockModal && titleBlockData && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-[500px] max-h-[80vh] overflow-auto shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-slate-100">타이틀 블록 - AI 추출 결과</h3>
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-[90vw] max-w-[1100px] h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/50 flex-shrink-0">
+              <h3 className="text-lg font-bold text-slate-100">스테이징 - AI 추출 결과 확인</h3>
               <button onClick={() => setShowTitleBlockModal(false)} className="text-slate-500 hover:text-slate-300">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-xs text-slate-400 mb-4">AI가 추출한 타이틀 블록 정보를 확인하고 수정하세요.</p>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">도면번호</label>
-                <input
-                  value={titleBlockData.drawing_number || ''}
-                  onChange={e => setTitleBlockData(prev => ({ ...prev, drawing_number: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-sky-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">타이틀</label>
-                <input
-                  value={titleBlockData.title || ''}
-                  onChange={e => setTitleBlockData(prev => ({ ...prev, title: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-sky-500"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">리비전</label>
-                  <input
-                    value={titleBlockData.revision || ''}
-                    onChange={e => setTitleBlockData(prev => ({ ...prev, revision: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-sky-500"
-                  />
+            <div className="flex flex-1 overflow-hidden">
+              {/* Left 60% - PDF preview + DI word overlay */}
+              <div className="w-[60%] border-r border-slate-700/50 bg-slate-900/50 flex flex-col">
+                <div className="px-3 py-1.5 border-b border-slate-700/50 text-[10px] text-slate-500">
+                  1페이지 미리보기 · DI Words confidence 오버레이
                 </div>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">디시플린</label>
-                  <select
-                    value={titleBlockData.discipline || ''}
-                    onChange={e => setTitleBlockData(prev => ({ ...prev, discipline: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-sky-500"
-                  >
-                    <option value="">선택...</option>
-                    {Object.entries(DISCIPLINES).map(([k, v]) => (
-                      <option key={k} value={k}>{v.label}</option>
-                    ))}
-                  </select>
+                <div className="flex-1 overflow-auto p-3 relative">
+                  {stagingWords.length > 0 && stagingLayout.width > 0 ? (
+                    <div className="relative" style={{ width: '100%', paddingBottom: `${(stagingLayout.height / stagingLayout.width) * 100}%` }}>
+                      {/* Word confidence overlay */}
+                      {stagingWords.map((w, i) => {
+                        if (!w.polygon || w.polygon.length < 4) return null;
+                        const minX = Math.min(w.polygon[0], w.polygon[2], w.polygon[4] || w.polygon[0], w.polygon[6] || w.polygon[2]);
+                        const minY = Math.min(w.polygon[1], w.polygon[3], w.polygon[5] || w.polygon[1], w.polygon[7] || w.polygon[3]);
+                        const maxX = Math.max(w.polygon[0], w.polygon[2], w.polygon[4] || w.polygon[0], w.polygon[6] || w.polygon[2]);
+                        const maxY = Math.max(w.polygon[1], w.polygon[3], w.polygon[5] || w.polygon[1], w.polygon[7] || w.polygon[3]);
+                        const left = (minX / stagingLayout.width) * 100;
+                        const top = (minY / stagingLayout.height) * 100;
+                        const width = ((maxX - minX) / stagingLayout.width) * 100;
+                        const height = ((maxY - minY) / stagingLayout.height) * 100;
+                        const conf = w.confidence;
+                        const borderColor = conf >= 0.9 ? 'border-green-400' : conf >= 0.7 ? 'border-yellow-400' : 'border-red-400';
+                        const bgColor = conf >= 0.9 ? 'bg-green-500/5' : conf >= 0.7 ? 'bg-yellow-500/5' : 'bg-red-500/5';
+                        return (
+                          <div
+                            key={i}
+                            className={`absolute border ${borderColor} ${bgColor} cursor-default`}
+                            style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
+                            title={`"${w.content}" (${Math.round(conf * 100)}%)`}
+                          >
+                            <span className="absolute -top-3 left-0 text-[7px] text-slate-500 whitespace-nowrap">{w.content}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-slate-500 text-xs">
+                      DI 분석 데이터가 없습니다
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right 40% - Metadata form */}
+              <div className="w-[40%] flex flex-col">
+                <div className="px-3 py-1.5 border-b border-slate-700/50 text-[10px] text-slate-500">
+                  메타데이터 편집
+                </div>
+                <div className="flex-1 overflow-auto p-4 space-y-3">
+                  {/* 기본 정보 */}
+                  <p className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">기본 정보</p>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">도면번호</label>
+                    <input value={titleBlockData.drawing_number || ''} onChange={e => setTitleBlockData(p => ({ ...p, drawing_number: e.target.value }))}
+                           className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">타이틀</label>
+                    <input value={titleBlockData.title || ''} onChange={e => setTitleBlockData(p => ({ ...p, title: e.target.value }))}
+                           className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">리비전</label>
+                      <input value={titleBlockData.revision || ''} onChange={e => setTitleBlockData(p => ({ ...p, revision: e.target.value }))}
+                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">디시플린</label>
+                      <select value={titleBlockData.discipline || ''} onChange={e => setTitleBlockData(p => ({ ...p, discipline: e.target.value }))}
+                              className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+                        <option value="">선택...</option>
+                        {Object.entries(DISCIPLINES).map(([k, v]) => (
+                          <option key={k} value={k}>{v.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* EPC 관리 정보 */}
+                  <div className="border-t border-slate-700/50 pt-3 mt-2">
+                    <p className="text-[10px] font-bold text-sky-400 uppercase tracking-wider mb-2">EPC 관리 정보</p>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">발행 목적 (Issue Purpose)</label>
+                    <select value={titleBlockData.issue_purpose || ''} onChange={e => setTitleBlockData(p => ({ ...p, issue_purpose: e.target.value }))}
+                            className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+                      <option value="">선택...</option>
+                      <option value="IFA">IFA (Issued for Approval)</option>
+                      <option value="IFI">IFI (Issued for Information)</option>
+                      <option value="IFC">IFC (Issued for Construction)</option>
+                      <option value="As-Built">As-Built</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">발행일 (Issue Date)</label>
+                      <input type="date" value={titleBlockData.issue_date || ''} onChange={e => setTitleBlockData(p => ({ ...p, issue_date: e.target.value }))}
+                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">접수일 (Receive Date)</label>
+                      <input type="date" value={titleBlockData.receive_date || ''} onChange={e => setTitleBlockData(p => ({ ...p, receive_date: e.target.value }))}
+                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">Vendor 도면번호</label>
+                    <input value={titleBlockData.vendor_drawing_number || ''} onChange={e => setTitleBlockData(p => ({ ...p, vendor_drawing_number: e.target.value }))}
+                           className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">Vendor 이름</label>
+                      <input value={titleBlockData.vendor_name || ''} onChange={e => setTitleBlockData(p => ({ ...p, vendor_name: e.target.value }))}
+                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">검토자</label>
+                      <input value={titleBlockData.reviewer_name || ''} onChange={e => setTitleBlockData(p => ({ ...p, reviewer_name: e.target.value }))}
+                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input type="checkbox" id="has_dwg" checked={titleBlockData.has_dwg || false}
+                           onChange={e => setTitleBlockData(p => ({ ...p, has_dwg: e.target.checked }))}
+                           className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-700/50 text-sky-500 focus:ring-sky-500" />
+                    <label htmlFor="has_dwg" className="text-xs text-slate-300">DWG 파일 보유</label>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">변경 이력 (Change Log)</label>
+                    <textarea value={titleBlockData.change_log || ''} onChange={e => setTitleBlockData(p => ({ ...p, change_log: e.target.value }))}
+                              className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500 resize-none" rows={2} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">비고 (Remarks)</label>
+                    <textarea value={titleBlockData.remarks || ''} onChange={e => setTitleBlockData(p => ({ ...p, remarks: e.target.value }))}
+                              className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500 resize-none" rows={2} />
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex gap-3 mt-6">
+            {/* Bottom actions */}
+            <div className="flex gap-3 px-5 py-3 border-t border-slate-700/50 flex-shrink-0">
               <button onClick={handleConfirmTitleBlock}
-                      className="flex-1 px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white rounded-lg text-sm font-medium transition-colors">
-                확인
+                      className="flex-1 px-4 py-2.5 bg-sky-500 hover:bg-sky-400 text-white rounded-lg text-sm font-medium transition-colors">
+                승인 및 등록
               </button>
               <button onClick={() => setShowTitleBlockModal(false)}
-                      className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm transition-colors">
+                      className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm transition-colors">
                 건너뛰기
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Diff Viewer Modal (Feature 3) */}
+      {showDiffViewer && diffRevisions.a && diffRevisions.b && (
+        <DiffViewer
+          revisionA={diffRevisions.a}
+          revisionB={diffRevisions.b}
+          onClose={() => { setShowDiffViewer(false); setDiffRevisions({ a: null, b: null }); }}
+        />
       )}
     </div>
   );
