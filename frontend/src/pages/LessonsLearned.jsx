@@ -1230,7 +1230,7 @@ const LessonsLearned = () => {
                             {/* Admin-only: Upload new project */}
                             {isAdmin && (
                                 <div className="mb-5">
-                                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">신규 프로젝트 등록</div>
+                                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">DOC-Master 프로젝트 검색</div>
                                     <button
                                         onClick={() => { fileInputRef.current?.click(); }}
                                         disabled={isUploading}
@@ -1239,7 +1239,7 @@ const LessonsLearned = () => {
                                         {isUploading ? (
                                             <><Loader2 className="w-4 h-4 animate-spin" /> 처리 중...</>
                                         ) : (
-                                            <><Upload className="w-4 h-4" /> TXT / JSON 파일 업로드</>
+                                            <><SearchIcon className="w-4 h-4" /> DOC-Master 프로젝트 검색</>
                                         )}
                                     </button>
                                     {uploadProgress && (
