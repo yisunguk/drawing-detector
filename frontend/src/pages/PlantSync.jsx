@@ -73,6 +73,7 @@ const PlantSync = () => {
   const [showNewRequest, setShowNewRequest] = useState(false);
   const [requestForm, setRequestForm] = useState({ to_name: '', discipline: 'process', title: '', message: '', priority: 'normal' });
   const [requestReplyText, setRequestReplyText] = useState('');
+  const [activeRequestId, setActiveRequestId] = useState(null); // for linking markups to request
 
   const fileInputRef = useRef(null);
 
@@ -296,6 +297,7 @@ const PlantSync = () => {
           y: selectedMarkup.y,
           discipline: selectedMarkup.discipline,
           comment: newComment.trim(),
+          request_id: activeRequestId || undefined,
         }),
       });
       if (!res.ok) throw new Error('Failed');
@@ -342,6 +344,24 @@ const PlantSync = () => {
       }
     } catch (e) {
       console.error('Reopen error:', e);
+    }
+  };
+
+  const handleConfirmMarkup = async (markupId) => {
+    if (!selectedProject || !selectedDrawing) return;
+    try {
+      const token = await getToken();
+      await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${selectedDrawing.drawing_id}/markups/${markupId}`), {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'confirmed' }),
+      });
+      await loadMarkups(selectedProject.project_id, selectedDrawing.drawing_id);
+      if (selectedMarkup?.markup_id === markupId) {
+        setSelectedMarkup(prev => prev ? { ...prev, status: 'confirmed' } : null);
+      }
+    } catch (e) {
+      console.error('Confirm error:', e);
     }
   };
 
@@ -454,10 +474,31 @@ const PlantSync = () => {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       if (selectedRequest?.request_id === requestId) setSelectedRequest(null);
+      if (activeRequestId === requestId) setActiveRequestId(null);
       await loadReviewRequests(selectedProject.project_id, selectedDrawing?.drawing_id);
     } catch (e) {
       console.error('Delete request error:', e);
     }
+  };
+
+  const handleStartMarkup = async (request) => {
+    if (request.status === 'requested') {
+      await handleUpdateRequestStatus(request.request_id, 'markup_in_progress');
+    }
+    setActiveRequestId(request.request_id);
+    setPinDiscipline(request.discipline);
+    setIsPlacingPin(true);
+    const dwg = (projectDetail?.drawings || []).find(d => d.drawing_id === request.drawing_id);
+    if (dwg && selectedDrawing?.drawing_id !== dwg.drawing_id) {
+      setSelectedDrawing(dwg);
+      setCurrentPage(1);
+    }
+    setRightTab('markups');
+  };
+
+  const handleStopMarkup = () => {
+    setActiveRequestId(null);
+    setIsPlacingPin(false);
   };
 
   const handleEditDrawing = (d, e) => {
@@ -663,6 +704,14 @@ const PlantSync = () => {
               >
                 <MapPin className="w-3.5 h-3.5" /> {isPlacingPin ? '배치중...' : '핀 추가'}
               </button>
+              {activeRequestId && (
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/20 border border-amber-500/30 rounded-lg">
+                  <span className="text-[10px] text-amber-400">요청 연결중</span>
+                  <button onClick={handleStopMarkup} className="text-amber-400 hover:text-amber-300">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -857,14 +906,16 @@ const PlantSync = () => {
                             <animate attributeName="r" values="16;20;16" dur="1.5s" repeatCount="indefinite" />
                           </circle>
                         )}
-                        <circle cx={cx} cy={cy} r="10" fill={discColor} fillOpacity={m.status === 'resolved' ? 0.4 : 0.85}
-                                stroke="white" strokeWidth="2" />
-                        {m.status === 'resolved' && (
+                        <circle cx={cx} cy={cy} r="10"
+                                fill={discColor}
+                                fillOpacity={m.status === 'resolved' ? 0.4 : m.status === 'confirmed' ? 1 : 0.85}
+                                stroke={m.status === 'confirmed' ? '#22c55e' : 'white'} strokeWidth={m.status === 'confirmed' ? 3 : 2} />
+                        {(m.status === 'resolved' || m.status === 'confirmed') && (
                           <path d={`M${cx-4} ${cy} L${cx-1} ${cy+3} L${cx+5} ${cy-3}`} stroke="white" strokeWidth="2" fill="none" />
                         )}
                         <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="middle"
                               fill="white" fontSize="8" fontWeight="bold">
-                          {m.status !== 'resolved' ? (markups.indexOf(m) + 1) : ''}
+                          {m.status !== 'resolved' && m.status !== 'confirmed' ? (markups.indexOf(m) + 1) : ''}
                         </text>
                       </g>
                     );
@@ -940,17 +991,40 @@ const PlantSync = () => {
                       <p className="text-[10px] text-slate-500 mt-1">
                         작성자: <span className="text-sky-400">{selectedMarkup.author_name}</span> | P.{selectedMarkup.page} | {new Date(selectedMarkup.created_at).toLocaleString()}
                       </p>
-                      <div className="flex gap-2 mt-2">
-                        {selectedMarkup.status === 'open' ? (
-                          <button onClick={() => handleResolveMarkup(selectedMarkup.markup_id)}
-                                  className="flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-400 rounded text-[10px] hover:bg-green-500/30">
-                            <Check className="w-3 h-3" /> 해결
-                          </button>
-                        ) : (
-                          <button onClick={() => handleReopenMarkup(selectedMarkup.markup_id)}
-                                  className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 text-amber-400 rounded text-[10px] hover:bg-amber-500/30">
-                            <RotateCcw className="w-3 h-3" /> 재오픈
-                          </button>
+                      {selectedMarkup.request_id && (
+                        <p className="text-[10px] text-slate-600 mt-0.5">
+                          요청 연결: <span className="text-sky-400/70">{selectedMarkup.request_id}</span>
+                        </p>
+                      )}
+                      <div className="flex gap-1.5 mt-2 flex-wrap">
+                        {selectedMarkup.status === 'open' && (
+                          <>
+                            <button onClick={() => handleResolveMarkup(selectedMarkup.markup_id)}
+                                    className="flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-400 rounded text-[10px] hover:bg-green-500/30">
+                              <Check className="w-3 h-3" /> 해결
+                            </button>
+                            <button onClick={() => handleConfirmMarkup(selectedMarkup.markup_id)}
+                                    className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px] hover:bg-sky-500/30">
+                              <CheckCircle2 className="w-3 h-3" /> 확정
+                            </button>
+                          </>
+                        )}
+                        {selectedMarkup.status === 'resolved' && (
+                          <>
+                            <button onClick={() => handleConfirmMarkup(selectedMarkup.markup_id)}
+                                    className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px] hover:bg-sky-500/30">
+                              <CheckCircle2 className="w-3 h-3" /> 확정
+                            </button>
+                            <button onClick={() => handleReopenMarkup(selectedMarkup.markup_id)}
+                                    className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 text-amber-400 rounded text-[10px] hover:bg-amber-500/30">
+                              <RotateCcw className="w-3 h-3" /> 재오픈
+                            </button>
+                          </>
+                        )}
+                        {selectedMarkup.status === 'confirmed' && (
+                          <span className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px]">
+                            <CheckCircle2 className="w-3 h-3" /> 확정됨
+                          </span>
                         )}
                       </div>
                     </div>
@@ -1049,91 +1123,218 @@ const PlantSync = () => {
             {rightTab === 'collab' && (
               <div className="flex flex-col h-full">
                 {selectedRequest ? (
-                  /* Request Detail */
+                  /* Request Detail with Workflow */
                   <div className="flex flex-col h-full">
-                    <div className="p-3 border-b border-slate-700/50">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
+                    {/* Header */}
+                    <div className="p-3 border-b border-slate-700/50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <button onClick={() => setSelectedRequest(null)} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200">
+                          <ArrowLeft className="w-3.5 h-3.5" /> 목록으로
+                        </button>
+                        <button onClick={() => handleDeleteRequest(selectedRequest.request_id)}
+                                className="p-1 text-slate-500 hover:text-red-400 rounded transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Workflow Stepper */}
+                      {(() => {
+                        const stages = [
+                          { key: 'requested', label: '검토요청' },
+                          { key: 'markup', label: '마크업' },
+                          { key: 'feedback', label: '피드백' },
+                          { key: 'confirmed', label: '확정' },
+                        ];
+                        const getStepIdx = (status) => {
+                          if (status === 'requested') return 0;
+                          if (status === 'markup_in_progress' || status === 'markup_done') return 1;
+                          if (status === 'feedback') return 2;
+                          if (status === 'confirmed') return 3;
+                          return -1;
+                        };
+                        const activeStep = getStepIdx(selectedRequest.status);
+                        const isRejected = selectedRequest.status === 'rejected';
+                        return (
+                          <div className="flex items-center justify-between relative">
+                            <div className="absolute top-3 left-6 right-6 h-0.5 bg-slate-700" />
+                            <div className="absolute top-3 left-6 h-0.5 bg-sky-500 transition-all duration-300"
+                                 style={{ width: isRejected ? '0%' : `${Math.min(activeStep / (stages.length - 1) * 100, 100)}%`, maxWidth: 'calc(100% - 48px)' }} />
+                            {stages.map((s, i) => (
+                              <div key={s.key} className="relative flex flex-col items-center z-10">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold border-2 transition-colors ${
+                                  isRejected ? 'bg-red-500/20 border-red-500 text-red-400' :
+                                  i < activeStep ? 'bg-sky-500 border-sky-500 text-white' :
+                                  i === activeStep ? 'bg-sky-500/20 border-sky-500 text-sky-400' :
+                                  'bg-slate-800 border-slate-600 text-slate-500'
+                                }`}>
+                                  {isRejected ? <XCircle className="w-3 h-3" /> : i < activeStep ? <Check className="w-3 h-3" /> : i + 1}
+                                </div>
+                                <span className={`text-[9px] mt-1 whitespace-nowrap ${
+                                  isRejected ? 'text-red-400' :
+                                  i <= activeStep ? 'text-sky-400 font-medium' : 'text-slate-500'
+                                }`}>{s.label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Request Info */}
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
                           <span className="w-3 h-3 rounded-full" style={{ backgroundColor: DISCIPLINES[selectedRequest.discipline]?.color }} />
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                            selectedRequest.status === 'pending' ? 'bg-amber-500/20 text-amber-400' :
-                            selectedRequest.status === 'in_review' ? 'bg-blue-500/20 text-blue-400' :
-                            selectedRequest.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                            selectedRequest.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
-                            'bg-slate-500/20 text-slate-400'
-                          }`}>
-                            {selectedRequest.status === 'pending' ? '요청됨' :
-                             selectedRequest.status === 'in_review' ? '검토중' :
-                             selectedRequest.status === 'completed' ? '완료' :
-                             selectedRequest.status === 'rejected' ? '반려' : '보류'}
-                          </span>
+                          <span className="text-xs text-slate-400">{DISCIPLINES[selectedRequest.discipline]?.label}</span>
                           {selectedRequest.priority === 'urgent' && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium">긴급</span>
                           )}
                         </div>
-                        <button onClick={() => setSelectedRequest(null)} className="text-slate-500 hover:text-slate-300">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <p className="text-sm font-medium text-slate-200">{selectedRequest.title}</p>
-                      {selectedRequest.message && (
-                        <p className="text-xs text-slate-400 mt-1">{selectedRequest.message}</p>
-                      )}
-                      <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-500">
-                        <span>요청: <span className="text-slate-300">{selectedRequest.from_name}</span></span>
-                        <span>담당: <span className="text-sky-400">{selectedRequest.to_name}</span></span>
-                      </div>
-                      <p className="text-[10px] text-slate-600 mt-1">
-                        {selectedRequest.drawing_number} | {new Date(selectedRequest.created_at).toLocaleString()}
-                      </p>
-
-                      {/* Status actions */}
-                      <div className="flex gap-1.5 mt-2.5">
-                        {selectedRequest.status === 'pending' && (
-                          <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'in_review')}
-                                  className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-[10px] hover:bg-blue-500/30">
-                            검토 시작
-                          </button>
+                        <p className="text-sm font-medium text-slate-200">{selectedRequest.title}</p>
+                        {selectedRequest.message && (
+                          <p className="text-xs text-slate-400 mt-1">{selectedRequest.message}</p>
                         )}
-                        {(selectedRequest.status === 'pending' || selectedRequest.status === 'in_review') && (
+                        <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-500">
+                          <span>요청: <span className="text-slate-300">{selectedRequest.from_name}</span></span>
+                          <span>담당: <span className="text-sky-400">{selectedRequest.to_name}</span></span>
+                        </div>
+                        <p className="text-[10px] text-slate-600 mt-0.5">
+                          {selectedRequest.drawing_number} | {new Date(selectedRequest.created_at).toLocaleString()}
+                        </p>
+                      </div>
+
+                      {/* Workflow Action Buttons */}
+                      <div className="flex gap-1.5 flex-wrap">
+                        {selectedRequest.status === 'requested' && (
                           <>
-                            <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'completed')}
-                                    className="px-2 py-1 bg-green-500/20 text-green-400 rounded text-[10px] hover:bg-green-500/30">
-                              <Check className="w-3 h-3 inline mr-0.5" />완료
+                            <button onClick={() => handleStartMarkup(selectedRequest)}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-[10px] font-medium hover:bg-blue-500/30 transition-colors">
+                              <MapPin className="w-3 h-3" /> 마크업 시작
                             </button>
                             <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'rejected')}
-                                    className="px-2 py-1 bg-red-500/20 text-red-400 rounded text-[10px] hover:bg-red-500/30">
-                              반려
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-700/50 text-slate-400 rounded-lg text-[10px] hover:bg-slate-600/50 transition-colors">
+                              <XCircle className="w-3 h-3" /> 반려
                             </button>
                           </>
                         )}
-                        {(selectedRequest.status === 'completed' || selectedRequest.status === 'rejected') && (
-                          <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'pending')}
-                                  className="px-2 py-1 bg-amber-500/20 text-amber-400 rounded text-[10px] hover:bg-amber-500/30">
-                            <RotateCcw className="w-3 h-3 inline mr-0.5" />재요청
+                        {selectedRequest.status === 'markup_in_progress' && (
+                          <>
+                            {activeRequestId !== selectedRequest.request_id ? (
+                              <button onClick={() => handleStartMarkup(selectedRequest)}
+                                      className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-[10px] font-medium hover:bg-blue-500/30 transition-colors">
+                                <MapPin className="w-3 h-3" /> 핀 추가 계속
+                              </button>
+                            ) : (
+                              <span className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-500/30 text-blue-300 rounded-lg text-[10px] font-medium">
+                                <Loader2 className="w-3 h-3 animate-spin" /> 마크업 진행중
+                              </span>
+                            )}
+                            <button onClick={() => { handleUpdateRequestStatus(selectedRequest.request_id, 'markup_done'); handleStopMarkup(); }}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-purple-500/20 text-purple-400 rounded-lg text-[10px] font-medium hover:bg-purple-500/30 transition-colors">
+                              <Check className="w-3 h-3" /> 마크업 완료
+                            </button>
+                          </>
+                        )}
+                        {selectedRequest.status === 'markup_done' && (
+                          <>
+                            <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'feedback')}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-orange-500/20 text-orange-400 rounded-lg text-[10px] font-medium hover:bg-orange-500/30 transition-colors">
+                              <MessageSquare className="w-3 h-3" /> 피드백 요청
+                            </button>
+                            <button onClick={() => handleStartMarkup(selectedRequest)}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-700/50 text-slate-400 rounded-lg text-[10px] hover:bg-slate-600/50 transition-colors">
+                              <MapPin className="w-3 h-3" /> 추가 마크업
+                            </button>
+                          </>
+                        )}
+                        {selectedRequest.status === 'feedback' && (
+                          <>
+                            <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'confirmed')}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/20 text-green-400 rounded-lg text-[10px] font-medium hover:bg-green-500/30 transition-colors">
+                              <CheckCircle2 className="w-3 h-3" /> 확정
+                            </button>
+                            <button onClick={() => handleStartMarkup(selectedRequest)}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-700/50 text-slate-400 rounded-lg text-[10px] hover:bg-slate-600/50 transition-colors">
+                              <RotateCcw className="w-3 h-3" /> 재마크업
+                            </button>
+                          </>
+                        )}
+                        {selectedRequest.status === 'confirmed' && (
+                          <span className="flex items-center gap-1 px-2.5 py-1.5 bg-green-500/20 text-green-400 rounded-lg text-[10px] font-medium">
+                            <CheckCircle2 className="w-3 h-3" /> 확정 완료
+                          </span>
+                        )}
+                        {selectedRequest.status === 'rejected' && (
+                          <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'requested')}
+                                  className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500/20 text-amber-400 rounded-lg text-[10px] hover:bg-amber-500/30 transition-colors">
+                            <RotateCcw className="w-3 h-3" /> 재요청
                           </button>
                         )}
-                        <button onClick={() => handleDeleteRequest(selectedRequest.request_id)}
-                                className="px-2 py-1 bg-slate-700/50 text-slate-400 rounded text-[10px] hover:bg-slate-600/50 ml-auto">
-                          <Trash2 className="w-3 h-3 inline" />
-                        </button>
                       </div>
                     </div>
 
-                    {/* Reply thread */}
-                    <div className="flex-1 overflow-auto p-3 space-y-2">
-                      {(selectedRequest.replies || []).map(r => (
-                        <div key={r.reply_id} className="bg-slate-800/50 rounded-lg p-2.5">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[10px] font-medium text-sky-400">{r.author_name}</span>
-                            <span className="text-[10px] text-slate-600">{new Date(r.created_at).toLocaleString()}</span>
+                    {/* Linked Markups + Replies */}
+                    <div className="flex-1 overflow-auto">
+                      {/* Linked Markups Section */}
+                      {(() => {
+                        const linkedMarkups = markups.filter(m => m.request_id === selectedRequest.request_id);
+                        if (linkedMarkups.length === 0) return null;
+                        const confirmedCount = linkedMarkups.filter(m => m.status === 'confirmed').length;
+                        return (
+                          <div className="p-3 border-b border-slate-700/50">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-[10px] font-medium text-slate-400">
+                                <MapPin className="w-3 h-3 inline mr-1" />연결된 마크업 ({linkedMarkups.length}건)
+                              </p>
+                              {confirmedCount > 0 && (
+                                <span className="text-[9px] text-green-400">확정 {confirmedCount}건</span>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              {linkedMarkups.map((m, i) => (
+                                <div key={m.markup_id}
+                                     onClick={() => { setSelectedMarkup(m); setCurrentPage(m.page); setRightTab('markups'); }}
+                                     className="flex items-center gap-2 p-1.5 bg-slate-800/50 rounded cursor-pointer hover:bg-slate-700/50 transition-colors">
+                                  <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[8px] font-bold flex-shrink-0"
+                                       style={{ backgroundColor: DISCIPLINES[m.discipline]?.color || '#888' }}>
+                                    {i + 1}
+                                  </div>
+                                  <p className={`text-[10px] flex-1 truncate ${
+                                    m.status === 'confirmed' ? 'text-green-400' :
+                                    m.status === 'resolved' ? 'text-slate-500 line-through' : 'text-slate-300'
+                                  }`}>
+                                    {m.comment}
+                                  </p>
+                                  <span className={`text-[8px] px-1 py-0.5 rounded flex-shrink-0 ${
+                                    m.status === 'confirmed' ? 'bg-green-500/20 text-green-400' :
+                                    m.status === 'resolved' ? 'bg-slate-500/20 text-slate-400' :
+                                    'bg-amber-500/20 text-amber-400'
+                                  }`}>
+                                    {m.status === 'confirmed' ? '확정' : m.status === 'resolved' ? '해결' : '미해결'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <p className="text-xs text-slate-300">{r.content}</p>
-                        </div>
-                      ))}
-                      {(selectedRequest.replies || []).length === 0 && (
-                        <p className="text-xs text-slate-600 text-center py-4">아직 답변이 없습니다</p>
-                      )}
+                        );
+                      })()}
+
+                      {/* Reply thread */}
+                      <div className="p-3 space-y-2">
+                        <p className="text-[10px] font-medium text-slate-400 mb-1">
+                          <MessageSquare className="w-3 h-3 inline mr-1" />대화 ({(selectedRequest.replies || []).length}건)
+                        </p>
+                        {(selectedRequest.replies || []).map(r => (
+                          <div key={r.reply_id} className="bg-slate-800/50 rounded-lg p-2.5">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[10px] font-medium text-sky-400">{r.author_name}</span>
+                              <span className="text-[10px] text-slate-600">{new Date(r.created_at).toLocaleString()}</span>
+                            </div>
+                            <p className="text-xs text-slate-300">{r.content}</p>
+                          </div>
+                        ))}
+                        {(selectedRequest.replies || []).length === 0 && (
+                          <p className="text-xs text-slate-600 text-center py-4">아직 대화가 없습니다</p>
+                        )}
+                      </div>
                     </div>
 
                     {/* Reply input */}
@@ -1225,41 +1426,46 @@ const PlantSync = () => {
 
                     {/* Request items */}
                     <div className="flex-1 overflow-auto">
-                      {reviewRequests.map(r => (
-                        <div
-                          key={r.request_id}
-                          onClick={() => setSelectedRequest(r)}
-                          className="px-3 py-2.5 border-b border-slate-800/50 cursor-pointer hover:bg-slate-800/50 transition-colors"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5 mb-0.5">
-                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
-                                <span className={`text-[9px] px-1 py-0.5 rounded ${
-                                  r.status === 'pending' ? 'bg-amber-500/20 text-amber-400' :
-                                  r.status === 'in_review' ? 'bg-blue-500/20 text-blue-400' :
-                                  r.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                                  r.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
-                                  'bg-slate-500/20 text-slate-400'
-                                }`}>
-                                  {r.status === 'pending' ? '요청됨' :
-                                   r.status === 'in_review' ? '검토중' :
-                                   r.status === 'completed' ? '완료' :
-                                   r.status === 'rejected' ? '반려' : '보류'}
-                                </span>
-                                {r.priority === 'urgent' && (
-                                  <AlertTriangle className="w-3 h-3 text-red-400" />
-                                )}
-                              </div>
-                              <p className="text-xs font-medium text-slate-200 truncate">{r.title}</p>
-                              <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
-                                <span>{r.from_name} → <span className="text-sky-400">{r.to_name}</span></span>
-                                <span>| 답변 {(r.replies || []).length}건</span>
+                      {reviewRequests.map(r => {
+                        const statusConfig = {
+                          requested:          { label: '검토요청', bg: 'bg-amber-500/20',  text: 'text-amber-400' },
+                          markup_in_progress: { label: '마크업중', bg: 'bg-blue-500/20',   text: 'text-blue-400' },
+                          markup_done:        { label: '마크업완료', bg: 'bg-purple-500/20', text: 'text-purple-400' },
+                          feedback:           { label: '피드백',   bg: 'bg-orange-500/20', text: 'text-orange-400' },
+                          confirmed:          { label: '확정',     bg: 'bg-green-500/20',  text: 'text-green-400' },
+                          rejected:           { label: '반려',     bg: 'bg-red-500/20',    text: 'text-red-400' },
+                        };
+                        const sc = statusConfig[r.status] || { label: r.status, bg: 'bg-slate-500/20', text: 'text-slate-400' };
+                        return (
+                          <div
+                            key={r.request_id}
+                            onClick={() => setSelectedRequest(r)}
+                            className="px-3 py-2.5 border-b border-slate-800/50 cursor-pointer hover:bg-slate-800/50 transition-colors"
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
+                                  <span className={`text-[9px] px-1 py-0.5 rounded ${sc.bg} ${sc.text}`}>
+                                    {sc.label}
+                                  </span>
+                                  {r.priority === 'urgent' && (
+                                    <AlertTriangle className="w-3 h-3 text-red-400" />
+                                  )}
+                                </div>
+                                <p className="text-xs font-medium text-slate-200 truncate">{r.title}</p>
+                                <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
+                                  <span>{r.from_name} → <span className="text-sky-400">{r.to_name}</span></span>
+                                  {r.markup_count > 0 && (
+                                    <span className="text-slate-400">마크업 {r.markup_count}건</span>
+                                  )}
+                                  <span>대화 {(r.replies || []).length}건</span>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                       {reviewRequests.length === 0 && (
                         <div className="p-6 text-center text-slate-500 text-xs">
                           {selectedDrawing ? '검토 요청이 없습니다' : '도면을 선택해 주세요'}

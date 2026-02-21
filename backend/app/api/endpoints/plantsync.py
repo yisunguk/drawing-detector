@@ -57,6 +57,7 @@ class CreateMarkupRequest(BaseModel):
     comment: str
     severity: Optional[str] = "normal"
     author_name: Optional[str] = None
+    request_id: Optional[str] = None  # link to review request
 
 
 class UpdateMarkupRequest(BaseModel):
@@ -97,7 +98,7 @@ class ReplyReviewRequestModel(BaseModel):
 
 
 class UpdateReviewRequestStatusModel(BaseModel):
-    status: str  # "pending" | "in_review" | "completed" | "rejected" | "deferred"
+    status: str  # "requested" | "markup_in_progress" | "markup_done" | "feedback" | "confirmed" | "rejected"
 
 
 # ── Auth Helper ──
@@ -648,6 +649,7 @@ async def create_markup(
     markup = {
         "markup_id": markup_id,
         "drawing_id": drawing_id,
+        "request_id": req.request_id or "",
         "page": req.page,
         "x": req.x,
         "y": req.y,
@@ -880,7 +882,7 @@ async def get_dashboard(
     requests_bp = _requests_path(username, project_id)
     requests = _load_json(container, requests_bp) or []
     total_requests = len(requests)
-    pending_requests = sum(1 for r in requests if r.get("status") == "pending")
+    pending_requests = sum(1 for r in requests if r.get("status") in ("requested", "markup_in_progress", "markup_done", "feedback"))
 
     return {
         "status": "success",
@@ -935,7 +937,7 @@ async def create_review_request(
         "title": req.title,
         "message": req.message,
         "priority": req.priority or "normal",
-        "status": "pending",  # pending → in_review → completed/rejected/deferred
+        "status": "requested",  # requested → markup_in_progress → markup_done → feedback → confirmed
         "created_at": now,
         "updated_at": now,
         "replies": [],
@@ -965,6 +967,16 @@ async def list_review_requests(
         requests = [r for r in requests if r.get("drawing_id") == drawing_id]
     if status:
         requests = [r for r in requests if r.get("status") == status]
+
+    # Enrich with linked markup counts
+    markups_bp = _markups_path(username, project_id)
+    all_markups = _load_json(container, markups_bp) or []
+    for r in requests:
+        rid = r["request_id"]
+        linked = [m for m in all_markups if m.get("request_id") == rid]
+        r["markup_count"] = len(linked)
+        r["open_markup_count"] = sum(1 for m in linked if m.get("status") == "open")
+        r["confirmed_markup_count"] = sum(1 for m in linked if m.get("status") == "confirmed")
 
     return {"status": "success", "requests": requests}
 
