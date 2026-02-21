@@ -373,7 +373,7 @@ const UserProfile = () => {
         <div className="min-h-screen bg-[#fcfaf7] flex flex-col">
             {/* Header */}
             <div className="bg-white border-b border-[#e5e1d8] px-6 py-4 flex items-center gap-4 sticky top-0 z-10">
-                <button onClick={() => navigate('/')} className="p-2 hover:bg-[#f4f1ea] rounded-full transition-colors text-[#555555]">
+                <button onClick={() => navigate(-1)} className="p-2 hover:bg-[#f4f1ea] rounded-full transition-colors text-[#555555]">
                     <ArrowLeft size={20} />
                 </button>
                 <h1 className="text-xl font-bold text-[#333333]">사용자 설정</h1>
