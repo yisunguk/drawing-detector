@@ -57,15 +57,22 @@ const PlantSync = () => {
   const [disciplineFilter, setDisciplineFilter] = useState('all');
   const [isPlacingPin, setIsPlacingPin] = useState(false);
   const [pinDiscipline, setPinDiscipline] = useState('process');
-  const [rightTab, setRightTab] = useState('comments'); // 'comments' | 'review' | 'dashboard'
+  const [rightTab, setRightTab] = useState('markups'); // 'markups' | 'collab' | 'review' | 'dashboard'
   const [showTitleBlockModal, setShowTitleBlockModal] = useState(false);
   const [titleBlockData, setTitleBlockData] = useState(null);
   const [pendingDrawingId, setPendingDrawingId] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [newComment, setNewComment] = useState('');
   const [dashboard, setDashboard] = useState(null);
-  const [editingDrawing, setEditingDrawing] = useState(null); // drawing_id being edited
+  const [editingDrawing, setEditingDrawing] = useState(null);
   const [editForm, setEditForm] = useState({ drawing_number: '', title: '', revision: '', discipline: '' });
+
+  // Collaboration
+  const [reviewRequests, setReviewRequests] = useState([]);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [showNewRequest, setShowNewRequest] = useState(false);
+  const [requestForm, setRequestForm] = useState({ to_name: '', discipline: 'process', title: '', message: '', priority: 'normal' });
+  const [requestReplyText, setRequestReplyText] = useState('');
 
   const fileInputRef = useRef(null);
 
@@ -141,6 +148,23 @@ const PlantSync = () => {
     }
   }, []);
 
+  const loadReviewRequests = useCallback(async (projectId, drawingId) => {
+    try {
+      const token = await getToken();
+      const url = drawingId
+        ? getUrl(`projects/${projectId}/requests?drawing_id=${drawingId}`)
+        : getUrl(`projects/${projectId}/requests`);
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      const data = await res.json();
+      setReviewRequests(data.requests || []);
+    } catch (e) {
+      console.error('Load requests error:', e);
+    }
+  }, []);
+
   // ── Effects ──
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
@@ -149,15 +173,17 @@ const PlantSync = () => {
     if (selectedProject) {
       loadProjectDetail(selectedProject.project_id);
       loadDashboard(selectedProject.project_id);
+      loadReviewRequests(selectedProject.project_id);
     }
-  }, [selectedProject, loadProjectDetail, loadDashboard]);
+  }, [selectedProject, loadProjectDetail, loadDashboard, loadReviewRequests]);
 
   useEffect(() => {
     if (selectedProject && selectedDrawing) {
       loadPdfUrl(selectedProject.project_id, selectedDrawing.drawing_id);
       loadMarkups(selectedProject.project_id, selectedDrawing.drawing_id);
+      loadReviewRequests(selectedProject.project_id, selectedDrawing.drawing_id);
     }
-  }, [selectedProject, selectedDrawing, loadPdfUrl, loadMarkups]);
+  }, [selectedProject, selectedDrawing, loadPdfUrl, loadMarkups, loadReviewRequests]);
 
   // ── Handlers ──
 
@@ -368,6 +394,72 @@ const PlantSync = () => {
     }
   };
 
+  // ── Collaboration Handlers ──
+
+  const handleCreateRequest = async () => {
+    if (!selectedProject || !selectedDrawing || !requestForm.to_name.trim() || !requestForm.title.trim()) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${selectedProject.project_id}/requests`), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...requestForm, drawing_id: selectedDrawing.drawing_id }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      setShowNewRequest(false);
+      setRequestForm({ to_name: '', discipline: 'process', title: '', message: '', priority: 'normal' });
+      await loadReviewRequests(selectedProject.project_id, selectedDrawing.drawing_id);
+    } catch (e) {
+      console.error('Create request error:', e);
+    }
+  };
+
+  const handleUpdateRequestStatus = async (requestId, status) => {
+    if (!selectedProject) return;
+    try {
+      const token = await getToken();
+      await fetch(getUrl(`projects/${selectedProject.project_id}/requests/${requestId}`), {
+        method: 'PATCH',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      await loadReviewRequests(selectedProject.project_id, selectedDrawing?.drawing_id);
+    } catch (e) {
+      console.error('Update request status error:', e);
+    }
+  };
+
+  const handleAddRequestReply = async () => {
+    if (!requestReplyText.trim() || !selectedRequest?.request_id || !selectedProject) return;
+    try {
+      const token = await getToken();
+      await fetch(getUrl(`projects/${selectedProject.project_id}/requests/${selectedRequest.request_id}/replies`), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: requestReplyText.trim() }),
+      });
+      setRequestReplyText('');
+      await loadReviewRequests(selectedProject.project_id, selectedDrawing?.drawing_id);
+    } catch (e) {
+      console.error('Reply request error:', e);
+    }
+  };
+
+  const handleDeleteRequest = async (requestId) => {
+    if (!selectedProject) return;
+    try {
+      const token = await getToken();
+      await fetch(getUrl(`projects/${selectedProject.project_id}/requests/${requestId}`), {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (selectedRequest?.request_id === requestId) setSelectedRequest(null);
+      await loadReviewRequests(selectedProject.project_id, selectedDrawing?.drawing_id);
+    } catch (e) {
+      console.error('Delete request error:', e);
+    }
+  };
+
   const handleEditDrawing = (d, e) => {
     e.stopPropagation();
     setEditingDrawing(d.drawing_id);
@@ -423,6 +515,14 @@ const PlantSync = () => {
       if (updated) setSelectedMarkup(updated);
     }
   }, [markups]);
+
+  // Keep selected request in sync
+  useEffect(() => {
+    if (selectedRequest?.request_id) {
+      const updated = reviewRequests.find(r => r.request_id === selectedRequest.request_id);
+      if (updated) setSelectedRequest(updated);
+    }
+  }, [reviewRequests]);
 
   // ── Filtered Drawings ──
   const drawings = projectDetail?.drawings || [];
@@ -750,7 +850,7 @@ const PlantSync = () => {
                     const isSelected = selectedMarkup?.markup_id === m.markup_id;
                     const discColor = DISCIPLINES[m.discipline]?.color || '#888';
                     return (
-                      <g key={m.markup_id} onClick={(e) => { e.stopPropagation(); setSelectedMarkup(m); setRightTab('comments'); }}
+                      <g key={m.markup_id} onClick={(e) => { e.stopPropagation(); setSelectedMarkup(m); setRightTab('markups'); }}
                          style={{ cursor: 'pointer' }}>
                         {isSelected && (
                           <circle cx={cx} cy={cy} r="18" fill="none" stroke={discColor} strokeWidth="2" strokeDasharray="4" opacity="0.7">
@@ -794,7 +894,8 @@ const PlantSync = () => {
           {/* Tabs */}
           <div className="flex border-b border-slate-700/50 flex-shrink-0">
             {[
-              { key: 'comments', label: '코멘트', icon: MessageSquare },
+              { key: 'markups', label: '마크업', icon: MapPin },
+              { key: 'collab', label: '협업', icon: Send },
               { key: 'review', label: '검토', icon: ClipboardList },
               { key: 'dashboard', label: '통계', icon: BarChart3 },
             ].map(tab => (
@@ -815,7 +916,7 @@ const PlantSync = () => {
           {/* Tab Content */}
           <div className="flex-1 overflow-auto">
             {/* Comments Tab */}
-            {rightTab === 'comments' && (
+            {rightTab === 'markups' && (
               <div className="flex flex-col h-full">
                 {selectedMarkup && !selectedMarkup._pending ? (
                   /* Selected Markup Detail */
@@ -837,7 +938,7 @@ const PlantSync = () => {
                       </div>
                       <p className="text-sm text-slate-200 mt-2">{selectedMarkup.comment}</p>
                       <p className="text-[10px] text-slate-500 mt-1">
-                        by {selectedMarkup.author_name} | Page {selectedMarkup.page} | {new Date(selectedMarkup.created_at).toLocaleString()}
+                        작성자: <span className="text-sky-400">{selectedMarkup.author_name}</span> | P.{selectedMarkup.page} | {new Date(selectedMarkup.created_at).toLocaleString()}
                       </p>
                       <div className="flex gap-2 mt-2">
                         {selectedMarkup.status === 'open' ? (
@@ -859,7 +960,7 @@ const PlantSync = () => {
                       {(selectedMarkup.replies || []).map(r => (
                         <div key={r.reply_id} className="bg-slate-800/50 rounded-lg p-2.5">
                           <p className="text-xs text-slate-300">{r.content}</p>
-                          <p className="text-[10px] text-slate-500 mt-1">{r.author_name} | {new Date(r.created_at).toLocaleString()}</p>
+                          <p className="text-[10px] text-slate-500 mt-1"><span className="text-sky-400">{r.author_name}</span> | {new Date(r.created_at).toLocaleString()}</p>
                         </div>
                       ))}
                     </div>
@@ -939,6 +1040,232 @@ const PlantSync = () => {
                     ) : (
                       <p className="text-xs text-slate-500 text-center py-8">도면을 선택하면 마크업을 확인할 수 있습니다</p>
                     )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Collaboration Tab */}
+            {rightTab === 'collab' && (
+              <div className="flex flex-col h-full">
+                {selectedRequest ? (
+                  /* Request Detail */
+                  <div className="flex flex-col h-full">
+                    <div className="p-3 border-b border-slate-700/50">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full" style={{ backgroundColor: DISCIPLINES[selectedRequest.discipline]?.color }} />
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            selectedRequest.status === 'pending' ? 'bg-amber-500/20 text-amber-400' :
+                            selectedRequest.status === 'in_review' ? 'bg-blue-500/20 text-blue-400' :
+                            selectedRequest.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                            selectedRequest.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
+                            'bg-slate-500/20 text-slate-400'
+                          }`}>
+                            {selectedRequest.status === 'pending' ? '요청됨' :
+                             selectedRequest.status === 'in_review' ? '검토중' :
+                             selectedRequest.status === 'completed' ? '완료' :
+                             selectedRequest.status === 'rejected' ? '반려' : '보류'}
+                          </span>
+                          {selectedRequest.priority === 'urgent' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 font-medium">긴급</span>
+                          )}
+                        </div>
+                        <button onClick={() => setSelectedRequest(null)} className="text-slate-500 hover:text-slate-300">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <p className="text-sm font-medium text-slate-200">{selectedRequest.title}</p>
+                      {selectedRequest.message && (
+                        <p className="text-xs text-slate-400 mt-1">{selectedRequest.message}</p>
+                      )}
+                      <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-500">
+                        <span>요청: <span className="text-slate-300">{selectedRequest.from_name}</span></span>
+                        <span>담당: <span className="text-sky-400">{selectedRequest.to_name}</span></span>
+                      </div>
+                      <p className="text-[10px] text-slate-600 mt-1">
+                        {selectedRequest.drawing_number} | {new Date(selectedRequest.created_at).toLocaleString()}
+                      </p>
+
+                      {/* Status actions */}
+                      <div className="flex gap-1.5 mt-2.5">
+                        {selectedRequest.status === 'pending' && (
+                          <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'in_review')}
+                                  className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded text-[10px] hover:bg-blue-500/30">
+                            검토 시작
+                          </button>
+                        )}
+                        {(selectedRequest.status === 'pending' || selectedRequest.status === 'in_review') && (
+                          <>
+                            <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'completed')}
+                                    className="px-2 py-1 bg-green-500/20 text-green-400 rounded text-[10px] hover:bg-green-500/30">
+                              <Check className="w-3 h-3 inline mr-0.5" />완료
+                            </button>
+                            <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'rejected')}
+                                    className="px-2 py-1 bg-red-500/20 text-red-400 rounded text-[10px] hover:bg-red-500/30">
+                              반려
+                            </button>
+                          </>
+                        )}
+                        {(selectedRequest.status === 'completed' || selectedRequest.status === 'rejected') && (
+                          <button onClick={() => handleUpdateRequestStatus(selectedRequest.request_id, 'pending')}
+                                  className="px-2 py-1 bg-amber-500/20 text-amber-400 rounded text-[10px] hover:bg-amber-500/30">
+                            <RotateCcw className="w-3 h-3 inline mr-0.5" />재요청
+                          </button>
+                        )}
+                        <button onClick={() => handleDeleteRequest(selectedRequest.request_id)}
+                                className="px-2 py-1 bg-slate-700/50 text-slate-400 rounded text-[10px] hover:bg-slate-600/50 ml-auto">
+                          <Trash2 className="w-3 h-3 inline" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Reply thread */}
+                    <div className="flex-1 overflow-auto p-3 space-y-2">
+                      {(selectedRequest.replies || []).map(r => (
+                        <div key={r.reply_id} className="bg-slate-800/50 rounded-lg p-2.5">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] font-medium text-sky-400">{r.author_name}</span>
+                            <span className="text-[10px] text-slate-600">{new Date(r.created_at).toLocaleString()}</span>
+                          </div>
+                          <p className="text-xs text-slate-300">{r.content}</p>
+                        </div>
+                      ))}
+                      {(selectedRequest.replies || []).length === 0 && (
+                        <p className="text-xs text-slate-600 text-center py-4">아직 답변이 없습니다</p>
+                      )}
+                    </div>
+
+                    {/* Reply input */}
+                    <div className="p-3 border-t border-slate-700/50 flex-shrink-0">
+                      <div className="flex gap-2">
+                        <input
+                          value={requestReplyText}
+                          onChange={e => setRequestReplyText(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleAddRequestReply()}
+                          placeholder="답변 입력..."
+                          className="flex-1 px-3 py-1.5 bg-slate-800/50 border border-slate-700/50 rounded-lg text-xs text-slate-300 placeholder-slate-500 focus:outline-none focus:border-sky-500/50"
+                        />
+                        <button onClick={handleAddRequestReply} className="p-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded-lg">
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Request List */
+                  <div className="flex flex-col h-full">
+                    <div className="p-3 border-b border-slate-700/50 flex-shrink-0">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-slate-400">검토 요청 {reviewRequests.length}건</p>
+                        {selectedDrawing && (
+                          <button onClick={() => setShowNewRequest(true)}
+                                  className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px] hover:bg-sky-500/30">
+                            <Plus className="w-3 h-3" /> 요청 생성
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* New request form */}
+                    {showNewRequest && selectedDrawing && (
+                      <div className="p-3 border-b border-slate-700/50 space-y-2 bg-slate-800/30 flex-shrink-0">
+                        <p className="text-xs font-medium text-slate-300">새 검토 요청</p>
+                        <input
+                          value={requestForm.to_name}
+                          onChange={e => setRequestForm(f => ({ ...f, to_name: e.target.value }))}
+                          placeholder="담당자 이름"
+                          className="w-full px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                        />
+                        <div className="flex gap-1.5">
+                          <select
+                            value={requestForm.discipline}
+                            onChange={e => setRequestForm(f => ({ ...f, discipline: e.target.value }))}
+                            className="flex-1 px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none"
+                          >
+                            {Object.entries(DISCIPLINES).map(([k, v]) => (
+                              <option key={k} value={k}>{v.label}</option>
+                            ))}
+                          </select>
+                          <select
+                            value={requestForm.priority}
+                            onChange={e => setRequestForm(f => ({ ...f, priority: e.target.value }))}
+                            className="w-20 px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none"
+                          >
+                            <option value="low">낮음</option>
+                            <option value="normal">보통</option>
+                            <option value="urgent">긴급</option>
+                          </select>
+                        </div>
+                        <input
+                          value={requestForm.title}
+                          onChange={e => setRequestForm(f => ({ ...f, title: e.target.value }))}
+                          placeholder="요청 제목"
+                          className="w-full px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                        />
+                        <textarea
+                          value={requestForm.message}
+                          onChange={e => setRequestForm(f => ({ ...f, message: e.target.value }))}
+                          placeholder="상세 내용 (선택사항)"
+                          className="w-full px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500 resize-none"
+                          rows={2}
+                        />
+                        <div className="flex gap-1.5">
+                          <button onClick={handleCreateRequest}
+                                  className="flex-1 px-2 py-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded text-xs font-medium">
+                            요청 보내기
+                          </button>
+                          <button onClick={() => setShowNewRequest(false)}
+                                  className="px-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-xs">
+                            취소
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Request items */}
+                    <div className="flex-1 overflow-auto">
+                      {reviewRequests.map(r => (
+                        <div
+                          key={r.request_id}
+                          onClick={() => setSelectedRequest(r)}
+                          className="px-3 py-2.5 border-b border-slate-800/50 cursor-pointer hover:bg-slate-800/50 transition-colors"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
+                                <span className={`text-[9px] px-1 py-0.5 rounded ${
+                                  r.status === 'pending' ? 'bg-amber-500/20 text-amber-400' :
+                                  r.status === 'in_review' ? 'bg-blue-500/20 text-blue-400' :
+                                  r.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                                  r.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
+                                  'bg-slate-500/20 text-slate-400'
+                                }`}>
+                                  {r.status === 'pending' ? '요청됨' :
+                                   r.status === 'in_review' ? '검토중' :
+                                   r.status === 'completed' ? '완료' :
+                                   r.status === 'rejected' ? '반려' : '보류'}
+                                </span>
+                                {r.priority === 'urgent' && (
+                                  <AlertTriangle className="w-3 h-3 text-red-400" />
+                                )}
+                              </div>
+                              <p className="text-xs font-medium text-slate-200 truncate">{r.title}</p>
+                              <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500">
+                                <span>{r.from_name} → <span className="text-sky-400">{r.to_name}</span></span>
+                                <span>| 답변 {(r.replies || []).length}건</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {reviewRequests.length === 0 && (
+                        <div className="p-6 text-center text-slate-500 text-xs">
+                          {selectedDrawing ? '검토 요청이 없습니다' : '도면을 선택해 주세요'}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1054,6 +1381,14 @@ const PlantSync = () => {
                   <div className="bg-slate-800/50 rounded-lg p-3 text-center">
                     <p className="text-2xl font-bold text-slate-100">{dashboard.total_markups}</p>
                     <p className="text-[10px] text-slate-500">전체 마크업</p>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-sky-400">{dashboard.total_requests || 0}</p>
+                    <p className="text-[10px] text-slate-500">검토 요청</p>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                    <p className="text-2xl font-bold text-amber-400">{dashboard.pending_requests || 0}</p>
+                    <p className="text-[10px] text-slate-500">대기중 요청</p>
                   </div>
                   <div className="bg-slate-800/50 rounded-lg p-3 text-center">
                     <p className="text-2xl font-bold text-amber-400">{dashboard.open_markups}</p>

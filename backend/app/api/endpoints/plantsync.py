@@ -82,6 +82,24 @@ class FinalApprovalRequest(BaseModel):
     comment: Optional[str] = None
 
 
+class CreateReviewRequestModel(BaseModel):
+    drawing_id: str
+    to_name: str  # assignee name
+    discipline: str
+    title: str
+    message: str = ""
+    priority: Optional[str] = "normal"  # "normal" | "urgent" | "low"
+
+
+class ReplyReviewRequestModel(BaseModel):
+    content: str
+    author_name: Optional[str] = None
+
+
+class UpdateReviewRequestStatusModel(BaseModel):
+    status: str  # "pending" | "in_review" | "completed" | "rejected" | "deferred"
+
+
 # ── Auth Helper ──
 
 def _get_username(authorization: Optional[str]) -> str:
@@ -137,6 +155,10 @@ def _meta_path(username: str, project_id: str) -> str:
 
 def _markups_path(username: str, project_id: str) -> str:
     return f"{username}/plantsync/{project_id}/markups.json"
+
+
+def _requests_path(username: str, project_id: str) -> str:
+    return f"{username}/plantsync/{project_id}/requests.json"
 
 
 def _list_projects(container, username: str) -> list:
@@ -854,6 +876,12 @@ async def get_dashboard(
         md = m.get("discipline", "unknown")
         markups_by_discipline[md] = markups_by_discipline.get(md, 0) + 1
 
+    # Request stats
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+    total_requests = len(requests)
+    pending_requests = sum(1 for r in requests if r.get("status") == "pending")
+
     return {
         "status": "success",
         "dashboard": {
@@ -865,5 +893,153 @@ async def get_dashboard(
             "open_markups": open_markups,
             "resolved_markups": resolved_markups,
             "markups_by_discipline": markups_by_discipline,
+            "total_requests": total_requests,
+            "pending_requests": pending_requests,
         }
     }
+
+
+# ── Review Requests (Collaboration) ──
+
+@router.post("/projects/{project_id}/requests")
+async def create_review_request(
+    project_id: str,
+    req: CreateReviewRequestModel,
+    authorization: Optional[str] = Header(None)
+):
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Verify drawing exists
+    drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == req.drawing_id), None)
+    if not drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    now = datetime.now(timezone.utc).isoformat()
+    request_id = str(uuid.uuid4())[:8]
+
+    review_request = {
+        "request_id": request_id,
+        "drawing_id": req.drawing_id,
+        "drawing_number": drawing.get("drawing_number", ""),
+        "from_name": username,
+        "to_name": req.to_name,
+        "discipline": req.discipline,
+        "title": req.title,
+        "message": req.message,
+        "priority": req.priority or "normal",
+        "status": "pending",  # pending → in_review → completed/rejected/deferred
+        "created_at": now,
+        "updated_at": now,
+        "replies": [],
+    }
+
+    requests.append(review_request)
+    _save_json(container, requests_bp, requests)
+
+    print(f"[PlantSync] Review request created: {request_id} ({username} → {req.to_name})", flush=True)
+    return {"status": "success", "request": review_request}
+
+
+@router.get("/projects/{project_id}/requests")
+async def list_review_requests(
+    project_id: str,
+    drawing_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None)
+):
+    username = _get_username(authorization)
+    container = _get_container()
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    if drawing_id:
+        requests = [r for r in requests if r.get("drawing_id") == drawing_id]
+    if status:
+        requests = [r for r in requests if r.get("status") == status]
+
+    return {"status": "success", "requests": requests}
+
+
+@router.patch("/projects/{project_id}/requests/{request_id}")
+async def update_review_request_status(
+    project_id: str,
+    request_id: str,
+    req: UpdateReviewRequestStatusModel,
+    authorization: Optional[str] = Header(None)
+):
+    username = _get_username(authorization)
+    container = _get_container()
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    review_req = next((r for r in requests if r["request_id"] == request_id), None)
+    if not review_req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    review_req["status"] = req.status
+    review_req["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    _save_json(container, requests_bp, requests)
+
+    return {"status": "success", "request": review_req}
+
+
+@router.post("/projects/{project_id}/requests/{request_id}/replies")
+async def add_review_request_reply(
+    project_id: str,
+    request_id: str,
+    req: ReplyReviewRequestModel,
+    authorization: Optional[str] = Header(None)
+):
+    username = _get_username(authorization)
+    container = _get_container()
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    review_req = next((r for r in requests if r["request_id"] == request_id), None)
+    if not review_req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    reply = {
+        "reply_id": str(uuid.uuid4())[:8],
+        "author_name": req.author_name or username,
+        "content": req.content,
+        "created_at": now,
+    }
+
+    review_req.setdefault("replies", []).append(reply)
+    review_req["updated_at"] = now
+
+    _save_json(container, requests_bp, requests)
+
+    return {"status": "success", "reply": reply}
+
+
+@router.delete("/projects/{project_id}/requests/{request_id}")
+async def delete_review_request(
+    project_id: str,
+    request_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    username = _get_username(authorization)
+    container = _get_container()
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    requests = [r for r in requests if r["request_id"] != request_id]
+    _save_json(container, requests_bp, requests)
+
+    return {"status": "success", "deleted": request_id}
