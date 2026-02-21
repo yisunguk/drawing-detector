@@ -5,6 +5,7 @@ Contract Deviation Management - API Endpoints
 - POST /parse-existing   : Parse existing blob JSON (no re-upload)
 - GET  /list             : List user's contracts
 - GET  /{contract_id}    : Contract detail (articles + deviation summary)
+- PUT  /{contract_id}/articles/{article_id}   : Update article fields
 - POST /{contract_id}/deviations              : Create deviation
 - GET  /{contract_id}/deviations              : List deviations (filter by article_id, status)
 - POST /{contract_id}/deviations/{id}/comments : Add comment
@@ -47,6 +48,14 @@ class AddCommentRequest(BaseModel):
 
 class UpdateStatusRequest(BaseModel):
     status: str  # "open" | "closed"
+
+
+class UpdateArticleRequest(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    page: Optional[int] = None
+    sub_clauses: Optional[int] = None
+    chapter: Optional[int] = None
 
 
 class ParseExistingRequest(BaseModel):
@@ -511,6 +520,47 @@ async def get_contract(
             'closed_deviations': closed_dev,
         },
     }
+
+
+# ── Update Article ──
+
+@router.put("/{contract_id}/articles/{article_id}")
+async def update_article(
+    contract_id: str,
+    article_id: int,
+    request: UpdateArticleRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Update a contract article's fields (title, content, page, sub_clauses, chapter)."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta_path = f"{username}/contracts/{contract_id}/meta.json"
+    meta = _load_json(container, meta_path)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    # Find article by id
+    article = None
+    for art in meta.get('articles', []):
+        if art.get('id') == article_id:
+            article = art
+            break
+    if not article:
+        raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+
+    # Apply partial updates
+    updates = request.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    for key, value in updates.items():
+        article[key] = value
+
+    _save_json(container, meta_path, meta)
+    print(f"[Contract] Article {article_id} updated: {list(updates.keys())}", flush=True)
+
+    return {'status': 'success', 'article': article}
 
 
 # ── Create Deviation ──

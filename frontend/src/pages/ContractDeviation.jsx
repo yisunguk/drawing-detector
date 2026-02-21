@@ -5,7 +5,8 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Scale, Upload, FileText, Plus, Send, ChevronLeft, ChevronRight,
   X, Trash2, AlertCircle, CheckCircle2, MessageSquare, Filter,
-  Search, Home, FolderOpen, RefreshCw, ArrowRight, Folder, File, Loader2
+  Search, Home, FolderOpen, RefreshCw, ArrowRight, Folder, File, Loader2,
+  Pencil, Check
 } from 'lucide-react';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
@@ -45,6 +46,12 @@ const ContractDeviation = () => {
   const [browseItems, setBrowseItems] = useState([]);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [selectedBlobFile, setSelectedBlobFile] = useState(null);
+
+  // Inline edit state
+  const [editCell, setEditCell] = useState(null);      // {articleId, field}
+  const [editValue, setEditValue] = useState('');
+  const [editingContent, setEditingContent] = useState(false);
+  const [editContentValue, setEditContentValue] = useState('');
 
   const fileInputRef = useRef(null);
   const commentEndRef = useRef(null);
@@ -302,6 +309,65 @@ const ContractDeviation = () => {
     } catch (e) {
       setError(e.message);
     }
+  };
+
+  // ── Article Inline Edit ──
+
+  const handleUpdateArticle = async (articleId, updates) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`${selectedContractId}/articles/${articleId}`), {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error('Failed to update article');
+      await loadContractDetail(selectedContractId);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const startCellEdit = (e, articleId, field, currentValue) => {
+    e.stopPropagation();
+    setEditCell({ articleId, field });
+    setEditValue(currentValue != null ? String(currentValue) : '');
+  };
+
+  const commitCellEdit = () => {
+    if (!editCell) return;
+    const { articleId, field } = editCell;
+    let value = editValue;
+    if (field === 'page' || field === 'sub_clauses') {
+      value = parseInt(value, 10);
+      if (isNaN(value)) { cancelCellEdit(); return; }
+    }
+    handleUpdateArticle(articleId, { [field]: value });
+    setEditCell(null);
+    setEditValue('');
+  };
+
+  const cancelCellEdit = () => {
+    setEditCell(null);
+    setEditValue('');
+  };
+
+  const startContentEdit = () => {
+    setEditingContent(true);
+    setEditContentValue(selectedArticle?.content || '');
+  };
+
+  const commitContentEdit = () => {
+    if (selectedArticle) {
+      handleUpdateArticle(selectedArticle.id, { content: editContentValue });
+    }
+    setEditingContent(false);
+    setEditContentValue('');
+  };
+
+  const cancelContentEdit = () => {
+    setEditingContent(false);
+    setEditContentValue('');
   };
 
   // ── Computed Values ──
@@ -572,17 +638,61 @@ const ContractDeviation = () => {
                                       setShowDeviationPanel(true);
                                       setSelectedDeviationId(null);
                                       setShowNewDevForm(false);
+                                      setEditingContent(false);
                                     }}
                                     className={`border-t border-gray-100 cursor-pointer transition-colors ${
                                       selectedArticleId === art.id ? 'bg-indigo-50' : 'hover:bg-gray-50'
                                     }`}
                                   >
                                     <td className="px-3 py-2.5 font-mono text-gray-600">제{art.no}조</td>
-                                    <td className="px-3 py-2.5">
-                                      <span className="font-medium text-gray-800">{art.title}</span>
+                                    <td className="px-3 py-2.5" onClick={(e) => startCellEdit(e, art.id, 'title', art.title)}>
+                                      {editCell?.articleId === art.id && editCell?.field === 'title' ? (
+                                        <input
+                                          autoFocus
+                                          type="text"
+                                          value={editValue}
+                                          onChange={e => setEditValue(e.target.value)}
+                                          onKeyDown={e => { if (e.key === 'Enter') commitCellEdit(); if (e.key === 'Escape') cancelCellEdit(); }}
+                                          onBlur={commitCellEdit}
+                                          onClick={e => e.stopPropagation()}
+                                          className="w-full px-1.5 py-0.5 border border-indigo-400 rounded text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                      ) : (
+                                        <span className="font-medium text-gray-800 hover:text-indigo-600 cursor-text">{art.title}</span>
+                                      )}
                                     </td>
-                                    <td className="px-3 py-2.5 text-center text-gray-500">{art.page}</td>
-                                    <td className="px-3 py-2.5 text-center text-gray-500">{art.sub_clauses || '-'}</td>
+                                    <td className="px-3 py-2.5 text-center" onClick={(e) => startCellEdit(e, art.id, 'page', art.page)}>
+                                      {editCell?.articleId === art.id && editCell?.field === 'page' ? (
+                                        <input
+                                          autoFocus
+                                          type="number"
+                                          value={editValue}
+                                          onChange={e => setEditValue(e.target.value)}
+                                          onKeyDown={e => { if (e.key === 'Enter') commitCellEdit(); if (e.key === 'Escape') cancelCellEdit(); }}
+                                          onBlur={commitCellEdit}
+                                          onClick={e => e.stopPropagation()}
+                                          className="w-16 px-1.5 py-0.5 border border-indigo-400 rounded text-sm text-center focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                      ) : (
+                                        <span className="text-gray-500 hover:text-indigo-600 cursor-text">{art.page}</span>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2.5 text-center" onClick={(e) => startCellEdit(e, art.id, 'sub_clauses', art.sub_clauses || 0)}>
+                                      {editCell?.articleId === art.id && editCell?.field === 'sub_clauses' ? (
+                                        <input
+                                          autoFocus
+                                          type="number"
+                                          value={editValue}
+                                          onChange={e => setEditValue(e.target.value)}
+                                          onKeyDown={e => { if (e.key === 'Enter') commitCellEdit(); if (e.key === 'Escape') cancelCellEdit(); }}
+                                          onBlur={commitCellEdit}
+                                          onClick={e => e.stopPropagation()}
+                                          className="w-16 px-1.5 py-0.5 border border-indigo-400 rounded text-sm text-center focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        />
+                                      ) : (
+                                        <span className="text-gray-500 hover:text-indigo-600 cursor-text">{art.sub_clauses || '-'}</span>
+                                      )}
+                                    </td>
                                     <td className="px-3 py-2.5 text-center">
                                       {artDevs.length > 0 ? (
                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium">
@@ -666,12 +776,49 @@ const ContractDeviation = () => {
           <div className="border-b border-gray-200">
             <div className="px-4 py-2 bg-indigo-50/50 flex items-center justify-between">
               <span className="text-xs font-semibold text-indigo-700">조항 본문</span>
-              <span className="text-[10px] text-indigo-400">제{selectedArticle?.chapter ? `${selectedArticle.chapter}장` : '-'}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-indigo-400">제{selectedArticle?.chapter ? `${selectedArticle.chapter}장` : '-'}</span>
+                {!editingContent && (
+                  <button
+                    onClick={startContentEdit}
+                    className="p-1 hover:bg-indigo-100 rounded text-indigo-500 hover:text-indigo-700"
+                    title="본문 편집"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="px-4 py-3 max-h-[35vh] overflow-y-auto">
-              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-                {selectedArticle?.content || '(본문 내용 없음)'}
-              </p>
+              {editingContent ? (
+                <div>
+                  <textarea
+                    autoFocus
+                    value={editContentValue}
+                    onChange={e => setEditContentValue(e.target.value)}
+                    className="w-full px-3 py-2 border border-indigo-300 rounded-lg text-sm leading-relaxed focus:ring-2 focus:ring-indigo-500 focus:outline-none resize-none"
+                    style={{ minHeight: '120px', height: `${Math.min(Math.max(editContentValue.split('\n').length * 22, 120), 300)}px` }}
+                  />
+                  <div className="flex justify-end gap-2 mt-2">
+                    <button
+                      onClick={cancelContentEdit}
+                      className="px-3 py-1 text-xs text-gray-600 hover:bg-gray-100 rounded-lg"
+                    >
+                      취소
+                    </button>
+                    <button
+                      onClick={commitContentEdit}
+                      className="px-3 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                    >
+                      저장
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                  {selectedArticle?.content || '(본문 내용 없음)'}
+                </p>
+              )}
             </div>
           </div>
 
