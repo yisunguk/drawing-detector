@@ -111,11 +111,13 @@ def _parse_contract_articles(pages: list) -> dict:
     Output: {chapters: [...], articles: [{no, title, page, content, sub_clauses, chapter}]}
 
     Strategy: TOC pages list many article titles with no body text.
-    We collect all occurrences and keep the one with the longest content
-    so real body pages always override TOC entries.
+    We use (art_no, art_title) as dedup key so articles with the same number
+    but different titles (from different document sections) don't collide.
+    Among duplicates, we keep the version with the longest content.
+    Chapter assignment uses global position tracking across all pages.
     """
     chapters = []
-    articles_map = {}  # (chapter, art_no) -> article dict (keep longest content)
+    articles_map = {}  # (art_no, art_title) -> article dict (keep longest content)
 
     # Regex patterns for Korean legal documents
     chapter_re = re.compile(r'제\s*(\d+)\s*장\s+([^\n제]{2,30})')
@@ -124,22 +126,26 @@ def _parse_contract_articles(pages: list) -> dict:
     # Also match numbered clauses like "1 ...", "2 ..."
     numbered_clause_re = re.compile(r'(?:^|\n)\s*(\d{1,2})\s+\S')
 
-    current_chapter = None
+    # Phase 1: Collect all chapter header positions across all pages
+    chapter_positions = []  # [(page_num, pos, ch_no, ch_title), ...]
+    for page in pages:
+        content = page.get('content', '')
+        page_num = page.get('page_number', 0)
+        for m in chapter_re.finditer(content):
+            ch_no = int(m.group(1))
+            ch_title = m.group(2).strip()
+            chapter_positions.append((page_num, m.start(), ch_no, ch_title))
+            if not any(c['no'] == ch_no for c in chapters):
+                chapters.append({'no': ch_no, 'title': ch_title})
+    chapter_positions.sort(key=lambda x: (x[0], x[1]))
 
+    # Phase 2: Extract articles with accurate chapter assignment
     for page in pages:
         content = page.get('content', '')
         page_num = page.get('page_number', 0)
 
         if len(content.strip()) < 30:
             continue
-
-        # Extract chapters
-        for m in chapter_re.finditer(content):
-            ch_no = int(m.group(1))
-            ch_title = m.group(2).strip()
-            if not any(c['no'] == ch_no for c in chapters):
-                chapters.append({'no': ch_no, 'title': ch_title})
-            current_chapter = ch_no
 
         # Extract articles
         art_matches = list(article_re.finditer(content))
@@ -164,16 +170,15 @@ def _parse_contract_articles(pages: list) -> dict:
             numbered = len(numbered_clause_re.findall(art_content))
             sub_clauses = max(sub_clauses, numbered)
 
-            # Determine chapter for this article
-            chapter = current_chapter
-            before_text = content[:m.start()]
-            ch_matches_before = list(chapter_re.finditer(before_text))
-            if ch_matches_before:
-                chapter = int(ch_matches_before[-1].group(1))
+            # Determine chapter: find nearest preceding chapter header in document order
+            chapter = None
+            for cp_page, cp_pos, cp_no, cp_title in reversed(chapter_positions):
+                if cp_page < page_num or (cp_page == page_num and cp_pos < m.start()):
+                    chapter = cp_no
+                    break
 
-            # Keep the version with the longest content (real page > TOC)
-            # Use (chapter, art_no) as compound key to avoid cross-chapter collision
-            key = (chapter or 0, art_no)
+            # Use (art_no, art_title) as key — same number + different title = different article
+            key = (art_no, art_title)
             existing = articles_map.get(key)
             if not existing or len(art_content) > len(existing.get('content', '')):
                 articles_map[key] = {
@@ -188,8 +193,8 @@ def _parse_contract_articles(pages: list) -> dict:
     # Filter out TOC-only entries (no real body content)
     articles = [a for a in articles_map.values() if len(a.get('content', '').strip()) > 5]
 
-    # Sort by chapter first, then article number within chapter
-    articles.sort(key=lambda a: (a['chapter'] or 0, a['no']))
+    # Sort by page number (preserves natural document order across sections)
+    articles.sort(key=lambda a: (a['page'], a['no']))
     chapters.sort(key=lambda c: c['no'])
 
     # Assign unique sequential id for deviation linking
