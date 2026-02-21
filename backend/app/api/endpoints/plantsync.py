@@ -502,6 +502,53 @@ async def confirm_title_block(
     return {"status": "success", "drawing": drawing}
 
 
+@router.delete("/projects/{project_id}/drawings/{drawing_id}")
+async def delete_drawing(
+    project_id: str,
+    drawing_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == drawing_id), None)
+    if not drawing:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+
+    # Delete blob files for all revisions
+    for rev in drawing.get("revisions", []):
+        blob_path = rev.get("blob_path", "")
+        if blob_path:
+            try:
+                container.delete_blob(blob_path)
+            except Exception:
+                pass
+            # Also try to delete di_result.json in the same folder
+            di_path = blob_path.rsplit('/', 1)[0] + "/di_result.json"
+            try:
+                container.delete_blob(di_path)
+            except Exception:
+                pass
+
+    # Remove related markups
+    markups_bp = _markups_path(username, project_id)
+    markups = _load_json(container, markups_bp) or []
+    markups = [m for m in markups if m.get("drawing_id") != drawing_id]
+    _save_json(container, markups_bp, markups)
+
+    # Remove drawing from meta
+    meta["drawings"] = [d for d in meta["drawings"] if d["drawing_id"] != drawing_id]
+    meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_json(container, _meta_path(username, project_id), meta)
+
+    print(f"[PlantSync] Drawing deleted: {drawing_id} ({drawing.get('drawing_number', '')})", flush=True)
+    return {"status": "success", "deleted": drawing_id}
+
+
 @router.get("/projects/{project_id}/drawings/{drawing_id}/pdf-url")
 async def get_pdf_url(
     project_id: str,
