@@ -248,7 +248,7 @@ const LandingPage = () => {
                             </div>
                         </div>
                     </div>
-                    {/* Card 9: PlantSync AI */}
+                    {/* Card 9: 도면 리비전 관리 */}
                     <div
                         onClick={() => window.open('/plantsync', '_blank')}
                         className="group relative cursor-pointer"
@@ -260,7 +260,7 @@ const LandingPage = () => {
                             </div>
 
                             <h2 className="text-2xl font-bold text-slate-100 mb-3 group-hover:text-sky-400 transition-colors">
-                                PlantSync AI
+                                도면 리비전 관리
                             </h2>
                             <p className="text-slate-400 mb-8 leading-relaxed">
                                 플랜트 도면 리비전 관리 및 디시플린별 협업 마크업.
