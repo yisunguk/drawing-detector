@@ -5,7 +5,7 @@ import {
     ChevronRight, ChevronDown, X, Upload, Trash2, Plus, Edit3,
     FileText, FolderOpen, CheckCircle2, Clock, AlertCircle, XCircle,
     Download, MessageSquare, BarChart3, LogOut, ClipboardCheck, RefreshCcw,
-    Users, Bell, Settings, Copy, FilePlus
+    Users, Bell, Settings, Copy, FilePlus, RotateCcw
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1037,8 +1037,8 @@ const RevisionMaster = () => {
                             className={`px-2.5 py-1.5 text-sm rounded-lg transition flex items-center gap-1
                                 ${searchMode ? 'bg-cyan-100 text-cyan-700' : 'text-slate-500 hover:bg-slate-100'}`}
                         >
-                            <SearchIcon className="w-4 h-4" />
-                            AI 검색
+                            <MessageSquare className="w-4 h-4" />
+                            AI와 대화하기
                         </button>
                     </div>
 
@@ -1137,10 +1137,25 @@ const RevisionMaster = () => {
                             {/* Mode toggle */}
                             <div className="px-4 py-2 flex gap-2 bg-slate-50 border-b border-slate-200 shrink-0">
                                 <button onClick={() => setMode('search')} className={`px-3 py-1.5 text-sm rounded-lg transition flex items-center gap-1 ${mode === 'search' ? 'bg-cyan-600 text-white' : 'bg-white text-slate-600 border border-slate-300'}`}>
-                                    <SearchIcon className="w-3.5 h-3.5" /> 검색
+                                    <SearchIcon className="w-3.5 h-3.5" /> AI검색
                                 </button>
                                 <button onClick={() => setMode('chat')} className={`px-3 py-1.5 text-sm rounded-lg transition flex items-center gap-1 ${mode === 'chat' ? 'bg-cyan-600 text-white' : 'bg-white text-slate-600 border border-slate-300'}`}>
-                                    <MessageSquare className="w-3.5 h-3.5" /> 채팅
+                                    <MessageSquare className="w-3.5 h-3.5" /> AI분석
+                                </button>
+                                <div className="flex-1" />
+                                <button
+                                    onClick={() => {
+                                        if (mode === 'chat') {
+                                            setChatMessages([{ role: 'assistant', content: '안녕하세요! 리비전 문서에 대해 궁금한 점을 물어보세요.' }]);
+                                        } else {
+                                            setSearchResults([]);
+                                        }
+                                        setQuery('');
+                                    }}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                                    title="대화 초기화"
+                                >
+                                    <RotateCcw className="w-3.5 h-3.5" /> 초기화
                                 </button>
                             </div>
 
@@ -1170,7 +1185,7 @@ const RevisionMaster = () => {
                                     ) : (
                                         <div className="text-center text-slate-400 mt-12">
                                             <SearchIcon className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                                            <p>검색어를 입력하세요</p>
+                                            <p>AI검색어를 입력하세요</p>
                                         </div>
                                     )
                                 ) : (
@@ -1218,7 +1233,7 @@ const RevisionMaster = () => {
                                         type="text" value={query}
                                         onChange={(e) => setQuery(e.target.value)}
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); mode === 'chat' ? handleChat() : handleSearch(); } }}
-                                        placeholder={mode === 'chat' ? '질문을 입력하세요...' : '검색어를 입력하세요...'}
+                                        placeholder={mode === 'chat' ? '질문을 입력하세요...' : 'AI검색어를 입력하세요...'}
                                         className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                                     />
                                     <button
@@ -1750,7 +1765,7 @@ const RevisionMaster = () => {
                                 <ul className="text-xs text-cyan-700 mt-1 space-y-0.5 list-disc list-inside">
                                     <li>추가 사양서를 업로드하면 문서 목록이 자동 병합됩니다</li>
                                     <li>기존 문서와 리비전 이력은 모두 보존됩니다</li>
-                                    <li>새 사양서 내용이 AI 검색에 인덱싱됩니다</li>
+                                    <li>새 사양서 내용이 AI검색에 인덱싱됩니다</li>
                                 </ul>
                             </div>
                             <div>
