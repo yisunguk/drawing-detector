@@ -249,8 +249,9 @@ const PlantSync = () => {
   const handlePinPlace = (e) => {
     if (!isPlacingPin || !canvasSize.width || !canvasSize.height) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / canvasSize.width;
-    const y = (e.clientY - rect.top) / canvasSize.height;
+    // Use rect.width/height (CSS-scaled actual size) instead of canvasSize (unscaled)
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
     // Store coords, show comment input
     setNewComment('');
     setSelectedMarkup({ _pending: true, x, y, page: currentPage, discipline: pinDiscipline });
