@@ -57,6 +57,7 @@ import RevisionMaster from './pages/RevisionMaster';
 import KCSCStandards from './pages/KCSCStandards';
 import CommentExtractor from './pages/CommentExtractor';
 import ContractDeviation from './pages/ContractDeviation';
+import PlantSync from './pages/PlantSync';
 
 const App = () => {
     return (
@@ -158,6 +159,15 @@ const App = () => {
                             element={
                                 <PrivateRoute>
                                     <ContractDeviation />
+                                </PrivateRoute>
+                            }
+                        />
+                        {/* PlantSync AI */}
+                        <Route
+                            path="/plantsync"
+                            element={
+                                <PrivateRoute>
+                                    <PlantSync />
                                 </PrivateRoute>
                             }
                         />

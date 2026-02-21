@@ -132,6 +132,13 @@ try:
 except Exception as e:
     print(f"Error loading contracts module: {e}", flush=True)
 
+# Enable PlantSync Router (Plant Drawing Revision & Collaboration)
+try:
+    from app.api.endpoints import plantsync
+    app.include_router(plantsync.router, prefix=f"{settings.API_V1_STR}/plantsync", tags=["plantsync"])
+except Exception as e:
+    print(f"Error loading plantsync module: {e}", flush=True)
+
 # Mount uploads directory to serve static files if it exists
 uploads_dir = Path("uploads")
 if not uploads_dir.exists():
