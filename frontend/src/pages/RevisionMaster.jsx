@@ -808,10 +808,6 @@ const RevisionMaster = () => {
         <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
             {/* ── Top Bar ── */}
             <div className="h-12 bg-gradient-to-r from-cyan-700 to-teal-700 flex items-center px-4 shrink-0 shadow-md z-20">
-                <button onClick={() => navigate('/')} className="flex items-center gap-2 text-white/80 hover:text-white transition mr-4">
-                    <ArrowLeft className="w-4 h-4" />
-                    <span className="text-sm">홈</span>
-                </button>
                 <ClipboardCheck className="w-5 h-5 text-cyan-200 mr-2" />
                 <h1 className="text-white font-bold text-lg">발주처 제출 문서관리</h1>
                 <div className="flex-1" />
