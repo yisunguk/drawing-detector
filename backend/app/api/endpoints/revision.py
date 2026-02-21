@@ -2035,7 +2035,7 @@ async def _handle_chat(request: SearchRequest, username: str) -> dict:
         context_parts = []
         for r in results:
             header = f"=== 문서: {r['doc_no']} {r['title']} | Phase: {r['phase_name']} | Rev: {r['revision']} ==="
-            context_parts.append(f"{header}\n{r.get('content_preview', '')}")
+            context_parts.append(f"{header}\n{r.get('content', '') or r.get('content_preview', '')}")
         context_text = "\n\n".join(context_parts)
 
     if len(context_text) > 80000:
