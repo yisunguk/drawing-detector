@@ -109,14 +109,20 @@ def _parse_contract_articles(pages: list) -> dict:
     """Parse contract articles from DI-extracted pages.
     Input: list of {content, page_number}
     Output: {chapters: [...], articles: [{no, title, page, content, sub_clauses, chapter}]}
+
+    Strategy: TOC pages list many article titles with no body text.
+    We collect all occurrences and keep the one with the longest content
+    so real body pages always override TOC entries.
     """
     chapters = []
-    articles = []
+    articles_map = {}  # art_no -> article dict (keep longest content)
 
     # Regex patterns for Korean legal documents
     chapter_re = re.compile(r'제\s*(\d+)\s*장\s+([^\n제]{2,30})')
     article_re = re.compile(r'제\s*(\d+)\s*조\s*[\(（]([^)）]+)[\)）]')
     sub_clause_re = re.compile(r'[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]')
+    # Also match numbered clauses like "1 ...", "2 ..."
+    numbered_clause_re = re.compile(r'(?:^|\n)\s*(\d{1,2})\s+\S')
 
     current_chapter = None
 
@@ -124,8 +130,7 @@ def _parse_contract_articles(pages: list) -> dict:
         content = page.get('content', '')
         page_num = page.get('page_number', 0)
 
-        # Skip likely TOC pages (very short content with no real article body)
-        if len(content.strip()) < 50:
+        if len(content.strip()) < 30:
             continue
 
         # Extract chapters
@@ -137,44 +142,48 @@ def _parse_contract_articles(pages: list) -> dict:
             current_chapter = ch_no
 
         # Extract articles
-        for m in article_re.finditer(content):
+        art_matches = list(article_re.finditer(content))
+        for i, m in enumerate(art_matches):
             art_no = int(m.group(1))
             art_title = m.group(2).strip()
 
-            # Extract article body: text from this match to next article or end
+            # Extract article body: text from this match to next article or end of page
             start_pos = m.end()
-            # Find next article marker or end of content
-            next_art = article_re.search(content, start_pos)
-            end_pos = next_art.start() if next_art else len(content)
+            if i + 1 < len(art_matches):
+                end_pos = art_matches[i + 1].start()
+            else:
+                end_pos = len(content)
             art_content = content[start_pos:end_pos].strip()
 
             # Limit content length
-            if len(art_content) > 2000:
-                art_content = art_content[:2000] + '...'
+            if len(art_content) > 3000:
+                art_content = art_content[:3000] + '...'
 
-            # Count sub-clauses
+            # Count sub-clauses (circled numbers + numbered items)
             sub_clauses = len(sub_clause_re.findall(art_content))
+            numbered = len(numbered_clause_re.findall(art_content))
+            sub_clauses = max(sub_clauses, numbered)
 
             # Determine chapter for this article
             chapter = current_chapter
-            # Also check if there's a chapter marker before this article on the same page
             before_text = content[:m.start()]
-            ch_matches = list(chapter_re.finditer(before_text))
-            if ch_matches:
-                chapter = int(ch_matches[-1].group(1))
+            ch_matches_before = list(chapter_re.finditer(before_text))
+            if ch_matches_before:
+                chapter = int(ch_matches_before[-1].group(1))
 
-            # Skip duplicates (same article may span pages)
-            if not any(a['no'] == art_no for a in articles):
-                articles.append({
+            # Keep the version with the longest content (real page > TOC)
+            existing = articles_map.get(art_no)
+            if not existing or len(art_content) > len(existing.get('content', '')):
+                articles_map[art_no] = {
                     'no': art_no,
                     'title': art_title,
                     'page': page_num,
                     'content': art_content,
                     'sub_clauses': sub_clauses,
                     'chapter': chapter,
-                })
+                }
 
-    # Sort articles by number
+    articles = list(articles_map.values())
     articles.sort(key=lambda a: a['no'])
     chapters.sort(key=lambda c: c['no'])
 
