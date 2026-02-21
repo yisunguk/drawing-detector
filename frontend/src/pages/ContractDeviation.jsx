@@ -644,11 +644,11 @@ const ContractDeviation = () => {
         )}
       </div>
 
-      {/* Right Panel: Deviation Detail */}
+      {/* Right Panel: Article Content + Deviation Detail */}
       {showDeviationPanel && selectedArticleNo && (
-        <div className="w-96 bg-white border-l border-gray-200 flex flex-col shrink-0">
+        <div className="w-[480px] bg-white border-l border-gray-200 flex flex-col shrink-0">
           {/* Panel Header */}
-          <div className="p-4 border-b border-gray-200">
+          <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-bold text-gray-900">
                 제{selectedArticleNo}조 {selectedArticle?.title}
@@ -658,9 +658,21 @@ const ContractDeviation = () => {
               </button>
             </div>
             <p className="text-xs text-gray-500">
-              Deviation {articleDeviations.length}건
-              {filterStatus && ` (${filterStatus})`}
+              페이지 {selectedArticle?.page || '-'} | 항 {selectedArticle?.sub_clauses || 0}개 | Deviation {articleDeviations.length}건
             </p>
+          </div>
+
+          {/* Article Content */}
+          <div className="border-b border-gray-200">
+            <div className="px-4 py-2 bg-indigo-50/50 flex items-center justify-between">
+              <span className="text-xs font-semibold text-indigo-700">조항 본문</span>
+              <span className="text-[10px] text-indigo-400">제{selectedArticle?.chapter ? `${selectedArticle.chapter}장` : '-'}</span>
+            </div>
+            <div className="px-4 py-3 max-h-[35vh] overflow-y-auto">
+              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                {selectedArticle?.content || '(본문 내용 없음)'}
+              </p>
+            </div>
           </div>
 
           {/* Deviation List or Thread */}
