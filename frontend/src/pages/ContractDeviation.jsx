@@ -645,54 +645,11 @@ const ContractDeviation = () => {
                                     }`}
                                   >
                                     <td className="px-3 py-2.5 font-mono text-gray-600">제{art.no}조</td>
-                                    <td className="px-3 py-2.5" onClick={(e) => startCellEdit(e, art.id, 'title', art.title)}>
-                                      {editCell?.articleId === art.id && editCell?.field === 'title' ? (
-                                        <input
-                                          autoFocus
-                                          type="text"
-                                          value={editValue}
-                                          onChange={e => setEditValue(e.target.value)}
-                                          onKeyDown={e => { if (e.key === 'Enter') commitCellEdit(); if (e.key === 'Escape') cancelCellEdit(); }}
-                                          onBlur={commitCellEdit}
-                                          onClick={e => e.stopPropagation()}
-                                          className="w-full px-1.5 py-0.5 border border-indigo-400 rounded text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                        />
-                                      ) : (
-                                        <span className="font-medium text-gray-800 hover:text-indigo-600 cursor-text">{art.title}</span>
-                                      )}
+                                    <td className="px-3 py-2.5">
+                                      <span className="font-medium text-gray-800">{art.title}</span>
                                     </td>
-                                    <td className="px-3 py-2.5 text-center" onClick={(e) => startCellEdit(e, art.id, 'page', art.page)}>
-                                      {editCell?.articleId === art.id && editCell?.field === 'page' ? (
-                                        <input
-                                          autoFocus
-                                          type="number"
-                                          value={editValue}
-                                          onChange={e => setEditValue(e.target.value)}
-                                          onKeyDown={e => { if (e.key === 'Enter') commitCellEdit(); if (e.key === 'Escape') cancelCellEdit(); }}
-                                          onBlur={commitCellEdit}
-                                          onClick={e => e.stopPropagation()}
-                                          className="w-16 px-1.5 py-0.5 border border-indigo-400 rounded text-sm text-center focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                        />
-                                      ) : (
-                                        <span className="text-gray-500 hover:text-indigo-600 cursor-text">{art.page}</span>
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-2.5 text-center" onClick={(e) => startCellEdit(e, art.id, 'sub_clauses', art.sub_clauses || 0)}>
-                                      {editCell?.articleId === art.id && editCell?.field === 'sub_clauses' ? (
-                                        <input
-                                          autoFocus
-                                          type="number"
-                                          value={editValue}
-                                          onChange={e => setEditValue(e.target.value)}
-                                          onKeyDown={e => { if (e.key === 'Enter') commitCellEdit(); if (e.key === 'Escape') cancelCellEdit(); }}
-                                          onBlur={commitCellEdit}
-                                          onClick={e => e.stopPropagation()}
-                                          className="w-16 px-1.5 py-0.5 border border-indigo-400 rounded text-sm text-center focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                                        />
-                                      ) : (
-                                        <span className="text-gray-500 hover:text-indigo-600 cursor-text">{art.sub_clauses || '-'}</span>
-                                      )}
-                                    </td>
+                                    <td className="px-3 py-2.5 text-center text-gray-500">{art.page}</td>
+                                    <td className="px-3 py-2.5 text-center text-gray-500">{art.sub_clauses || '-'}</td>
                                     <td className="px-3 py-2.5 text-center">
                                       {artDevs.length > 0 ? (
                                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium">
@@ -760,16 +717,86 @@ const ContractDeviation = () => {
           {/* Panel Header */}
           <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
             <div className="flex items-center justify-between mb-1">
-              <h3 className="font-bold text-gray-900">
-                제{selectedArticle?.no}조 {selectedArticle?.title}
-              </h3>
-              <button onClick={() => { setShowDeviationPanel(false); setSelectedArticleId(null); }}>
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <span className="font-bold text-gray-900 shrink-0">제{selectedArticle?.no}조</span>
+                {editCell?.articleId === selectedArticleId && editCell?.field === 'title' ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    value={editValue}
+                    onChange={e => setEditValue(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') commitCellEdit(); if (e.key === 'Escape') cancelCellEdit(); }}
+                    onBlur={commitCellEdit}
+                    className="flex-1 px-1.5 py-0.5 border border-indigo-400 rounded text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                ) : (
+                  <>
+                    <h3 className="font-bold text-gray-900 truncate">{selectedArticle?.title}</h3>
+                    <button
+                      onClick={(e) => startCellEdit(e, selectedArticleId, 'title', selectedArticle?.title)}
+                      className="p-0.5 hover:bg-gray-200 rounded text-gray-400 hover:text-indigo-600 shrink-0"
+                      title="조항명 편집"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  </>
+                )}
+              </div>
+              <button onClick={() => { setShowDeviationPanel(false); setSelectedArticleId(null); cancelCellEdit(); }}>
                 <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
               </button>
             </div>
-            <p className="text-xs text-gray-500">
-              페이지 {selectedArticle?.page || '-'} | 항 {selectedArticle?.sub_clauses || 0}개 | Deviation {articleDeviations.length}건
-            </p>
+            <div className="flex items-center gap-1 text-xs text-gray-500">
+              <span>페이지</span>
+              {editCell?.articleId === selectedArticleId && editCell?.field === 'page' ? (
+                <input
+                  autoFocus
+                  type="number"
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') commitCellEdit(); if (e.key === 'Escape') cancelCellEdit(); }}
+                  onBlur={commitCellEdit}
+                  className="w-14 px-1 py-0 border border-indigo-400 rounded text-xs text-center focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                />
+              ) : (
+                <>
+                  <span className="font-medium">{selectedArticle?.page || '-'}</span>
+                  <button
+                    onClick={(e) => startCellEdit(e, selectedArticleId, 'page', selectedArticle?.page)}
+                    className="p-0.5 hover:bg-gray-200 rounded text-gray-400 hover:text-indigo-600"
+                    title="페이지 편집"
+                  >
+                    <Pencil className="w-2.5 h-2.5" />
+                  </button>
+                </>
+              )}
+              <span className="mx-0.5">|</span>
+              <span>항</span>
+              {editCell?.articleId === selectedArticleId && editCell?.field === 'sub_clauses' ? (
+                <input
+                  autoFocus
+                  type="number"
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') commitCellEdit(); if (e.key === 'Escape') cancelCellEdit(); }}
+                  onBlur={commitCellEdit}
+                  className="w-14 px-1 py-0 border border-indigo-400 rounded text-xs text-center focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                />
+              ) : (
+                <>
+                  <span className="font-medium">{selectedArticle?.sub_clauses || 0}개</span>
+                  <button
+                    onClick={(e) => startCellEdit(e, selectedArticleId, 'sub_clauses', selectedArticle?.sub_clauses || 0)}
+                    className="p-0.5 hover:bg-gray-200 rounded text-gray-400 hover:text-indigo-600"
+                    title="항 수 편집"
+                  >
+                    <Pencil className="w-2.5 h-2.5" />
+                  </button>
+                </>
+              )}
+              <span className="mx-0.5">|</span>
+              <span>Deviation {articleDeviations.length}건</span>
+            </div>
           </div>
 
           {/* Article Content */}
