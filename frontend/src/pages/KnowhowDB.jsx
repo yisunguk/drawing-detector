@@ -4,7 +4,7 @@ import {
     ArrowLeft, Folder, FolderOpen, FileText, Search as SearchIcon,
     Send, Bot, User, Loader2, Sparkles, ChevronRight,
     X, LogOut, Upload,
-    RefreshCcw, Trash2, List, Database, MessageSquare, Check, Bug
+    RefreshCcw, Trash2, List, Database, MessageSquare, Check
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import PDFViewer from '../components/PDFViewer';
@@ -197,7 +197,6 @@ const KnowhowDB = () => {
     const [activeFolder, setActiveFolder] = useState(null);
     const [files, setFiles] = useState([]);
     const [failedFiles, setFailedFiles] = useState([]);
-    const [debugMode, setDebugMode] = useState(false);
     const [loadingFiles, setLoadingFiles] = useState(false);
     const [activeDoc, setActiveDoc] = useState(null);
     const [scopeUsers, setScopeUsers] = useState(new Set());  // admin: multi-user search scope
@@ -1154,11 +1153,6 @@ const KnowhowDB = () => {
 
         const meta = { user_id: resultUser, filename, page, blob_path: result.blob_path || null };
 
-        if (debugMode) {
-            alert(`[DEBUG]\nFilename: ${filename}\nPage: ${page}\nBlobPath: ${result.blob_path}\nUser: ${resultUser}\nScore: ${result.score}\nType: ${result.type}\nCategory: ${result.category}`);
-            console.log('[DEBUG] Result Click:', result);
-        }
-
         // Use blob_path directly if available (most reliable — exact path in storage)
         if (result.blob_path) {
             const url = buildBlobUrl(result.blob_path);
@@ -1996,18 +1990,9 @@ const KnowhowDB = () => {
                             </div>
                         )}
                         {mode === 'chat' && (
-                            <>
-                                <button
-                                    onClick={() => setDebugMode(!debugMode)}
-                                    className={`p-1.5 rounded-md transition-colors ${debugMode ? 'bg-red-100 text-red-600' : 'hover:bg-gray-100 text-gray-400'}`}
-                                    title="Debug Mode"
-                                >
-                                    <Bug size={14} />
-                                </button>
-                                <button onClick={handleResetChat} className="p-1.5 hover:bg-gray-100 rounded-md text-gray-400 hover:text-[#d97757]" title="대화 초기화">
-                                    <RefreshCcw size={14} />
-                                </button>
-                            </>
+                            <button onClick={handleResetChat} className="p-1.5 hover:bg-gray-100 rounded-md text-gray-400 hover:text-[#d97757]" title="대화 초기화">
+                                <RefreshCcw size={14} />
+                            </button>
                         )}
                     </div>
                 </div>
