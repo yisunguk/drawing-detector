@@ -254,7 +254,11 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
                         });
                         pdf = await loadingTask.promise;
                     } catch (e) {
+                        console.warn('[PDFViewer] Direct load failed, trying fetch fallback:', e?.message || e);
                         const response = await fetch(docData.pdfUrl);
+                        if (!response.ok) {
+                            console.error('[PDFViewer] Fetch failed:', response.status, response.statusText, docData.pdfUrl?.substring(0, 100));
+                        }
                         const arrayBuffer = await response.arrayBuffer();
                         pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
                     }
@@ -310,7 +314,7 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
 
             setIsLoading(false);
         } catch (err) {
-            console.error('[PDFViewer] Render error:', err);
+            console.error('[PDFViewer] Render error:', err?.message || err, err);
             setIsLoading(false);
         }
     }, [rotation]);
