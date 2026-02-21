@@ -351,43 +351,47 @@ async def upload_drawing(
 
     drawing_id = str(uuid.uuid4())[:8]
     filename = file.filename or f"{drawing_id}.pdf"
-    blob_path = f"{username}/plantsync/{project_id}/drawings/{drawing_id}/{filename}"
 
-    # Upload PDF to blob
-    container.upload_blob(name=blob_path, data=file_content, overwrite=True)
-    print(f"[PlantSync] PDF uploaded: {blob_path}", flush=True)
+    # Upload PDF to temp path first, will move after discipline is determined
+    temp_blob_path = f"{username}/plantsync/{project_id}/temp/{drawing_id}/{filename}"
+    container.upload_blob(name=temp_blob_path, data=file_content, overwrite=True)
+    print(f"[PlantSync] PDF uploaded (temp): {temp_blob_path}", flush=True)
 
     # Generate SAS URL for DI analysis
     from app.services.blob_storage import generate_sas_url
-    pdf_url = generate_sas_url(blob_path)
+    pdf_url = generate_sas_url(temp_blob_path)
 
-    # Run Document Intelligence (page 1 only for title block)
+    # Run Document Intelligence (all pages, single call)
     di_result = []
     title_block = {"drawing_number": "", "title": "", "revision": "", "discipline": ""}
     try:
         from app.services.azure_di import azure_di_service
-        di_result = azure_di_service.analyze_document_from_url(pdf_url, pages="1")
+        di_result = azure_di_service.analyze_document_from_url(pdf_url)
         print(f"[PlantSync] DI analysis complete: {len(di_result)} pages", flush=True)
 
-        # Save full DI result
-        di_path = f"{username}/plantsync/{project_id}/drawings/{drawing_id}/di_result.json"
-        _save_json(container, di_path, di_result)
-
-        # Extract title block
+        # Extract title block from first page
         title_block = _extract_title_block(di_result)
         print(f"[PlantSync] Title block extracted: {title_block}", flush=True)
     except Exception as e:
         print(f"[PlantSync] DI analysis failed (non-fatal): {e}", flush=True)
 
-    # Get page count from DI or default to 1
-    page_count = len(di_result) if di_result else 1
-    # For full page count, analyze all pages
+    # Determine discipline folder (fallback to "unknown")
+    discipline = title_block.get("discipline") or "unknown"
+
+    # Move PDF from temp to discipline folder
+    blob_path = f"{username}/plantsync/{project_id}/{discipline}/{drawing_id}/{filename}"
+    container.upload_blob(name=blob_path, data=file_content, overwrite=True)
     try:
-        if di_result:
-            full_result = azure_di_service.analyze_document_from_url(pdf_url)
-            page_count = len(full_result) if full_result else 1
+        container.delete_blob(temp_blob_path)
     except Exception:
         pass
+
+    # Save DI result in discipline folder
+    if di_result:
+        di_path = f"{username}/plantsync/{project_id}/{discipline}/{drawing_id}/di_result.json"
+        _save_json(container, di_path, di_result)
+
+    page_count = len(di_result) if di_result else 1
 
     now = datetime.now(timezone.utc).isoformat()
 
