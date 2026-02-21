@@ -110,14 +110,13 @@ def _parse_contract_articles(pages: list) -> dict:
     Input: list of {content, page_number}
     Output: {chapters: [...], articles: [{no, title, page, content, sub_clauses, chapter}]}
 
-    Strategy: TOC pages list many article titles with no body text.
-    We use (art_no, art_title) as dedup key so articles with the same number
-    but different titles (from different document sections) don't collide.
-    Among duplicates, we keep the version with the longest content.
-    Chapter assignment uses global position tracking across all pages.
+    Strategy: Contract PDFs often bundle the main contract (sequential articles
+    1~100) with appendix/specification sections that restart numbering.
+    We use art_no as the dedup key and keep the FIRST occurrence with real
+    content (earliest page wins), which is always the main contract body.
     """
     chapters = []
-    articles_map = {}  # (art_no, art_title) -> article dict (keep longest content)
+    articles_map = {}  # art_no -> article dict (earliest page with content wins)
 
     # Regex patterns for Korean legal documents
     chapter_re = re.compile(r'제\s*(\d+)\s*장\s+([^\n제]{2,30})')
@@ -126,26 +125,28 @@ def _parse_contract_articles(pages: list) -> dict:
     # Also match numbered clauses like "1 ...", "2 ..."
     numbered_clause_re = re.compile(r'(?:^|\n)\s*(\d{1,2})\s+\S')
 
-    # Phase 1: Collect all chapter header positions across all pages
-    chapter_positions = []  # [(page_num, pos, ch_no, ch_title), ...]
+    # Phase 1: Collect chapter headers
+    current_chapter = None
     for page in pages:
         content = page.get('content', '')
-        page_num = page.get('page_number', 0)
         for m in chapter_re.finditer(content):
             ch_no = int(m.group(1))
             ch_title = m.group(2).strip()
-            chapter_positions.append((page_num, m.start(), ch_no, ch_title))
             if not any(c['no'] == ch_no for c in chapters):
                 chapters.append({'no': ch_no, 'title': ch_title})
-    chapter_positions.sort(key=lambda x: (x[0], x[1]))
 
-    # Phase 2: Extract articles with accurate chapter assignment
+    # Phase 2: Extract articles — first page with real content wins (= main contract)
+    current_chapter = None
     for page in pages:
         content = page.get('content', '')
         page_num = page.get('page_number', 0)
 
         if len(content.strip()) < 30:
             continue
+
+        # Track current chapter
+        for m in chapter_re.finditer(content):
+            current_chapter = int(m.group(1))
 
         # Extract articles
         art_matches = list(article_re.finditer(content))
@@ -170,17 +171,32 @@ def _parse_contract_articles(pages: list) -> dict:
             numbered = len(numbered_clause_re.findall(art_content))
             sub_clauses = max(sub_clauses, numbered)
 
-            # Determine chapter: find nearest preceding chapter header in document order
-            chapter = None
-            for cp_page, cp_pos, cp_no, cp_title in reversed(chapter_positions):
-                if cp_page < page_num or (cp_page == page_num and cp_pos < m.start()):
-                    chapter = cp_no
-                    break
+            # Determine chapter from before_text on same page
+            chapter = current_chapter
+            before_text = content[:m.start()]
+            ch_matches_before = list(chapter_re.finditer(before_text))
+            if ch_matches_before:
+                chapter = int(ch_matches_before[-1].group(1))
 
-            # Use (art_no, art_title) as key — same number + different title = different article
-            key = (art_no, art_title)
+            key = art_no
             existing = articles_map.get(key)
-            if not existing or len(art_content) > len(existing.get('content', '')):
+
+            # Priority: first occurrence with real content (>15 chars) wins.
+            # TOC entries have <=12 chars of noise (chapter headers between titles).
+            # This ensures the main contract body (earlier pages) takes priority
+            # over appendix/spec sections (later pages) that reuse article numbers.
+            MIN_REAL = 15
+            if not existing:
+                articles_map[key] = {
+                    'no': art_no,
+                    'title': art_title,
+                    'page': page_num,
+                    'content': art_content,
+                    'sub_clauses': sub_clauses,
+                    'chapter': chapter,
+                }
+            elif len(existing.get('content', '').strip()) < MIN_REAL and len(art_content.strip()) >= MIN_REAL:
+                # Existing is a TOC stub — replace with first real body text
                 articles_map[key] = {
                     'no': art_no,
                     'title': art_title,
@@ -193,8 +209,8 @@ def _parse_contract_articles(pages: list) -> dict:
     # Filter out TOC-only entries (no real body content)
     articles = [a for a in articles_map.values() if len(a.get('content', '').strip()) > 5]
 
-    # Sort by page number (preserves natural document order across sections)
-    articles.sort(key=lambda a: (a['page'], a['no']))
+    # Sort by article number (sequential 1, 2, 3, ... 100)
+    articles.sort(key=lambda a: a['no'])
     chapters.sort(key=lambda c: c['no'])
 
     # Assign unique sequential id for deviation linking
