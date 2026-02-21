@@ -159,7 +159,7 @@ const RevisionMaster = () => {
     const isAdmin = currentUser?.email === 'admin@poscoenc.com';
 
     const saved = useRef(_loadSS()).current;
-    const defaultChat = [{ role: 'assistant', content: '안녕하세요! 리비전 문서에 대해 궁금한 점을 물어보세요.' }];
+    const defaultChat = [{ role: 'assistant', content: '안녕하세요! 제출 문서에 대해 궁금한 점을 물어보세요.' }];
 
     // === Project State ===
     const [projects, setProjects] = useState([]);
@@ -330,7 +330,7 @@ const RevisionMaster = () => {
         if (!selectedProject) return;
 
         setIsUploading(true);
-        setUploadProgress('사양서 재분석 중...');
+        setUploadProgress('제출문서 재분석 중...');
         try {
             const headers = await getAuthHeaders();
             const formData = new FormData();
@@ -445,7 +445,7 @@ const RevisionMaster = () => {
         if (!file) return;
 
         setIsUploading(true);
-        setUploadProgress('리비전 등록 중...');
+        setUploadProgress('제출문서 등록 중...');
         try {
             const headers = await getAuthHeaders();
             const formData = new FormData();
@@ -813,7 +813,7 @@ const RevisionMaster = () => {
                     <span className="text-sm">홈</span>
                 </button>
                 <ClipboardCheck className="w-5 h-5 text-cyan-200 mr-2" />
-                <h1 className="text-white font-bold text-lg">Revision Master</h1>
+                <h1 className="text-white font-bold text-lg">발주처 제출 문서관리</h1>
                 <div className="flex-1" />
             </div>
 
@@ -975,7 +975,7 @@ const RevisionMaster = () => {
                     <div className="p-3 border-t border-[#e5e1d8] bg-[#f4f1ea] shrink-0">
                         <div className="flex items-center justify-between gap-2">
                             <Link to="/profile" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-[#e5e1d8] p-1.5 -ml-1.5 rounded-lg transition-colors group">
-                                <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
+                                <div className="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
                                     {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
                                 </div>
                                 <div className="flex flex-col min-w-0">
@@ -1053,15 +1053,15 @@ const RevisionMaster = () => {
                                             <Plus className="w-3.5 h-3.5" /> 문서 추가
                                         </button>
                                         <button onClick={() => { setShowReanalyze(true); setUploadProgress(''); }} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-cyan-300 text-cyan-700 rounded-lg hover:bg-cyan-50 transition">
-                                            <RefreshCcw className="w-3.5 h-3.5" /> 사양서 재분석
+                                            <RefreshCcw className="w-3.5 h-3.5" /> 제출문서 재분석
                                         </button>
                                         <button onClick={() => { setShowAddSpec(true); setUploadProgress(''); }} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-cyan-300 text-cyan-700 rounded-lg hover:bg-cyan-50 transition">
-                                            <FilePlus className="w-3.5 h-3.5" /> 사양서 추가
+                                            <FilePlus className="w-3.5 h-3.5" /> 제출문서 추가등록
                                         </button>
                                         {selectedDocId && (
                                             <>
                                                 <button onClick={() => { setShowRegisterRev(true); setUploadProgress(''); setRevFormData({ revision: '', change_description: '' }); }} className="flex items-center gap-1 px-3 py-1.5 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition">
-                                                    <Upload className="w-3.5 h-3.5" /> 리비전 등록
+                                                    <Upload className="w-3.5 h-3.5" /> 제출문서 등록
                                                 </button>
                                                 <button onClick={() => setShowEditDoc(true)} className="flex items-center gap-1 px-3 py-1.5 text-sm border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-100 transition">
                                                     <Edit3 className="w-3.5 h-3.5" /> 수정
@@ -1146,7 +1146,7 @@ const RevisionMaster = () => {
                                 <button
                                     onClick={() => {
                                         if (mode === 'chat') {
-                                            setChatMessages([{ role: 'assistant', content: '안녕하세요! 리비전 문서에 대해 궁금한 점을 물어보세요.' }]);
+                                            setChatMessages([{ role: 'assistant', content: '안녕하세요! 제출 문서에 대해 궁금한 점을 물어보세요.' }]);
                                         } else {
                                             setSearchResults([]);
                                         }
@@ -1491,9 +1491,9 @@ const RevisionMaster = () => {
                                 ) : (
                                     <div className="text-center text-slate-400 py-8">
                                         <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                                        <p className="text-sm">등록된 리비전이 없습니다</p>
+                                        <p className="text-sm">등록된 제출문서가 없습니다</p>
                                         <button onClick={() => { setShowRegisterRev(true); setUploadProgress(''); setRevFormData({ revision: '', change_description: '' }); }} className="mt-3 text-sm text-cyan-600 hover:text-cyan-800">
-                                            첫 리비전 등록하기
+                                            첫 제출문서 등록하기
                                         </button>
                                     </div>
                                 )}
@@ -1590,7 +1590,7 @@ const RevisionMaster = () => {
                     <div className="bg-white rounded-2xl shadow-2xl w-[480px]">
                         <div className="flex items-center justify-between p-5 border-b border-slate-200">
                             <div>
-                                <h3 className="font-bold text-lg text-slate-800">리비전 등록</h3>
+                                <h3 className="font-bold text-lg text-slate-800">제출문서 등록</h3>
                                 <p className="text-sm text-slate-500 mt-0.5">{selectedDoc.doc_no} - {selectedDoc.title}</p>
                             </div>
                             <button onClick={() => { setShowRegisterRev(false); setUploadProgress(''); }} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
@@ -1638,7 +1638,7 @@ const RevisionMaster = () => {
                                 </div>
                             )}
                             <button type="submit" disabled={isUploading || isAnalyzing} className="w-full py-2.5 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 disabled:opacity-50 transition">
-                                {isUploading ? '등록 중...' : isAnalyzing ? '분석 중...' : '리비전 등록'}
+                                {isUploading ? '등록 중...' : isAnalyzing ? '분석 중...' : '제출문서 등록'}
                             </button>
                         </form>
                     </div>
@@ -1715,7 +1715,7 @@ const RevisionMaster = () => {
                     <div className="bg-white rounded-2xl shadow-2xl w-[480px]">
                         <div className="flex items-center justify-between p-5 border-b border-slate-200">
                             <div>
-                                <h3 className="font-bold text-lg text-slate-800">사양서 재분석</h3>
+                                <h3 className="font-bold text-lg text-slate-800">제출문서 재분석</h3>
                                 <p className="text-sm text-slate-500 mt-0.5">기존 문서를 유지하면서 문서번호를 자동 채번합니다</p>
                             </div>
                             <button onClick={() => { setShowReanalyze(false); setUploadProgress(''); }} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
@@ -1754,8 +1754,8 @@ const RevisionMaster = () => {
                     <div className="bg-white rounded-2xl shadow-2xl w-[480px]">
                         <div className="flex items-center justify-between p-5 border-b border-slate-200">
                             <div>
-                                <h3 className="font-bold text-lg text-slate-800">사양서 추가 업로드</h3>
-                                <p className="text-sm text-slate-500 mt-0.5">추가 사양서를 업로드하여 문서 목록을 확장합니다</p>
+                                <h3 className="font-bold text-lg text-slate-800">제출문서 추가등록</h3>
+                                <p className="text-sm text-slate-500 mt-0.5">추가 제출문서를 업로드하여 문서 목록을 확장합니다</p>
                             </div>
                             <button onClick={() => { setShowAddSpec(false); setUploadProgress(''); }} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
                         </div>
@@ -1779,7 +1779,7 @@ const RevisionMaster = () => {
                                 </div>
                             )}
                             <button type="submit" disabled={isUploading} className="w-full py-2.5 bg-cyan-600 text-white rounded-lg font-medium hover:bg-cyan-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-                                {isUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> 분석 중...</> : <><FilePlus className="w-4 h-4" /> 사양서 추가</>}
+                                {isUploading ? <><Loader2 className="w-4 h-4 animate-spin" /> 분석 중...</> : <><FilePlus className="w-4 h-4" /> 제출문서 추가등록</>}
                             </button>
                         </form>
                     </div>

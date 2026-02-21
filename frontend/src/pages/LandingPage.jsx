@@ -163,15 +163,15 @@ const LandingPage = () => {
                             </div>
 
                             <h2 className="text-2xl font-bold text-slate-100 mb-3 group-hover:text-cyan-400 transition-colors">
-                                Revision Master
+                                발주처 제출 문서관리
                             </h2>
                             <p className="text-slate-400 mb-8 leading-relaxed">
-                                준공 문서 리비전 관리. 사양서에서 문서 목록을
+                                발주처 제출 문서 관리. 사양서에서 문서 목록을
                                 자동 추출하고 Phase별 진행률을 추적합니다.
                             </p>
 
                             <div className="flex items-center text-cyan-400 font-medium group-hover:translate-x-2 transition-transform">
-                                리비전 관리 시작 <ArrowRight className="w-4 h-4 ml-2" />
+                                문서관리 시작 <ArrowRight className="w-4 h-4 ml-2" />
                             </div>
                         </div>
                     </div>
