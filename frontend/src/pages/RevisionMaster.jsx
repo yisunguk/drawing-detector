@@ -1031,10 +1031,13 @@ const RevisionMaster = () => {
                         <button
                             onClick={() => setSearchMode(!searchMode)}
                             className={`px-2.5 py-1.5 text-sm rounded-lg transition flex items-center gap-1
-                                ${searchMode ? 'bg-cyan-100 text-cyan-700' : 'text-slate-500 hover:bg-slate-100'}`}
+                                ${searchMode ? 'bg-cyan-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}
                         >
-                            <MessageSquare className="w-4 h-4" />
-                            AI와 대화하기
+                            {searchMode ? (
+                                <><FileText className="w-4 h-4" /> 문서 목록</>
+                            ) : (
+                                <><MessageSquare className="w-4 h-4" /> AI와 대화하기</>
+                            )}
                         </button>
                     </div>
 
