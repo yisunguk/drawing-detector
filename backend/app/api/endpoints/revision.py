@@ -2,6 +2,8 @@
 Revision Master - API Endpoints
 
 - POST /upload-spec        : Upload spec PDF → DI → GPT → document checklist
+- POST /reanalyze-spec     : Re-analyze spec PDF → merge with existing documents + index
+- POST /add-spec           : Upload additional spec PDF → merge + index (cumulative)
 - GET  /projects           : List user's projects
 - GET  /project/{id}       : Project detail (project.json)
 - POST /register-revision  : Upload revision file → DI → index → update project.json
@@ -229,12 +231,20 @@ async def upload_spec(
         documents = _ensure_standard_documents(documents, project_code)
 
     # Build project.json
+    spec_id = str(uuid.uuid4())
     project = {
         "project_id": project_id,
         "project_name": project_name,
         "project_code": project_code,
         "spec_filename": filename,
         "spec_blob_path": spec_blob_path,
+        "specs": [{
+            "spec_id": spec_id,
+            "filename": filename,
+            "blob_path": spec_blob_path,
+            "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            "indexed_pages": 0,
+        }],
         "created_by": username,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "phases": PHASES,
@@ -274,6 +284,10 @@ async def upload_spec(
             }
             indexed = revision_search_service.index_revision_pages(spec_pages, spec_metadata)
             print(f"[Revision] Spec indexed {indexed} pages", flush=True)
+            # Update specs entry with indexed page count
+            if project.get("specs"):
+                project["specs"][0]["indexed_pages"] = indexed
+                _save_project_json(container, project_json_path, project)
     except Exception as e:
         print(f"[Revision] Spec indexing failed (non-fatal): {e}", flush=True)
 
@@ -353,9 +367,180 @@ async def reanalyze_spec(
 
     # === Merge Logic ===
     existing_docs = project.get("documents", [])
+    merged_count = _merge_spec_documents(existing_docs, new_docs, project_code)
+
+    project["documents"] = existing_docs
+    _recalculate_summary(project)
+    _save_project_json(container, json_path, project)
+
+    print(f"[Revision] Merge complete: {merged_count}", flush=True)
+
+    # Index spec pages into Azure AI Search
+    indexed_pages = 0
+    try:
+        if di_result:
+            # Delete existing spec index entries first
+            revision_search_service.delete_by_revision(project_id, "spec", "-")
+
+            spec_pages = [
+                {"page_number": p.get("page_number", i + 1), "content": p.get("content", "")}
+                for i, p in enumerate(di_result)
+            ]
+            spec_metadata = {
+                "project_id": project_id,
+                "project_name": project_name,
+                "doc_id": "spec",
+                "doc_no": "SPEC",
+                "tag_no": "",
+                "title": f"{project_name} 사양서",
+                "phase": "",
+                "phase_name": "",
+                "revision": "-",
+                "engineer_name": username,
+                "revision_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "change_description": "사양서 재분석",
+                "blob_path": spec_blob_path,
+                "username": username,
+                "doc_type": "spec",
+            }
+            indexed_pages = revision_search_service.index_revision_pages(spec_pages, spec_metadata)
+            print(f"[Revision] Spec re-indexed {indexed_pages} pages", flush=True)
+    except Exception as e:
+        print(f"[Revision] Spec indexing failed (non-fatal): {e}", flush=True)
+
+    return {
+        "status": "success",
+        "project_id": project_id,
+        "documents_count": len(existing_docs),
+        "merge_result": merged_count,
+        "indexed_pages": indexed_pages,
+        "summary": project["summary"],
+    }
+
+
+# ── Add Spec (cumulative) ──
+
+@router.post("/add-spec")
+async def add_spec(
+    project_id: str = Form(...),
+    file: UploadFile = File(...),
+    authorization: Optional[str] = Header(None)
+):
+    """Upload an additional spec PDF and merge documents into existing project."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    # Load existing project
+    json_path = f"{username}/revision/{project_id}/project.json"
+    project = _load_project_json(container, json_path)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project_code = project.get("project_code", "")
+    project_name = project.get("project_name", "")
+    filename = file.filename or "spec.pdf"
+    spec_id = str(uuid.uuid4())
+
+    print(f"[Revision] Add spec '{filename}' to project '{project_name}' ({project_id})", flush=True)
+
+    # Save spec to blob
+    file_content = await file.read()
+    spec_blob_path = f"{username}/revision/{project_id}/spec/{spec_id}_{filename}"
+    container.upload_blob(name=spec_blob_path, data=file_content, overwrite=True)
+    print(f"[Revision] Saved additional spec to blob: {spec_blob_path}", flush=True)
+
+    # Azure DI text extraction
+    extracted_text = ""
+    di_result = []
+    try:
+        from app.services.azure_di import azure_di_service
+        from app.services.blob_storage import generate_sas_url
+        spec_url = generate_sas_url(spec_blob_path)
+        di_result = azure_di_service.analyze_document_from_url(spec_url)
+        extracted_text = "\n\n".join([p.get("content", "") for p in di_result])
+        print(f"[Revision] DI extracted {len(extracted_text)} chars from additional spec", flush=True)
+    except Exception as e:
+        print(f"[Revision] DI extraction failed: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Document analysis failed: {e}")
+
+    # GPT: Extract document checklist
+    new_docs = []
+    try:
+        new_docs = _extract_documents_from_spec(extracted_text, project_code, project_name)
+        print(f"[Revision] GPT extracted {len(new_docs)} documents from additional spec", flush=True)
+    except Exception as e:
+        print(f"[Revision] GPT extraction failed: {e}", flush=True)
+
+    # Merge with existing documents
+    existing_docs = project.get("documents", [])
+    merged_count = _merge_spec_documents(existing_docs, new_docs, project_code)
+    project["documents"] = existing_docs
+    _recalculate_summary(project)
+
+    print(f"[Revision] Add-spec merge: {merged_count}", flush=True)
+
+    # AI Search indexing with unique doc_id per spec
+    indexed_pages = 0
+    try:
+        if di_result:
+            spec_pages = [
+                {"page_number": p.get("page_number", i + 1), "content": p.get("content", "")}
+                for i, p in enumerate(di_result)
+            ]
+            spec_metadata = {
+                "project_id": project_id,
+                "project_name": project_name,
+                "doc_id": f"spec_{spec_id}",
+                "doc_no": "SPEC",
+                "tag_no": "",
+                "title": f"{project_name} 사양서 - {filename}",
+                "phase": "",
+                "phase_name": "",
+                "revision": "-",
+                "engineer_name": username,
+                "revision_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "change_description": f"추가 사양서: {filename}",
+                "blob_path": spec_blob_path,
+                "username": username,
+                "doc_type": "spec",
+            }
+            indexed_pages = revision_search_service.index_revision_pages(spec_pages, spec_metadata)
+            print(f"[Revision] Additional spec indexed {indexed_pages} pages", flush=True)
+    except Exception as e:
+        print(f"[Revision] Spec indexing failed (non-fatal): {e}", flush=True)
+
+    # Add to project.specs array
+    spec_entry = {
+        "spec_id": spec_id,
+        "filename": filename,
+        "blob_path": spec_blob_path,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "indexed_pages": indexed_pages,
+    }
+    if "specs" not in project or not isinstance(project.get("specs"), list):
+        project["specs"] = []
+    project["specs"].append(spec_entry)
+
+    _save_project_json(container, json_path, project)
+
+    return {
+        "status": "success",
+        "project_id": project_id,
+        "spec_id": spec_id,
+        "documents_count": len(existing_docs),
+        "merge_result": merged_count,
+        "indexed_pages": indexed_pages,
+        "summary": project["summary"],
+    }
+
+
+def _merge_spec_documents(existing_docs: list, new_docs: list, project_code: str) -> dict:
+    """Merge new documents from spec analysis into existing document list.
+    Returns merge counts: {"updated": N, "added": N, "kept": N}
+    Modifies existing_docs in-place.
+    """
     merged_count = {"updated": 0, "added": 0, "kept": 0}
 
-    # Build lookup by normalized title
     def _normalize(title: str) -> str:
         return title.strip().lower().replace("  ", " ")
 
@@ -365,17 +550,13 @@ async def reanalyze_spec(
         if key:
             existing_by_title[key] = doc
 
-    matched_existing_keys = set()
-
     for new_doc in new_docs:
         new_title_key = _normalize(new_doc.get("title", ""))
         if not new_title_key:
             continue
 
         if new_title_key in existing_by_title:
-            # Match found — update empty fields only
             ex = existing_by_title[new_title_key]
-            matched_existing_keys.add(new_title_key)
             updated = False
             if (not ex.get("doc_no") or ex["doc_no"].strip() in ("", "-")) and new_doc.get("doc_no"):
                 ex["doc_no"] = new_doc["doc_no"]
@@ -388,26 +569,11 @@ async def reanalyze_spec(
             else:
                 merged_count["kept"] += 1
         else:
-            # New document — add to list
             existing_docs.append(new_doc)
             merged_count["added"] += 1
 
-    # Auto-fill any remaining empty doc_no
     _auto_fill_doc_no(existing_docs, project_code)
-
-    project["documents"] = existing_docs
-    _recalculate_summary(project)
-    _save_project_json(container, json_path, project)
-
-    print(f"[Revision] Merge complete: {merged_count}", flush=True)
-
-    return {
-        "status": "success",
-        "project_id": project_id,
-        "documents_count": len(existing_docs),
-        "merge_result": merged_count,
-        "summary": project["summary"],
-    }
+    return merged_count
 
 
 def _extract_documents_from_spec(spec_text: str, project_code: str, project_name: str) -> list:
