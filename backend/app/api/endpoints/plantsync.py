@@ -4,6 +4,7 @@ PlantSync AI - Plant Drawing Revision & Discipline Collaboration API
 - POST   /projects                                    : Create project
 - GET    /projects                                    : List projects
 - GET    /projects/{id}                               : Project detail
+- PATCH  /projects/{id}                               : Rename project
 - DELETE /projects/{id}                               : Delete project
 - POST   /projects/{id}/upload                        : Upload drawing PDF → DI → Title Block
 - PUT    /projects/{id}/drawings/{did}/title-block     : Confirm/edit Title Block
@@ -332,6 +333,27 @@ async def get_project(project_id: str, authorization: Optional[str] = Header(Non
     meta = _load_json(container, _meta_path(username, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    return {"status": "success", "project": meta}
+
+
+class RenameProjectRequest(BaseModel):
+    project_name: str
+
+
+@router.patch("/projects/{project_id}")
+async def rename_project(project_id: str, req: RenameProjectRequest, authorization: Optional[str] = Header(None)):
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    meta["project_name"] = req.project_name.strip()
+    meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_json(container, _meta_path(username, project_id), meta)
+    print(f"[PlantSync] Project renamed: {project_id} -> {req.project_name}", flush=True)
 
     return {"status": "success", "project": meta}
 

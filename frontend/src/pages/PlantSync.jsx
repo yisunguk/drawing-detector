@@ -55,6 +55,8 @@ const PlantSync = () => {
   const [uploading, setUploading] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+  const [editingProjectId, setEditingProjectId] = useState(null);
+  const [editProjectName, setEditProjectName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [disciplineFilter, setDisciplineFilter] = useState('all');
   const [isPlacingPin, setIsPlacingPin] = useState(false);
@@ -225,6 +227,24 @@ const PlantSync = () => {
       await loadProjects();
     } catch (e) {
       console.error('Delete error:', e);
+    }
+  };
+
+  const handleRenameProject = async (projectId) => {
+    const name = editProjectName.trim();
+    if (!name) return;
+    try {
+      const token = await getToken();
+      await fetch(getUrl(`projects/${projectId}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ project_name: name }),
+      });
+      setEditingProjectId(null);
+      setEditProjectName('');
+      await loadProjects();
+    } catch (e) {
+      console.error('Rename error:', e);
     }
   };
 
@@ -630,20 +650,49 @@ const PlantSync = () => {
               {projects.map(p => (
                 <div
                   key={p.project_id}
-                  onClick={() => setSelectedProject(p)}
+                  onClick={() => { if (editingProjectId !== p.project_id) setSelectedProject(p); }}
                   className="group relative cursor-pointer bg-slate-800/80 border border-slate-700/50 rounded-xl p-6 hover:border-sky-500/50 transition-all"
                 >
                   <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-100 group-hover:text-sky-400 transition-colors">{p.project_name}</h3>
+                    <div className="flex-1 min-w-0">
+                      {editingProjectId === p.project_id ? (
+                        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                          <input
+                            type="text"
+                            value={editProjectName}
+                            onChange={e => setEditProjectName(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleRenameProject(p.project_id); if (e.key === 'Escape') setEditingProjectId(null); }}
+                            className="flex-1 px-2 py-1 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:border-sky-500"
+                            autoFocus
+                          />
+                          <button onClick={() => handleRenameProject(p.project_id)} className="p-1 text-green-400 hover:bg-green-500/10 rounded">
+                            <Check className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => setEditingProjectId(null)} className="p-1 text-slate-400 hover:bg-slate-700 rounded">
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <h3 className="text-lg font-semibold text-slate-100 group-hover:text-sky-400 transition-colors truncate">{p.project_name}</h3>
+                      )}
                       {p.project_code && <p className="text-sm text-slate-500 mt-1">{p.project_code}</p>}
                     </div>
-                    <button
-                      onClick={e => { e.stopPropagation(); handleDeleteProject(p.project_id); }}
-                      className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {editingProjectId !== p.project_id && (
+                      <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                        <button
+                          onClick={e => { e.stopPropagation(); setEditingProjectId(p.project_id); setEditProjectName(p.project_name); }}
+                          className="p-1.5 text-slate-500 hover:text-sky-400 hover:bg-sky-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); handleDeleteProject(p.project_id); }}
+                          className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-4 mt-4 text-sm text-slate-400">
                     <span className="flex items-center gap-1"><FileText className="w-4 h-4" /> {p.drawing_count}건 도면</span>
