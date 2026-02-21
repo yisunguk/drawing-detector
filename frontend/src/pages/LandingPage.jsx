@@ -212,7 +212,7 @@ const LandingPage = () => {
                             </div>
 
                             <h2 className="text-2xl font-bold text-slate-100 mb-3 group-hover:text-lime-400 transition-colors">
-                                PDF 코멘트 추출
+                                설계 코멘트 관리
                             </h2>
                             <p className="text-slate-400 mb-8 leading-relaxed">
                                 PDF 주석(Annotation)을 자동 추출하여 테이블로 정리합니다.
@@ -220,7 +220,7 @@ const LandingPage = () => {
                             </p>
 
                             <div className="flex items-center text-lime-400 font-medium group-hover:translate-x-2 transition-transform">
-                                코멘트 추출 시작 <ArrowRight className="w-4 h-4 ml-2" />
+                                코멘트 관리 시작 <ArrowRight className="w-4 h-4 ml-2" />
                             </div>
                         </div>
                     </div>

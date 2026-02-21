@@ -254,7 +254,7 @@ const CommentExtractor = () => {
                 <div className="p-4 border-b border-[#e5e1d8]">
                     <div className="flex items-center gap-2">
                         <MessageSquareText className="w-5 h-5 text-lime-600" />
-                        <h1 className="text-lg font-bold text-[#333]">PDF 코멘트 추출</h1>
+                        <h1 className="text-lg font-bold text-[#333]">설계 코멘트 관리</h1>
                     </div>
                 </div>
 
