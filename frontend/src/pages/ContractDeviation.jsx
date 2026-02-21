@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Scale, Upload, FileText, Plus, Send, ChevronLeft, ChevronRight,
   X, Trash2, AlertCircle, CheckCircle2, MessageSquare, Filter,
-  Search, Home, FolderOpen, RefreshCw, ArrowRight
+  Search, Home, FolderOpen, RefreshCw, ArrowRight, Folder, File, Loader2
 } from 'lucide-react';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
@@ -41,6 +41,10 @@ const ContractDeviation = () => {
   const [showParseModal, setShowParseModal] = useState(false);
   const [parsePath, setParsePath] = useState('');
   const [parseName, setParseName] = useState('');
+  const [browsePath, setBrowsePath] = useState('');
+  const [browseItems, setBrowseItems] = useState([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [selectedBlobFile, setSelectedBlobFile] = useState(null);
 
   const fileInputRef = useRef(null);
   const commentEndRef = useRef(null);
@@ -122,20 +126,22 @@ const ContractDeviation = () => {
     }
   };
 
-  const handleParseExisting = async () => {
-    if (!parsePath.trim()) return;
+  const handleParseExisting = async (filePath, fileName) => {
+    const jsonPath = filePath || parsePath.trim();
+    if (!jsonPath) return;
     setUploading(true);
     setError('');
     setShowParseModal(false);
     try {
       const token = await getToken();
+      const name = fileName || parseName.trim() || jsonPath.split('/').pop()?.replace(/\.json$/i, '') || '';
       const res = await fetch(getUrl('parse-existing'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ json_path: parsePath.trim(), contract_name: parseName.trim() }),
+        body: JSON.stringify({ json_path: jsonPath, contract_name: name }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -146,11 +152,67 @@ const ContractDeviation = () => {
       await loadContractDetail(data.contract_id);
       setParsePath('');
       setParseName('');
+      setSelectedBlobFile(null);
     } catch (e) {
       setError(e.message);
     } finally {
       setUploading(false);
     }
+  };
+
+  const isAdmin = currentUser?.email === 'admin@poscoenc.com';
+
+  const getInitialBrowsePath = () => {
+    if (isAdmin) return '';
+    const userName = currentUser?.displayName || currentUser?.email?.split('@')[0] || '';
+    return userName ? `${userName}/json/` : '';
+  };
+
+  const fetchBlobItems = async (path = '') => {
+    setBrowseLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/azure/list?path=${encodeURIComponent(path)}`);
+      if (!res.ok) throw new Error('Failed to browse files');
+      const items = await res.json();
+      setBrowseItems(items);
+      setBrowsePath(path);
+    } catch (e) {
+      console.error('Browse error:', e);
+      setBrowseItems([]);
+    } finally {
+      setBrowseLoading(false);
+    }
+  };
+
+  const openBrowseModal = () => {
+    setShowParseModal(true);
+    setSelectedBlobFile(null);
+    setParseName('');
+    const initialPath = getInitialBrowsePath();
+    fetchBlobItems(initialPath);
+  };
+
+  const handleBrowseNavigate = (item) => {
+    if (item.type === 'folder') {
+      fetchBlobItems(item.path);
+      setSelectedBlobFile(null);
+    } else {
+      setSelectedBlobFile(item);
+      setParsePath(item.path);
+      setParseName(item.name.replace(/\.json$/i, ''));
+    }
+  };
+
+  const handleBrowseUp = () => {
+    const minPath = isAdmin ? '' : getInitialBrowsePath();
+    if (!browsePath || browsePath === minPath) return;
+    const parts = browsePath.replace(/\/$/, '').split('/');
+    parts.pop();
+    const parentPath = parts.length > 0 ? parts.join('/') + '/' : '';
+    // Don't go above the user's root (for non-admin)
+    if (!isAdmin && !parentPath.startsWith(minPath.split('/')[0])) return;
+    fetchBlobItems(parentPath);
+    setSelectedBlobFile(null);
   };
 
   const handleCreateDeviation = async () => {
@@ -309,7 +371,7 @@ const ContractDeviation = () => {
             {uploading ? '처리 중...' : 'PDF 업로드'}
           </button>
           <button
-            onClick={() => setShowParseModal(true)}
+            onClick={openBrowseModal}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
           >
             <FolderOpen className="w-4 h-4" />
@@ -793,42 +855,116 @@ const ContractDeviation = () => {
         </div>
       )}
 
-      {/* Parse Existing JSON Modal */}
+      {/* File Browser Modal */}
       {showParseModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-[480px] shadow-2xl">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">기존 JSON 파싱</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Blob Storage에 저장된 DI 추출 결과 JSON 경로를 입력하세요.
-            </p>
-            <input
-              type="text"
-              placeholder="예: 관리자/json/제1권 일반사항_2018.10.22.json"
-              value={parsePath}
-              onChange={e => setParsePath(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            />
-            <input
-              type="text"
-              placeholder="계약서 이름 (선택사항)"
-              value={parseName}
-              onChange={e => setParseName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-4 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => { setShowParseModal(false); setParsePath(''); setParseName(''); }}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
-              >
-                취소
-              </button>
-              <button
-                onClick={handleParseExisting}
-                disabled={!parsePath.trim()}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-              >
-                파싱 시작
-              </button>
+          <div className="bg-white rounded-xl shadow-2xl w-[600px] max-h-[80vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-gray-200">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-bold text-gray-900">JSON 파일 선택</h3>
+                <button onClick={() => { setShowParseModal(false); setParsePath(''); setParseName(''); setSelectedBlobFile(null); }}>
+                  <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+                </button>
+              </div>
+              {/* Breadcrumb */}
+              <div className="flex items-center gap-1 text-sm text-gray-500 bg-gray-50 rounded-lg px-3 py-1.5">
+                <button
+                  onClick={() => { const p = getInitialBrowsePath(); fetchBlobItems(isAdmin ? '' : p); setSelectedBlobFile(null); }}
+                  className="hover:text-indigo-600 font-medium"
+                >
+                  {isAdmin ? 'Root' : 'Home'}
+                </button>
+                {browsePath && browsePath.split('/').filter(Boolean).map((part, i, arr) => {
+                  const pathUpTo = arr.slice(0, i + 1).join('/') + '/';
+                  return (
+                    <React.Fragment key={i}>
+                      <span className="text-gray-300">/</span>
+                      <button
+                        onClick={() => { fetchBlobItems(pathUpTo); setSelectedBlobFile(null); }}
+                        className="hover:text-indigo-600 truncate max-w-[120px]"
+                        title={part}
+                      >
+                        {part}
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* File List */}
+            <div className="flex-1 overflow-y-auto min-h-[300px]">
+              {browseLoading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {/* Up button */}
+                  {browsePath && (isAdmin || browsePath !== getInitialBrowsePath()) && (
+                    <button
+                      onClick={handleBrowseUp}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 text-sm text-gray-600"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      <span>상위 폴더</span>
+                    </button>
+                  )}
+                  {browseItems.map((item, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => handleBrowseNavigate(item)}
+                      className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                        selectedBlobFile?.path === item.path
+                          ? 'bg-indigo-50 text-indigo-700'
+                          : 'hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      {item.type === 'folder' ? (
+                        <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                      ) : (
+                        <File className={`w-4 h-4 shrink-0 ${item.name.endsWith('.json') ? 'text-indigo-500' : 'text-gray-400'}`} />
+                      )}
+                      <span className="truncate flex-1 text-left">{item.name}</span>
+                      {item.type === 'file' && item.size && (
+                        <span className="text-xs text-gray-400 shrink-0">
+                          {item.size > 1048576 ? `${(item.size / 1048576).toFixed(1)}MB` : `${(item.size / 1024).toFixed(0)}KB`}
+                        </span>
+                      )}
+                      {item.type === 'folder' && (
+                        <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                  {browseItems.length === 0 && !browseLoading && (
+                    <div className="text-center py-12 text-gray-400 text-sm">
+                      <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p>파일이 없습니다</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Selected File & Action */}
+            <div className="p-4 border-t border-gray-200 bg-gray-50">
+              {selectedBlobFile ? (
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{selectedBlobFile.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{selectedBlobFile.path}</p>
+                  </div>
+                  <button
+                    onClick={() => handleParseExisting(selectedBlobFile.path, selectedBlobFile.name.replace(/\.json$/i, ''))}
+                    className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium shrink-0"
+                  >
+                    파싱 시작
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 text-center">JSON 파일을 선택하세요</p>
+              )}
             </div>
           </div>
         </div>
