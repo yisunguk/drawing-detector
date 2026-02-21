@@ -427,9 +427,12 @@ async def chat(
             # NEW: Translate/Extract English Keywords for Search
             # ---------------------------------------------------------
             search_query = request.query
+            translated_query = False
             try:
+                if request.exact_match:
+                    print(f"[Chat] exact_match=True → skipping translation, using original query: '{request.query}'", flush=True)
                 # If query contains Korean (simple check), generate English keywords
-                if any(ord(c) > 127 for c in request.query):
+                elif any(ord(c) > 127 for c in request.query):
                     print(f"[Chat] Detecting Korean query. Generating English search keywords...")
                     completion = client.chat.completions.create(
                         model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
@@ -442,6 +445,7 @@ async def chat(
                     english_keywords = completion.choices[0].message.content.strip()
                     print(f"[Chat] Translated/Expanded Query: '{request.query}' -> '{english_keywords}'")
                     search_query = f"{english_keywords} OR {request.query}" # Hybrid: Search both
+                    translated_query = True
                 
             except Exception as e:
                 print(f"[Chat] Warning: Keyword generation failed: {e}. Using original query.")
@@ -477,7 +481,7 @@ async def chat(
             # ---------------------------------------------------------
             # Tag pattern query expansion (HS9717 → "HS9717" OR "HS 9717" OR (HS AND 9717))
             # ---------------------------------------------------------
-            query_type = "simple"
+            query_type = "full" if translated_query else "simple"
             tag_match = re.match(r'^([A-Za-z]{1,5})(\d{1,5}[A-Za-z]?)$', search_query.strip())
             if tag_match:
                 prefix = tag_match.group(1).upper()
@@ -580,6 +584,22 @@ async def chat(
                             r['score'] = r['_rerank_score']
                         r.pop('_rerank_score', None)
                         r.pop('@search.score', None)
+
+                    # Exact match filter for folder-specific search
+                    if request.exact_match and mapped_results:
+                        em_keywords = _extract_search_keywords(request.query)
+                        em_kws_lower = [kw.lower() for kw in em_keywords]
+                        if em_kws_lower:
+                            filtered = []
+                            for r in mapped_results:
+                                content_lower = (r.get("content", "") or "").lower()
+                                fname_lower = (r.get("filename", "") or "").lower()
+                                highlight_lower = (r.get("highlight", "") or "").lower()
+                                if any(kw in content_lower or kw in fname_lower or kw in highlight_lower for kw in em_kws_lower):
+                                    filtered.append(r)
+                            print(f"[Chat] Folder exact match filter: {len(mapped_results)} → {len(filtered)} results", flush=True)
+                            mapped_results = filtered
+
                     return ChatResponse(
                         response=f"Found {len(mapped_results)} documents.",
                         results=mapped_results
