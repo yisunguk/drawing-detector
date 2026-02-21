@@ -1080,6 +1080,9 @@ const RevisionMaster = () => {
                                             {searchResults.map((r, i) => (
                                                 <div key={i} className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-sm transition">
                                                     <div className="flex items-center gap-2 mb-2">
+                                                        {r.doc_type === 'spec' && (
+                                                            <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">사양서</span>
+                                                        )}
                                                         <span className="text-xs font-mono text-cyan-600">{r.doc_no}</span>
                                                         <span className="text-xs text-slate-400">{r.phase_name}</span>
                                                         <span className="text-xs text-slate-400">Rev.{r.revision}</span>

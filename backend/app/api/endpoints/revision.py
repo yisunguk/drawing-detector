@@ -248,6 +248,35 @@ async def upload_spec(
     _save_project_json(container, project_json_path, project)
     print(f"[Revision] Saved project.json: {project_json_path}", flush=True)
 
+    # Index spec pages into Azure AI Search
+    try:
+        if di_result:
+            spec_pages = [
+                {"page_number": p.get("page_number", i + 1), "content": p.get("content", "")}
+                for i, p in enumerate(di_result)
+            ]
+            spec_metadata = {
+                "project_id": project_id,
+                "project_name": project_name,
+                "doc_id": "spec",
+                "doc_no": "SPEC",
+                "tag_no": "",
+                "title": f"{project_name} 사양서",
+                "phase": "",
+                "phase_name": "",
+                "revision": "-",
+                "engineer_name": username,
+                "revision_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                "change_description": "사양서 원문",
+                "blob_path": spec_blob_path,
+                "username": username,
+                "doc_type": "spec",
+            }
+            indexed = revision_search_service.index_revision_pages(spec_pages, spec_metadata)
+            print(f"[Revision] Spec indexed {indexed} pages", flush=True)
+    except Exception as e:
+        print(f"[Revision] Spec indexing failed (non-fatal): {e}", flush=True)
+
     return {
         "status": "success",
         "project_id": project_id,

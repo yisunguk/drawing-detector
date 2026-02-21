@@ -83,6 +83,7 @@ class RevisionSearchService:
         "phase", "phase_name", "revision", "engineer_name", "revision_date",
         "project_name", "username", "change_description", "content",
         "content_embedding", "blob_path", "page_number", "total_pages",
+        "doc_type",
     }
 
     def ensure_index(self):
@@ -136,6 +137,7 @@ class RevisionSearchService:
             SimpleField(name="blob_path", type=SearchFieldDataType.String),
             SimpleField(name="page_number", type=SearchFieldDataType.Int32, filterable=True, sortable=True),
             SimpleField(name="total_pages", type=SearchFieldDataType.Int32, filterable=True),
+            SimpleField(name="doc_type", type=SearchFieldDataType.String, filterable=True, facetable=True),
             SearchField(
                 name="content_embedding",
                 type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
@@ -277,6 +279,7 @@ class RevisionSearchService:
                 "blob_path": metadata.get("blob_path", ""),
                 "page_number": page_num,
                 "total_pages": total_pages,
+                "doc_type": metadata.get("doc_type", "revision"),
             })
 
         # Step 4: Upload in batches (parallel)
@@ -440,7 +443,7 @@ class RevisionSearchService:
                 vector_queries=vector_queries if vector_queries else None,
                 filter=filter_str,
                 top=top,
-                select="project_id,doc_id,doc_no,tag_no,title,phase,phase_name,revision,engineer_name,revision_date,project_name,username,change_description,content,blob_path,page_number,total_pages",
+                select="project_id,doc_id,doc_no,tag_no,title,phase,phase_name,revision,engineer_name,revision_date,project_name,username,change_description,content,blob_path,page_number,total_pages,doc_type",
                 highlight_fields="content,title,change_description",
                 highlight_pre_tag="<mark>",
                 highlight_post_tag="</mark>",
@@ -467,6 +470,7 @@ class RevisionSearchService:
                     "blob_path": r.get("blob_path", ""),
                     "page_number": r.get("page_number", 0),
                     "total_pages": r.get("total_pages", 0),
+                    "doc_type": r.get("doc_type", "revision"),
                     "score": r.get("@search.score", 0),
                     "azure_highlights": azure_highlights,
                 })
