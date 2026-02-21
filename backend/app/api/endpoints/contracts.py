@@ -125,7 +125,9 @@ def _parse_contract_articles(pages: list) -> dict:
     # Also match numbered clauses like "1 ...", "2 ..."
     numbered_clause_re = re.compile(r'(?:^|\n)\s*(\d{1,2})\s+\S')
 
-    # Phase 1: Collect chapter headers
+    # Phase 1: Collect chapter headers + build title→number map from TOC pages
+    # TOC pages list many articles per page — use them to correct OCR number errors
+    title_to_no = {}  # article title -> correct article number
     current_chapter = None
     for page in pages:
         content = page.get('content', '')
@@ -134,8 +136,17 @@ def _parse_contract_articles(pages: list) -> dict:
             ch_title = m.group(2).strip()
             if not any(c['no'] == ch_no for c in chapters):
                 chapters.append({'no': ch_no, 'title': ch_title})
+        # TOC pages have 10+ article titles listed with minimal body text
+        art_matches = list(article_re.finditer(content))
+        if len(art_matches) >= 10:
+            for am in art_matches:
+                title = am.group(2).strip()
+                no = int(am.group(1))
+                if no <= 300 and title not in title_to_no:
+                    title_to_no[title] = no
 
     # Phase 2: Extract articles — first page with real content wins (= main contract)
+    rejected = []  # Articles skipped due to duplicate key (for gap-fill in Phase 3)
     current_chapter = None
     for page in pages:
         content = page.get('content', '')
@@ -157,6 +168,12 @@ def _parse_contract_articles(pages: list) -> dict:
             # Skip references to external laws (e.g. 민법 제777조)
             if art_no > 300:
                 continue
+
+            # Correct OCR errors using TOC title→number map
+            # e.g. DI extracts "제66조" as "제6조" — TOC knows "가격변동" = 66
+            toc_no = title_to_no.get(art_title)
+            if toc_no and toc_no != art_no:
+                art_no = toc_no
 
             # Extract article body: text from this match to next article or end of page
             start_pos = m.end()
@@ -209,6 +226,40 @@ def _parse_contract_articles(pages: list) -> dict:
                     'sub_clauses': sub_clauses,
                     'chapter': chapter,
                 }
+            elif existing and len(art_content.strip()) >= MIN_REAL:
+                # Real content but duplicate number — save for gap-fill
+                rejected.append({
+                    'no': art_no,
+                    'title': art_title,
+                    'page': page_num,
+                    'content': art_content,
+                    'sub_clauses': sub_clauses,
+                    'chapter': chapter,
+                })
+
+    # Phase 3: Fill sequence gaps caused by OCR number errors
+    # e.g. DI extracts "제66조" as "제6조" — detect gap at 66 and reassign
+    art_nos = set(articles_map.keys())
+    max_no = max(art_nos) if art_nos else 0
+    for gap_no in range(1, max_no + 1):
+        if gap_no in art_nos:
+            continue
+        # Find a rejected article whose number is a suffix of gap_no
+        # and whose page falls between the surrounding articles
+        prev_art = articles_map.get(gap_no - 1)
+        next_art = articles_map.get(gap_no + 1)
+        if not prev_art or not next_art:
+            continue
+        prev_page = prev_art['page']
+        next_page = next_art['page']
+        for r in rejected:
+            if str(gap_no).endswith(str(r['no'])) and prev_page <= r['page'] <= next_page:
+                corrected = dict(r)
+                corrected['no'] = gap_no
+                articles_map[gap_no] = corrected
+                print(f"[Contract] OCR fix: 제{r['no']}조 → 제{gap_no}조 "
+                      f"({r['title']}, p.{r['page']})", flush=True)
+                break
 
     # Filter out TOC-only entries (no real body content)
     articles = [a for a in articles_map.values() if len(a.get('content', '').strip()) > 5]
