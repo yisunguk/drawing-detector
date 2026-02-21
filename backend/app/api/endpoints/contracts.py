@@ -154,6 +154,10 @@ def _parse_contract_articles(pages: list) -> dict:
             art_no = int(m.group(1))
             art_title = m.group(2).strip()
 
+            # Skip references to external laws (e.g. 민법 제777조)
+            if art_no > 300:
+                continue
+
             # Extract article body: text from this match to next article or end of page
             start_pos = m.end()
             if i + 1 < len(art_matches):
