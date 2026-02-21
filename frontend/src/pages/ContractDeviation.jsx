@@ -25,7 +25,7 @@ const ContractDeviation = () => {
   const [contracts, setContracts] = useState([]);
   const [selectedContractId, setSelectedContractId] = useState(null);
   const [contractData, setContractData] = useState(null);
-  const [selectedArticleNo, setSelectedArticleNo] = useState(null);
+  const [selectedArticleId, setSelectedArticleId] = useState(null);
   const [selectedDeviationId, setSelectedDeviationId] = useState(null);
   const [showDeviationPanel, setShowDeviationPanel] = useState(false);
   const [showNewDevForm, setShowNewDevForm] = useState(false);
@@ -89,7 +89,7 @@ const ContractDeviation = () => {
       const data = await res.json();
       setContractData(data);
       setSelectedContractId(contractId);
-      setSelectedArticleNo(null);
+      setSelectedArticleId(null);
       setSelectedDeviationId(null);
       setShowDeviationPanel(false);
     } catch (e) {
@@ -216,7 +216,7 @@ const ContractDeviation = () => {
   };
 
   const handleCreateDeviation = async () => {
-    if (!selectedArticleNo || !newDeviation.subject.trim()) return;
+    if (selectedArticleId == null || !newDeviation.subject.trim()) return;
     try {
       const token = await getToken();
       const res = await fetch(getUrl(`${selectedContractId}/deviations`), {
@@ -226,7 +226,7 @@ const ContractDeviation = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          article_no: selectedArticleNo,
+          article_id: selectedArticleId,
           subject: newDeviation.subject,
           initial_comment: newDeviation.initial_comment,
           author_role: newDeviation.author_role,
@@ -320,16 +320,16 @@ const ContractDeviation = () => {
     return true;
   });
 
-  const getArticleDeviations = (articleNo) => deviations.filter(d => d.article_no === articleNo);
-  const getFilteredDeviations = (articleNo) => {
-    let devs = getArticleDeviations(articleNo);
+  const getArticleDeviations = (articleId) => deviations.filter(d => d.article_id === articleId);
+  const getFilteredDeviations = (articleId) => {
+    let devs = getArticleDeviations(articleId);
     if (filterStatus) devs = devs.filter(d => d.status === filterStatus);
     return devs;
   };
 
   const selectedDeviation = deviations.find(d => d.deviation_id === selectedDeviationId);
-  const articleDeviations = selectedArticleNo ? getFilteredDeviations(selectedArticleNo) : [];
-  const selectedArticle = articles.find(a => a.no === selectedArticleNo);
+  const articleDeviations = selectedArticleId != null ? getFilteredDeviations(selectedArticleId) : [];
+  const selectedArticle = articles.find(a => a.id === selectedArticleId);
 
   // ── Render ──
   return (
@@ -560,21 +560,21 @@ const ContractDeviation = () => {
                             </thead>
                             <tbody>
                               {chArticles.map(art => {
-                                const artDevs = getArticleDeviations(art.no);
+                                const artDevs = getArticleDeviations(art.id);
                                 const openCount = artDevs.filter(d => d.status === 'open').length;
                                 const closedCount = artDevs.filter(d => d.status === 'closed').length;
 
                                 return (
                                   <tr
-                                    key={art.no}
+                                    key={art.id}
                                     onClick={() => {
-                                      setSelectedArticleNo(art.no);
+                                      setSelectedArticleId(art.id);
                                       setShowDeviationPanel(true);
                                       setSelectedDeviationId(null);
                                       setShowNewDevForm(false);
                                     }}
                                     className={`border-t border-gray-100 cursor-pointer transition-colors ${
-                                      selectedArticleNo === art.no ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                                      selectedArticleId === art.id ? 'bg-indigo-50' : 'hover:bg-gray-50'
                                     }`}
                                   >
                                     <td className="px-3 py-2.5 font-mono text-gray-600">제{art.no}조</td>
@@ -610,7 +610,7 @@ const ContractDeviation = () => {
                                       <button
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setSelectedArticleNo(art.no);
+                                          setSelectedArticleId(art.id);
                                           setShowDeviationPanel(true);
                                           setShowNewDevForm(true);
                                           setSelectedDeviationId(null);
@@ -645,15 +645,15 @@ const ContractDeviation = () => {
       </div>
 
       {/* Right Panel: Article Content + Deviation Detail */}
-      {showDeviationPanel && selectedArticleNo && (
+      {showDeviationPanel && selectedArticleId != null && (
         <div className="w-[480px] bg-white border-l border-gray-200 flex flex-col shrink-0">
           {/* Panel Header */}
           <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-bold text-gray-900">
-                제{selectedArticleNo}조 {selectedArticle?.title}
+                제{selectedArticle?.no}조 {selectedArticle?.title}
               </h3>
-              <button onClick={() => { setShowDeviationPanel(false); setSelectedArticleNo(null); }}>
+              <button onClick={() => { setShowDeviationPanel(false); setSelectedArticleId(null); }}>
                 <X className="w-5 h-5 text-gray-400 hover:text-gray-600" />
               </button>
             </div>

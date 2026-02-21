@@ -6,7 +6,7 @@ Contract Deviation Management - API Endpoints
 - GET  /list             : List user's contracts
 - GET  /{contract_id}    : Contract detail (articles + deviation summary)
 - POST /{contract_id}/deviations              : Create deviation
-- GET  /{contract_id}/deviations              : List deviations (filter by article_no, status)
+- GET  /{contract_id}/deviations              : List deviations (filter by article_id, status)
 - POST /{contract_id}/deviations/{id}/comments : Add comment
 - PATCH /{contract_id}/deviations/{id}/status  : Toggle open/close
 - DELETE /{contract_id}  : Delete contract
@@ -32,7 +32,7 @@ router = APIRouter()
 # ── Pydantic Models ──
 
 class CreateDeviationRequest(BaseModel):
-    article_no: int
+    article_id: int
     subject: str
     initial_comment: str = ""
     author_role: str = "contractor"  # "contractor" | "client"
@@ -115,7 +115,7 @@ def _parse_contract_articles(pages: list) -> dict:
     so real body pages always override TOC entries.
     """
     chapters = []
-    articles_map = {}  # art_no -> article dict (keep longest content)
+    articles_map = {}  # (chapter, art_no) -> article dict (keep longest content)
 
     # Regex patterns for Korean legal documents
     chapter_re = re.compile(r'제\s*(\d+)\s*장\s+([^\n제]{2,30})')
@@ -172,9 +172,11 @@ def _parse_contract_articles(pages: list) -> dict:
                 chapter = int(ch_matches_before[-1].group(1))
 
             # Keep the version with the longest content (real page > TOC)
-            existing = articles_map.get(art_no)
+            # Use (chapter, art_no) as compound key to avoid cross-chapter collision
+            key = (chapter or 0, art_no)
+            existing = articles_map.get(key)
             if not existing or len(art_content) > len(existing.get('content', '')):
-                articles_map[art_no] = {
+                articles_map[key] = {
                     'no': art_no,
                     'title': art_title,
                     'page': page_num,
@@ -183,9 +185,16 @@ def _parse_contract_articles(pages: list) -> dict:
                     'chapter': chapter,
                 }
 
-    articles = list(articles_map.values())
-    articles.sort(key=lambda a: a['no'])
+    # Filter out TOC-only entries (no real body content)
+    articles = [a for a in articles_map.values() if len(a.get('content', '').strip()) > 5]
+
+    # Sort by chapter first, then article number within chapter
+    articles.sort(key=lambda a: (a['chapter'] or 0, a['no']))
     chapters.sort(key=lambda c: c['no'])
+
+    # Assign unique sequential id for deviation linking
+    for i, art in enumerate(articles):
+        art['id'] = i
 
     return {'chapters': chapters, 'articles': articles}
 
@@ -401,7 +410,7 @@ async def get_contract(
     deviations = dev_data.get('deviations', [])
     dev_by_article = {}
     for d in deviations:
-        art_no = d.get('article_no')
+        art_no = d.get('article_id')
         if art_no not in dev_by_article:
             dev_by_article[art_no] = {'total': 0, 'open': 0, 'closed': 0}
         dev_by_article[art_no]['total'] += 1
@@ -455,7 +464,7 @@ async def create_deviation(
 
     deviation = {
         'deviation_id': deviation_id,
-        'article_no': request.article_no,
+        'article_id': request.article_id,
         'subject': request.subject,
         'status': 'open',
         'created_at': now,
@@ -476,7 +485,7 @@ async def create_deviation(
     dev_data['deviations'].append(deviation)
     _save_json(container, dev_path, dev_data)
 
-    print(f"[Contract] Deviation created: {deviation_id} for article {request.article_no}", flush=True)
+    print(f"[Contract] Deviation created: {deviation_id} for article {request.article_id}", flush=True)
 
     return {'status': 'success', 'deviation_id': deviation_id, 'deviation': deviation}
 
@@ -486,11 +495,11 @@ async def create_deviation(
 @router.get("/{contract_id}/deviations")
 async def list_deviations(
     contract_id: str,
-    article_no: Optional[int] = Query(None),
+    article_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
     authorization: Optional[str] = Header(None)
 ):
-    """List deviations for a contract, optionally filtered by article_no or status."""
+    """List deviations for a contract, optionally filtered by article_id or status."""
     username = _get_username(authorization)
     container = _get_container()
 
@@ -501,8 +510,8 @@ async def list_deviations(
 
     deviations = dev_data.get('deviations', [])
 
-    if article_no is not None:
-        deviations = [d for d in deviations if d.get('article_no') == article_no]
+    if article_id is not None:
+        deviations = [d for d in deviations if d.get('article_id') == article_id]
     if status:
         deviations = [d for d in deviations if d.get('status') == status]
 
