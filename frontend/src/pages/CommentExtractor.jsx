@@ -316,7 +316,7 @@ const CommentExtractor = () => {
                 <div className="p-3 border-t border-[#e5e1d8] bg-[#f4f1ea]">
                     <div className="flex items-center justify-between gap-2">
                         <Link to="/profile" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-[#e5e1d8] p-1.5 -ml-1.5 rounded-lg transition-colors group">
-                            <div className="w-8 h-8 rounded-full bg-[#d97757] flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
+                            <div className="w-8 h-8 rounded-full bg-[#65a30d] flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
                                 {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
                             </div>
                             <div className="flex flex-col min-w-0">
@@ -326,7 +326,7 @@ const CommentExtractor = () => {
                         </Link>
                         <button
                             onClick={handleLogout}
-                            className="p-2 hover:bg-[#ffe0d6] text-[#555555] hover:text-[#c05535] rounded-md transition-colors"
+                            className="p-2 hover:bg-green-100 text-[#555555] hover:text-green-700 rounded-md transition-colors"
                             title="로그아웃"
                         >
                             <LogOut size={18} />
