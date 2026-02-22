@@ -105,6 +105,8 @@ const PlantSync = () => {
   });
   const [showResolveForm, setShowResolveForm] = useState(null);
   const [dashboard, setDashboard] = useState(null);
+  const [dashboardFilter, setDashboardFilter] = useState({ status: 'all', discipline: 'all' });
+  const [dashboardExpanded, setDashboardExpanded] = useState(true);
   const [editingDrawing, setEditingDrawing] = useState(null);
   const [editForm, setEditForm] = useState({ drawing_number: '', title: '', revision: '', discipline: '', vendor_name: '', issue_purpose: '' });
 
@@ -1171,6 +1173,28 @@ const PlantSync = () => {
     return true;
   });
   const currentStagedCount = drawings.filter(d => d.staging_status === 'staged').length;
+
+  // Dashboard filtered markups
+  const filteredDashboardMarkups = useMemo(() => {
+    if (!dashboard?.all_markups) return [];
+    return dashboard.all_markups.filter(m => {
+      if (dashboardFilter.status !== 'all' && m.status !== dashboardFilter.status) return false;
+      if (dashboardFilter.discipline !== 'all' && m.discipline !== dashboardFilter.discipline) return false;
+      return true;
+    });
+  }, [dashboard, dashboardFilter]);
+
+  // Dashboard: click markup → navigate to drawing + markup
+  const handleDashboardNavigate = (markup) => {
+    const dwg = (projectDetail?.drawings || []).find(d => d.drawing_id === markup.drawing_id);
+    if (dwg) {
+      setSelectedDrawing(dwg);
+      setCurrentPage(markup.page || 1);
+    }
+    const fullMarkup = markups.find(m => m.markup_id === markup.markup_id);
+    if (fullMarkup) setSelectedMarkup(fullMarkup);
+    setRightTab('markup');
+  };
 
   // Current page markups
   const pageMarkups = markups.filter(m => m.page === currentPage);
@@ -2802,6 +2826,206 @@ const PlantSync = () => {
                   <p className="text-xs text-gray-500">의견 종합 (Lead 확정)</p>
                 </div>
                 <div className="flex-1 overflow-auto p-3 space-y-3">
+
+                  {/* ── PM Dashboard Section ── */}
+                  {dashboard && (
+                    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                      {/* Header with toggle */}
+                      <button
+                        onClick={() => setDashboardExpanded(e => !e)}
+                        className="w-full flex items-center justify-between px-3 py-2 bg-gradient-to-r from-sky-50 to-cyan-50 hover:from-sky-100 hover:to-cyan-100 transition-colors"
+                      >
+                        <span className="text-xs font-semibold text-sky-700 flex items-center gap-1.5">
+                          <span>📊</span> PM 대시보드
+                        </span>
+                        {dashboardExpanded ? <ChevronDown className="w-3.5 h-3.5 text-sky-500" /> : <ChevronRight className="w-3.5 h-3.5 text-sky-500" />}
+                      </button>
+
+                      {dashboardExpanded && (
+                        <div className="p-3 space-y-3">
+
+                          {/* ① Stats Cards (2×2) */}
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                              <p className="text-lg font-bold text-gray-700">{dashboard.total_markups || 0}</p>
+                              <p className="text-[9px] text-gray-400">전체 마크업</p>
+                            </div>
+                            <div className="bg-red-50 rounded-lg p-2.5 text-center">
+                              <p className="text-lg font-bold text-red-600">{dashboard.open_markups || 0}</p>
+                              <p className="text-[9px] text-red-400">미해결</p>
+                            </div>
+                            <div className="bg-blue-50 rounded-lg p-2.5 text-center">
+                              <p className="text-lg font-bold text-blue-600">{dashboard.resolved_markups || 0}</p>
+                              <p className="text-[9px] text-blue-400">해결됨</p>
+                            </div>
+                            <div className="bg-green-50 rounded-lg p-2.5 text-center">
+                              <p className="text-lg font-bold text-green-600">{dashboard.confirmed_markups || 0}</p>
+                              <p className="text-[9px] text-green-400">확정</p>
+                            </div>
+                          </div>
+
+                          {/* ② Progress Bar */}
+                          {dashboard.total_markups > 0 && (() => {
+                            const done = (dashboard.resolved_markups || 0) + (dashboard.confirmed_markups || 0) + (dashboard.final_markups || 0);
+                            const pct = Math.round(done / dashboard.total_markups * 100);
+                            return (
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[9px] text-gray-400">진행률</span>
+                                  <span className="text-[10px] font-semibold text-gray-600">{pct}%</span>
+                                </div>
+                                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full transition-all duration-500"
+                                    style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #3b82f6, #22c55e)' }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* ③ Discipline Distribution */}
+                          {dashboard.markups_by_discipline && Object.keys(dashboard.markups_by_discipline).length > 0 && (
+                            <div>
+                              <p className="text-[9px] text-gray-400 mb-1.5">공종별 분포</p>
+                              <div className="space-y-1">
+                                {Object.entries(dashboard.markups_by_discipline).map(([disc, count]) => {
+                                  const maxCount = Math.max(...Object.values(dashboard.markups_by_discipline));
+                                  const barWidth = maxCount > 0 ? (count / maxCount * 100) : 0;
+                                  return (
+                                    <button
+                                      key={disc}
+                                      onClick={() => setDashboardFilter(f => ({ ...f, discipline: f.discipline === disc ? 'all' : disc }))}
+                                      className={`w-full flex items-center gap-2 p-1 rounded text-left hover:bg-gray-50 transition-colors ${
+                                        dashboardFilter.discipline === disc ? 'ring-1 ring-sky-300 bg-sky-50' : ''
+                                      }`}
+                                    >
+                                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: DISCIPLINES[disc]?.color || '#888' }} />
+                                      <span className="text-[9px] text-gray-600 w-8 flex-shrink-0">{DISCIPLINES[disc]?.label || disc}</span>
+                                      <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                                        <div className="h-full rounded-full" style={{ width: `${barWidth}%`, backgroundColor: DISCIPLINES[disc]?.color || '#888' }} />
+                                      </div>
+                                      <span className="text-[9px] font-medium text-gray-500 w-5 text-right">{count}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ④ Drawings Summary Table */}
+                          {dashboard.drawings_summary && (() => {
+                            const withMarkups = dashboard.drawings_summary.filter(d => d.markup_count > 0);
+                            if (withMarkups.length === 0) return null;
+                            return (
+                              <div>
+                                <p className="text-[9px] text-gray-400 mb-1.5">도면별 요약</p>
+                                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                                  <table className="w-full text-[9px]">
+                                    <thead>
+                                      <tr className="bg-gray-50 text-gray-500">
+                                        <th className="px-2 py-1 text-left font-medium">도면번호</th>
+                                        <th className="px-1 py-1 text-left font-medium">공종</th>
+                                        <th className="px-1 py-1 text-center font-medium">마크업</th>
+                                        <th className="px-1 py-1 text-center font-medium">미해결</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {withMarkups.map(d => (
+                                        <tr
+                                          key={d.drawing_id}
+                                          onClick={() => {
+                                            const dwg = (projectDetail?.drawings || []).find(dd => dd.drawing_id === d.drawing_id);
+                                            if (dwg) setSelectedDrawing(dwg);
+                                          }}
+                                          className="border-t border-gray-100 hover:bg-sky-50 cursor-pointer transition-colors"
+                                        >
+                                          <td className="px-2 py-1 text-gray-700 truncate max-w-[100px]">{d.drawing_number || '-'}</td>
+                                          <td className="px-1 py-1">
+                                            <span className="inline-flex items-center gap-0.5">
+                                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: DISCIPLINES[d.discipline]?.color || '#888' }} />
+                                              <span className="text-gray-500">{DISCIPLINES[d.discipline]?.label || d.discipline}</span>
+                                            </span>
+                                          </td>
+                                          <td className="px-1 py-1 text-center text-gray-600">{d.markup_count}</td>
+                                          <td className="px-1 py-1 text-center">
+                                            {d.open_count > 0
+                                              ? <span className="inline-block px-1.5 py-0.5 bg-red-50 text-red-600 rounded-full text-[8px] font-medium">{d.open_count}</span>
+                                              : <span className="text-gray-300">0</span>
+                                            }
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* ⑤ Full Markup List (filterable) */}
+                          <div>
+                            <p className="text-[9px] text-gray-400 mb-1.5">전체 마크업 리스트</p>
+                            {/* Filter Bar */}
+                            <div className="flex gap-1.5 mb-2">
+                              <select
+                                value={dashboardFilter.status}
+                                onChange={e => setDashboardFilter(f => ({ ...f, status: e.target.value }))}
+                                className="flex-1 text-[9px] px-1.5 py-1 border border-gray-200 rounded bg-white text-gray-600"
+                              >
+                                <option value="all">상태: 전체</option>
+                                <option value="open">미해결</option>
+                                <option value="resolved">해결됨</option>
+                                <option value="confirmed">확정</option>
+                                <option value="final">최종</option>
+                              </select>
+                              <select
+                                value={dashboardFilter.discipline}
+                                onChange={e => setDashboardFilter(f => ({ ...f, discipline: e.target.value }))}
+                                className="flex-1 text-[9px] px-1.5 py-1 border border-gray-200 rounded bg-white text-gray-600"
+                              >
+                                <option value="all">공종: 전체</option>
+                                {Object.entries(DISCIPLINES).map(([k, v]) => (
+                                  <option key={k} value={k}>{v.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                            {/* List */}
+                            <div className="space-y-1 max-h-60 overflow-auto">
+                              {filteredDashboardMarkups.length === 0 ? (
+                                <p className="text-[9px] text-gray-300 text-center py-4">해당 조건의 마크업이 없습니다</p>
+                              ) : filteredDashboardMarkups.map(m => (
+                                <button
+                                  key={m.markup_id}
+                                  onClick={() => handleDashboardNavigate(m)}
+                                  className={`w-full flex items-center gap-1.5 p-1.5 rounded text-left hover:bg-sky-50 transition-colors ${
+                                    m.impact_level === 'critical' ? 'border border-red-300 bg-red-50/30' : 'bg-gray-50'
+                                  }`}
+                                >
+                                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: DISCIPLINES[m.discipline]?.color || '#888' }} />
+                                  <span className="text-[9px] text-gray-500 flex-shrink-0 w-16 truncate">{m.drawing_number || '-'}</span>
+                                  <span className="text-[9px] text-gray-700 flex-1 truncate">{m.comment || '(코멘트 없음)'}</span>
+                                  <span className={`text-[8px] px-1 py-0.5 rounded flex-shrink-0 ${
+                                    m.status === 'open' ? 'bg-red-50 text-red-600' :
+                                    m.status === 'resolved' ? 'bg-blue-50 text-blue-600' :
+                                    m.status === 'confirmed' ? 'bg-green-50 text-green-600' :
+                                    m.status === 'final' ? 'bg-purple-50 text-purple-600' :
+                                    'bg-gray-100 text-gray-400'
+                                  }`}>{m.status}</span>
+                                  {m.impact_level === 'critical' && (
+                                    <AlertTriangle className="w-2.5 h-2.5 text-red-500 flex-shrink-0" />
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Existing Consolidation Content ── */}
                   {(() => {
                     const consolidationRequests = reviewRequests.filter(r =>
                       r.status === 'markup_done' || r.status === 'consolidation' || r.status === 'feedback'

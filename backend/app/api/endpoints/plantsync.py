@@ -1390,10 +1390,39 @@ async def get_dashboard(
     total_markups = len(markups)
     open_markups = sum(1 for m in markups if m.get("status") == "open")
     resolved_markups = sum(1 for m in markups if m.get("status") == "resolved")
+    confirmed_markups = sum(1 for m in markups if m.get("status") == "confirmed")
+    final_markups = sum(1 for m in markups if m.get("status") == "final")
     markups_by_discipline = {}
     for m in markups:
         md = m.get("discipline", "unknown")
         markups_by_discipline[md] = markups_by_discipline.get(md, 0) + 1
+
+    # Drawing map for markup enrichment
+    drawing_map = {d["drawing_id"]: d for d in drawings}
+
+    # Drawings summary (per-drawing markup counts)
+    drawings_summary = [
+        {
+            "drawing_id": d["drawing_id"],
+            "drawing_number": d.get("drawing_number", ""),
+            "title": d.get("title", ""),
+            "discipline": d.get("discipline", ""),
+            "markup_count": len([m for m in markups if m.get("drawing_id") == d["drawing_id"]]),
+            "open_count": len([m for m in markups if m.get("drawing_id") == d["drawing_id"] and m.get("status") == "open"]),
+        }
+        for d in drawings
+    ]
+
+    # All markups with drawing info
+    all_markups = [
+        {
+            **{k: m.get(k, "") for k in ("markup_id", "drawing_id", "discipline", "issue_category",
+                "impact_level", "status", "comment", "author_name", "related_tag_no", "page")},
+            "drawing_number": drawing_map.get(m.get("drawing_id", ""), {}).get("drawing_number", ""),
+            "drawing_title": drawing_map.get(m.get("drawing_id", ""), {}).get("title", ""),
+        }
+        for m in markups
+    ]
 
     # Request stats
     requests = fs_list_requests(project_id)
@@ -1410,9 +1439,13 @@ async def get_dashboard(
             "total_markups": total_markups,
             "open_markups": open_markups,
             "resolved_markups": resolved_markups,
+            "confirmed_markups": confirmed_markups,
+            "final_markups": final_markups,
             "markups_by_discipline": markups_by_discipline,
             "total_requests": total_requests,
             "pending_requests": pending_requests,
+            "drawings_summary": drawings_summary,
+            "all_markups": all_markups,
         }
     }
 
