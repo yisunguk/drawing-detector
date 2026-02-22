@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Layers, Plus, Upload, Search, Filter, ChevronDown, ChevronRight,
   ArrowLeft, X, Send, Check, CheckCircle2, XCircle, Clock, AlertTriangle,
@@ -124,6 +124,11 @@ const PlantSync = () => {
   const [intakeComment, setIntakeComment] = useState('');
   const [userList, setUserList] = useState([]);
 
+  // Member management
+  const [showMemberPanel, setShowMemberPanel] = useState(false);
+  const [projectMembers, setProjectMembers] = useState([]);
+  const [projectOwner, setProjectOwner] = useState('');
+
   const fileInputRef = useRef(null);
 
   // Sidebar resize
@@ -131,6 +136,12 @@ const PlantSync = () => {
   const [rightWidth, setRightWidth] = useState(360);
   const isResizingLeft = useRef(false);
   const isResizingRight = useRef(false);
+
+  // Resolve current user's display name (for intake permission check)
+  const currentName = useMemo(() => {
+    const found = userList.find(u => u.uid === currentUser?.uid);
+    return found?.name || currentUser?.displayName || currentUser?.email || '';
+  }, [userList, currentUser]);
 
   // ── API Calls ──
 
@@ -162,6 +173,57 @@ const PlantSync = () => {
       console.error('Load users error:', e);
     }
   }, []);
+
+  const loadMembers = useCallback(async (projectId) => {
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${projectId}/members`), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProjectMembers(data.members || []);
+        setProjectOwner(data.owner || '');
+      }
+    } catch (e) {
+      console.error('Load members error:', e);
+    }
+  }, []);
+
+  const handleAddMember = async (memberUid, memberName, memberEmail) => {
+    if (!selectedProject) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${selectedProject.project_id}/members`), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_uid: memberUid, member_name: memberName, member_email: memberEmail || '' }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProjectMembers(data.members || []);
+      }
+    } catch (e) {
+      console.error('Add member error:', e);
+    }
+  };
+
+  const handleRemoveMember = async (memberName) => {
+    if (!selectedProject || !window.confirm(`${memberName}님을 프로젝트에서 제거하시겠습니까?`)) return;
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl(`projects/${selectedProject.project_id}/members/${encodeURIComponent(memberName)}`), {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProjectMembers(data.members || []);
+      }
+    } catch (e) {
+      console.error('Remove member error:', e);
+    }
+  };
 
   const loadProjectDetail = useCallback(async (projectId) => {
     try {
@@ -390,8 +452,9 @@ const PlantSync = () => {
       loadDashboard(selectedProject.project_id);
       loadReviewRequests(selectedProject.project_id);
       loadActivities(selectedProject.project_id);
+      loadMembers(selectedProject.project_id);
     }
-  }, [selectedProject, loadProjectDetail, loadDashboard, loadReviewRequests, loadActivities]);
+  }, [selectedProject, loadProjectDetail, loadDashboard, loadReviewRequests, loadActivities, loadMembers]);
 
   useEffect(() => {
     if (selectedProject && selectedDrawing) {
@@ -1091,8 +1154,9 @@ const PlantSync = () => {
                         <h3 className="text-lg font-semibold text-gray-900 group-hover:text-sky-600 transition-colors truncate">{p.project_name}</h3>
                       )}
                       {p.project_code && <p className="text-sm text-gray-400 mt-1">{p.project_code}</p>}
+                      {p.is_shared && <span className="text-xs text-sky-600 mt-1 block">공유 · {p.owner_name}</span>}
                     </div>
-                    {editingProjectId !== p.project_id && (
+                    {editingProjectId !== p.project_id && !p.is_shared && (
                       <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                         <button
                           onClick={e => { e.stopPropagation(); setEditingProjectId(p.project_id); setEditProjectName(p.project_name); }}
@@ -1141,11 +1205,61 @@ const PlantSync = () => {
               <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-100 to-cyan-100 flex items-center justify-center flex-shrink-0">
                 <Layers className="w-5 h-5 text-sky-600" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h1 className="text-sm font-bold text-gray-900 truncate">{selectedProject.project_name}</h1>
                 <p className="text-xs text-gray-400">{drawings.length}건 도면</p>
               </div>
+              <button
+                onClick={() => setShowMemberPanel(!showMemberPanel)}
+                className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${showMemberPanel ? 'bg-sky-100 text-sky-600' : 'text-gray-400 hover:text-sky-600 hover:bg-sky-50'}`}
+                title="멤버 관리"
+              >
+                <Users className="w-4 h-4" />
+              </button>
             </div>
+            {/* Member Panel */}
+            {showMemberPanel && (
+              <div className="mt-3 p-2.5 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-medium text-gray-500">소유자:</span>
+                  <span className="text-[10px] text-sky-600 font-medium">{projectOwner || selectedProject.owner_name || '-'}</span>
+                </div>
+                {projectMembers.length > 0 && (
+                  <div>
+                    <span className="text-[10px] font-medium text-gray-500 block mb-1">멤버 ({projectMembers.length}명)</span>
+                    <div className="space-y-1">
+                      {projectMembers.map(m => (
+                        <div key={m.uid || m.name} className="flex items-center justify-between gap-1 px-2 py-1 bg-white rounded">
+                          <span className="text-[10px] text-gray-700 truncate">{m.name} {m.email ? `(${m.email})` : ''}</span>
+                          {(projectOwner === currentName || !selectedProject.is_shared) && (
+                            <button onClick={() => handleRemoveMember(m.name)} className="text-gray-400 hover:text-red-500 flex-shrink-0">
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <select
+                  value=""
+                  onChange={e => {
+                    const uid = e.target.value;
+                    if (!uid) return;
+                    const user = userList.find(u => u.uid === uid);
+                    if (user) handleAddMember(user.uid, user.name || user.email, user.email);
+                  }}
+                  className="w-full px-2 py-1 bg-white border border-gray-200 rounded text-[10px] text-gray-600 focus:outline-none focus:border-sky-400"
+                >
+                  <option value="">멤버 추가...</option>
+                  {userList
+                    .filter(u => (u.name || u.email) !== projectOwner && !projectMembers.some(m => m.uid === u.uid))
+                    .map(u => (
+                      <option key={u.uid} value={u.uid}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
+                    ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Staging Badge + Upload Button */}
@@ -1680,6 +1794,7 @@ const PlantSync = () => {
                             <p className="text-[10px] font-medium text-amber-600">접수 대기 ({intakeRequests.length}건)</p>
                             {intakeRequests.map(r => {
                               const drawing = (projectDetail?.drawings || []).find(d => d.drawing_id === r.drawing_id);
+                              const isRecipient = r.to_name === currentName;
                               return (
                                 <div key={r.request_id} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
                                   <div className="flex items-center gap-1.5">
@@ -1688,27 +1803,36 @@ const PlantSync = () => {
                                     {r.priority === 'urgent' && <AlertTriangle className="w-3 h-3 text-red-600" />}
                                   </div>
                                   <div className="text-[10px] text-gray-400 space-y-0.5">
+                                    <p>요청: <span className="text-sky-600">{r.from_name}</span> → <span className="text-sky-600">{r.to_name}</span></p>
                                     <p>도면: <span className="text-gray-600">{r.drawing_number || drawing?.drawing_number || '-'}</span></p>
                                     <p>리비전: <span className="text-gray-600">{drawing?.current_revision || '-'}</span></p>
                                     <p>Issue Purpose: <span className="text-gray-600">{drawing?.issue_purpose || '-'}</span></p>
                                     <p>VDRL: <span className={drawing?.vdrl_match ? 'text-green-600' : 'text-gray-400'}>{drawing?.vdrl_match ? '✓ 매치' : '— 미확인'}</span></p>
                                   </div>
-                                  <input
-                                    value={intakeComment}
-                                    onChange={e => setIntakeComment(e.target.value)}
-                                    placeholder="접수/반려 코멘트..."
-                                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
-                                  />
-                                  <div className="flex gap-1.5">
-                                    <button onClick={() => handleIntakeDecision(r.request_id, r.drawing_id, 'accepted')}
-                                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-green-50 text-green-600 rounded text-[10px] hover:bg-green-100">
-                                      <Check className="w-3 h-3" /> 접수
-                                    </button>
-                                    <button onClick={() => handleIntakeDecision(r.request_id, r.drawing_id, 'rejected_intake')}
-                                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-[10px] hover:bg-red-100">
-                                      <XCircle className="w-3 h-3" /> 반려
-                                    </button>
-                                  </div>
+                                  {isRecipient ? (
+                                    <>
+                                      <input
+                                        value={intakeComment}
+                                        onChange={e => setIntakeComment(e.target.value)}
+                                        placeholder="접수/반려 코멘트..."
+                                        className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
+                                      />
+                                      <div className="flex gap-1.5">
+                                        <button onClick={() => handleIntakeDecision(r.request_id, r.drawing_id, 'accepted')}
+                                                className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-green-50 text-green-600 rounded text-[10px] hover:bg-green-100">
+                                          <Check className="w-3 h-3" /> 접수
+                                        </button>
+                                        <button onClick={() => handleIntakeDecision(r.request_id, r.drawing_id, 'rejected_intake')}
+                                                className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-[10px] hover:bg-red-100">
+                                          <XCircle className="w-3 h-3" /> 반려
+                                        </button>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="px-2 py-1.5 bg-gray-100 rounded text-[10px] text-gray-500 text-center">
+                                      <Clock className="w-3 h-3 inline mr-1" />접수 대기 중
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}

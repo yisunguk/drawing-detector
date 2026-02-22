@@ -224,15 +224,30 @@ def _activity_path(username: str, project_id: str) -> str:
     return f"{username}/plantsync/{project_id}/activity.json"
 
 
-def _log_activity(container, username: str, project_id: str, action: str, details: dict = None):
+def _resolve_owner(container, username: str, project_id: str) -> str:
+    """Resolve the actual owner of a project (self or shared)."""
+    # 1) Own project?
+    if _load_json(container, _meta_path(username, project_id)):
+        return username
+    # 2) Shared project reference?
+    ref = _load_json(container, f"{username}/plantsync/shared/{project_id}.json")
+    if ref and ref.get("owner"):
+        owner = ref["owner"]
+        meta = _load_json(container, _meta_path(owner, project_id))
+        if meta and any(m.get("name") == username for m in meta.get("members", [])):
+            return owner
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
+def _log_activity(container, owner: str, project_id: str, action: str, details: dict = None, actor: str = None):
     """Append an activity event to the project's activity log."""
     try:
-        path = _activity_path(username, project_id)
+        path = _activity_path(owner, project_id)
         activities = _load_json(container, path) or []
         event = {
             "event_id": str(uuid.uuid4())[:8],
             "action": action,
-            "actor": username,
+            "actor": actor or owner,
             "details": details or {},
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -396,6 +411,8 @@ async def create_project(
         "project_name": req.project_name,
         "project_code": req.project_code or "",
         "description": req.description or "",
+        "owner": username,
+        "members": [],
         "created_at": now,
         "updated_at": now,
         "drawings": [],
@@ -424,7 +441,38 @@ async def list_projects(authorization: Optional[str] = Header(None)):
             "drawing_count": len(p.get("drawings", [])),
             "created_at": p.get("created_at", ""),
             "updated_at": p.get("updated_at", ""),
+            "is_shared": False,
+            "owner_name": p.get("owner", username),
         })
+
+    # Also include shared projects
+    shared_prefix = f"{username}/plantsync/shared/"
+    try:
+        blobs = container.list_blobs(name_starts_with=shared_prefix)
+        for blob in blobs:
+            if blob.name.endswith('.json'):
+                ref = _load_json(container, blob.name)
+                if ref and ref.get("owner") and ref.get("project_id"):
+                    owner = ref["owner"]
+                    pid = ref["project_id"]
+                    # Skip if already in own projects
+                    if any(s["project_id"] == pid for s in summaries):
+                        continue
+                    meta = _load_json(container, _meta_path(owner, pid))
+                    if meta:
+                        summaries.append({
+                            "project_id": meta["project_id"],
+                            "project_name": meta["project_name"],
+                            "project_code": meta.get("project_code", ""),
+                            "description": meta.get("description", ""),
+                            "drawing_count": len(meta.get("drawings", [])),
+                            "created_at": meta.get("created_at", ""),
+                            "updated_at": meta.get("updated_at", ""),
+                            "is_shared": True,
+                            "owner_name": owner,
+                        })
+    except Exception as e:
+        logger.debug(f"Error listing shared projects: {e}")
 
     return {"status": "success", "projects": summaries}
 
@@ -434,7 +482,8 @@ async def get_project(project_id: str, authorization: Optional[str] = Header(Non
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -450,13 +499,14 @@ async def rename_project(project_id: str, req: RenameProjectRequest, authorizati
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
     meta["project_name"] = req.project_name.strip()
     meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _save_json(container, _meta_path(username, project_id), meta)
+    _save_json(container, _meta_path(owner, project_id), meta)
     print(f"[PlantSync] Project renamed: {project_id} -> {req.project_name}", flush=True)
 
     return {"status": "success", "project": meta}
@@ -467,7 +517,21 @@ async def delete_project(project_id: str, authorization: Optional[str] = Header(
     username = _get_username(authorization)
     container = _get_container()
 
-    prefix = f"{username}/plantsync/{project_id}/"
+    owner = _resolve_owner(container, username, project_id)
+    # Only owner can delete
+    meta = _load_json(container, _meta_path(owner, project_id))
+    if meta and meta.get("owner", owner) != username:
+        raise HTTPException(status_code=403, detail="Only the project owner can delete a project")
+
+    # Clean up shared references for all members
+    if meta:
+        for m in meta.get("members", []):
+            try:
+                container.delete_blob(f"{m['name']}/plantsync/shared/{project_id}.json")
+            except Exception:
+                pass
+
+    prefix = f"{owner}/plantsync/{project_id}/"
     try:
         blobs = list(container.list_blobs(name_starts_with=prefix))
         for blob in blobs:
@@ -480,6 +544,113 @@ async def delete_project(project_id: str, authorization: Optional[str] = Header(
     return {"status": "success", "deleted": project_id}
 
 
+class AddMemberRequest(BaseModel):
+    member_uid: str
+    member_name: str
+    member_email: Optional[str] = ""
+
+
+@router.post("/projects/{project_id}/members")
+async def add_member(
+    project_id: str,
+    req: AddMemberRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Add a member to the project. Creates a shared reference file."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    members = meta.setdefault("members", [])
+    # Prevent duplicates
+    if any(m.get("name") == req.member_name for m in members):
+        return {"status": "success", "message": "Already a member", "members": members}
+
+    members.append({"uid": req.member_uid, "name": req.member_name, "email": req.member_email or ""})
+    meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_json(container, _meta_path(owner, project_id), meta)
+
+    # Create shared reference file for the member
+    ref_path = f"{req.member_name}/plantsync/shared/{project_id}.json"
+    ref_data = {
+        "owner": owner,
+        "project_id": project_id,
+        "project_name": meta.get("project_name", ""),
+    }
+    _save_json(container, ref_path, ref_data)
+
+    _log_activity(container, owner, project_id, "member_added", {
+        "member_name": req.member_name,
+    }, actor=username)
+
+    print(f"[PlantSync] Member added: {req.member_name} to {project_id}", flush=True)
+    return {"status": "success", "members": members}
+
+
+@router.delete("/projects/{project_id}/members/{member_name}")
+async def remove_member(
+    project_id: str,
+    member_name: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Remove a member from the project. Owner only."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Only owner can remove members
+    if meta.get("owner", owner) != username:
+        raise HTTPException(status_code=403, detail="Only the project owner can remove members")
+
+    members = meta.get("members", [])
+    meta["members"] = [m for m in members if m.get("name") != member_name]
+    meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_json(container, _meta_path(owner, project_id), meta)
+
+    # Delete shared reference file
+    ref_path = f"{member_name}/plantsync/shared/{project_id}.json"
+    try:
+        container.delete_blob(ref_path)
+    except Exception:
+        pass
+
+    _log_activity(container, owner, project_id, "member_removed", {
+        "member_name": member_name,
+    }, actor=username)
+
+    print(f"[PlantSync] Member removed: {member_name} from {project_id}", flush=True)
+    return {"status": "success", "members": meta["members"]}
+
+
+@router.get("/projects/{project_id}/members")
+async def list_members(
+    project_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """List project members."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return {
+        "status": "success",
+        "owner": meta.get("owner", owner),
+        "members": meta.get("members", []),
+    }
+
+
 @router.post("/projects/{project_id}/upload")
 async def upload_drawing(
     project_id: str,
@@ -489,7 +660,8 @@ async def upload_drawing(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -502,7 +674,7 @@ async def upload_drawing(
     filename = file.filename or f"{drawing_id}.pdf"
 
     # Upload PDF to temp path first, will move after discipline is determined
-    temp_blob_path = f"{username}/plantsync/{project_id}/temp/{drawing_id}/{filename}"
+    temp_blob_path = f"{owner}/plantsync/{project_id}/temp/{drawing_id}/{filename}"
     container.upload_blob(name=temp_blob_path, data=file_content, overwrite=True)
     print(f"[PlantSync] PDF uploaded (temp): {temp_blob_path}", flush=True)
 
@@ -528,7 +700,7 @@ async def upload_drawing(
     discipline = title_block.get("discipline") or "unknown"
 
     # Move PDF from temp to discipline folder
-    blob_path = f"{username}/plantsync/{project_id}/{discipline}/{drawing_id}/{filename}"
+    blob_path = f"{owner}/plantsync/{project_id}/{discipline}/{drawing_id}/{filename}"
     container.upload_blob(name=blob_path, data=file_content, overwrite=True)
     try:
         container.delete_blob(temp_blob_path)
@@ -537,7 +709,7 @@ async def upload_drawing(
 
     # Save DI result in discipline folder
     if di_result:
-        di_path = f"{username}/plantsync/{project_id}/{discipline}/{drawing_id}/di_result.json"
+        di_path = f"{owner}/plantsync/{project_id}/{discipline}/{drawing_id}/di_result.json"
         _save_json(container, di_path, di_result)
 
     page_count = len(di_result) if di_result else 1
@@ -606,14 +778,14 @@ async def upload_drawing(
         is_new_revision = False
 
     meta["updated_at"] = now
-    _save_json(container, _meta_path(username, project_id), meta)
+    _save_json(container, _meta_path(owner, project_id), meta)
 
-    _log_activity(container, username, project_id, "drawing_uploaded", {
+    _log_activity(container, owner, project_id, "drawing_uploaded", {
         "drawing_id": drawing_id,
         "drawing_number": title_block.get("drawing_number", ""),
         "filename": filename,
         "is_new_revision": is_new_revision if 'is_new_revision' in dir() else (existing_drawing is not None),
-    })
+    }, actor=username)
 
     # Extract words with confidence & polygon for staging overlay
     title_block_words = []
@@ -652,7 +824,8 @@ async def confirm_title_block(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -694,7 +867,7 @@ async def confirm_title_block(
 
     drawing["updated_at"] = datetime.now(timezone.utc).isoformat()
     meta["updated_at"] = drawing["updated_at"]
-    _save_json(container, _meta_path(username, project_id), meta)
+    _save_json(container, _meta_path(owner, project_id), meta)
 
     return {"status": "success", "drawing": drawing}
 
@@ -708,7 +881,8 @@ async def delete_drawing(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -732,7 +906,7 @@ async def delete_drawing(
                 pass
 
     # Remove related markups
-    markups_bp = _markups_path(username, project_id)
+    markups_bp = _markups_path(owner, project_id)
     markups = _load_json(container, markups_bp) or []
     markups = [m for m in markups if m.get("drawing_id") != drawing_id]
     _save_json(container, markups_bp, markups)
@@ -740,7 +914,7 @@ async def delete_drawing(
     # Remove drawing from meta
     meta["drawings"] = [d for d in meta["drawings"] if d["drawing_id"] != drawing_id]
     meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _save_json(container, _meta_path(username, project_id), meta)
+    _save_json(container, _meta_path(owner, project_id), meta)
 
     print(f"[PlantSync] Drawing deleted: {drawing_id} ({drawing.get('drawing_number', '')})", flush=True)
     return {"status": "success", "deleted": drawing_id}
@@ -756,7 +930,8 @@ async def get_pdf_url(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -804,8 +979,9 @@ async def create_markup(
     username = _get_username(authorization)
     container = _get_container()
 
+    owner = _resolve_owner(container, username, project_id)
     # Verify project/drawing exist
-    meta = _load_json(container, _meta_path(username, project_id))
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -814,7 +990,7 @@ async def create_markup(
         raise HTTPException(status_code=404, detail="Drawing not found")
 
     # Load or create markups
-    markups_bp = _markups_path(username, project_id)
+    markups_bp = _markups_path(owner, project_id)
     markups = _load_json(container, markups_bp) or []
 
     markup_id = str(uuid.uuid4())[:8]
@@ -840,12 +1016,12 @@ async def create_markup(
     markups.append(markup)
     _save_json(container, markups_bp, markups)
 
-    _log_activity(container, username, project_id, "markup_created", {
+    _log_activity(container, owner, project_id, "markup_created", {
         "markup_id": markup_id,
         "drawing_id": drawing_id,
         "discipline": req.discipline,
         "comment": req.comment[:100],
-    })
+    }, actor=username)
 
     return {"status": "success", "markup": markup}
 
@@ -861,7 +1037,8 @@ async def list_markups(
     username = _get_username(authorization)
     container = _get_container()
 
-    markups_bp = _markups_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    markups_bp = _markups_path(owner, project_id)
     markups = _load_json(container, markups_bp) or []
 
     # Filter by drawing_id
@@ -886,7 +1063,8 @@ async def update_markup(
     username = _get_username(authorization)
     container = _get_container()
 
-    markups_bp = _markups_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    markups_bp = _markups_path(owner, project_id)
     markups = _load_json(container, markups_bp) or []
 
     markup = next((m for m in markups if m["markup_id"] == markup_id), None)
@@ -902,9 +1080,9 @@ async def update_markup(
     _save_json(container, markups_bp, markups)
 
     if req.status == "resolved":
-        _log_activity(container, username, project_id, "markup_resolved", {
+        _log_activity(container, owner, project_id, "markup_resolved", {
             "markup_id": markup_id, "drawing_id": drawing_id,
-        })
+        }, actor=username)
 
     return {"status": "success", "markup": markup}
 
@@ -920,7 +1098,8 @@ async def add_markup_reply(
     username = _get_username(authorization)
     container = _get_container()
 
-    markups_bp = _markups_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    markups_bp = _markups_path(owner, project_id)
     markups = _load_json(container, markups_bp) or []
 
     markup = next((m for m in markups if m["markup_id"] == markup_id), None)
@@ -954,7 +1133,8 @@ async def update_review_status(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -977,13 +1157,13 @@ async def update_review_status(
 
     drawing["updated_at"] = now
     meta["updated_at"] = now
-    _save_json(container, _meta_path(username, project_id), meta)
+    _save_json(container, _meta_path(owner, project_id), meta)
 
-    _log_activity(container, username, project_id, "review_updated", {
+    _log_activity(container, owner, project_id, "review_updated", {
         "drawing_id": drawing_id,
         "discipline": req.discipline,
         "status": req.status,
-    })
+    }, actor=username)
 
     return {"status": "success", "review_status": review_status}
 
@@ -998,7 +1178,8 @@ async def final_approval(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -1016,12 +1197,12 @@ async def final_approval(
 
     drawing["updated_at"] = now
     meta["updated_at"] = now
-    _save_json(container, _meta_path(username, project_id), meta)
+    _save_json(container, _meta_path(owner, project_id), meta)
 
-    _log_activity(container, username, project_id, "approval_decided", {
+    _log_activity(container, owner, project_id, "approval_decided", {
         "drawing_id": drawing_id,
         "decision": req.decision,
-    })
+    }, actor=username)
 
     return {"status": "success", "em_approval": drawing["em_approval"]}
 
@@ -1036,12 +1217,13 @@ async def get_dashboard(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
     drawings = meta.get("drawings", [])
-    markups_bp = _markups_path(username, project_id)
+    markups_bp = _markups_path(owner, project_id)
     markups = _load_json(container, markups_bp) or []
 
     # Compute stats
@@ -1076,7 +1258,7 @@ async def get_dashboard(
         markups_by_discipline[md] = markups_by_discipline.get(md, 0) + 1
 
     # Request stats
-    requests_bp = _requests_path(username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
     total_requests = len(requests)
     pending_requests = sum(1 for r in requests if r.get("status") in ("intake", "assigned", "markup_in_progress", "markup_done", "consolidation", "requested", "feedback"))
@@ -1109,7 +1291,8 @@ async def create_review_request(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -1118,7 +1301,7 @@ async def create_review_request(
     if not drawing:
         raise HTTPException(status_code=404, detail="Drawing not found")
 
-    requests_bp = _requests_path(username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     now = datetime.now(timezone.utc).isoformat()
@@ -1149,12 +1332,12 @@ async def create_review_request(
     requests.append(review_request)
     _save_json(container, requests_bp, requests)
 
-    _log_activity(container, username, project_id, "request_created", {
+    _log_activity(container, owner, project_id, "request_created", {
         "request_id": request_id,
         "drawing_id": req.drawing_id,
         "to_name": req.to_name,
         "title": req.title,
-    })
+    }, actor=username)
 
     print(f"[PlantSync] Review request created: {request_id} ({username} → {req.to_name})", flush=True)
     return {"status": "success", "request": review_request}
@@ -1170,7 +1353,8 @@ async def list_review_requests(
     username = _get_username(authorization)
     container = _get_container()
 
-    requests_bp = _requests_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     if drawing_id:
@@ -1179,7 +1363,7 @@ async def list_review_requests(
         requests = [r for r in requests if r.get("status") == status]
 
     # Enrich with linked markup counts
-    markups_bp = _markups_path(username, project_id)
+    markups_bp = _markups_path(owner, project_id)
     all_markups = _load_json(container, markups_bp) or []
     for r in requests:
         rid = r["request_id"]
@@ -1211,7 +1395,8 @@ async def update_review_request_status(
     username = _get_username(authorization)
     container = _get_container()
 
-    requests_bp = _requests_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     review_req = next((r for r in requests if r["request_id"] == request_id), None)
@@ -1224,9 +1409,9 @@ async def update_review_request_status(
     _save_json(container, requests_bp, requests)
 
     if req.status == "confirmed":
-        _log_activity(container, username, project_id, "request_confirmed", {
+        _log_activity(container, owner, project_id, "request_confirmed", {
             "request_id": request_id,
-        })
+        }, actor=username)
 
     return {"status": "success", "request": review_req}
 
@@ -1241,7 +1426,8 @@ async def add_review_request_reply(
     username = _get_username(authorization)
     container = _get_container()
 
-    requests_bp = _requests_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     review_req = next((r for r in requests if r["request_id"] == request_id), None)
@@ -1273,7 +1459,8 @@ async def delete_review_request(
     username = _get_username(authorization)
     container = _get_container()
 
-    requests_bp = _requests_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     requests = [r for r in requests if r["request_id"] != request_id]
@@ -1295,7 +1482,8 @@ async def intake_decision(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -1307,10 +1495,10 @@ async def intake_decision(
         drawing["intake_comment"] = req.comment or ""
         drawing["updated_at"] = datetime.now(timezone.utc).isoformat()
         meta["updated_at"] = drawing["updated_at"]
-        _save_json(container, _meta_path(username, project_id), meta)
+        _save_json(container, _meta_path(owner, project_id), meta)
 
     # Update request status
-    requests_bp = _requests_path(username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
     review_req = next((r for r in requests if r["request_id"] == request_id), None)
     if not review_req:
@@ -1325,11 +1513,11 @@ async def intake_decision(
 
     _save_json(container, requests_bp, requests)
 
-    _log_activity(container, username, project_id, "intake_decision", {
+    _log_activity(container, owner, project_id, "intake_decision", {
         "request_id": request_id,
         "drawing_id": req.drawing_id,
         "decision": req.decision,
-    })
+    }, actor=username)
 
     return {"status": "success", "request": review_req}
 
@@ -1347,7 +1535,8 @@ async def assign_reviewers(
     username = _get_username(authorization)
     container = _get_container()
 
-    requests_bp = _requests_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     review_req = next((r for r in requests if r["request_id"] == request_id), None)
@@ -1381,11 +1570,11 @@ async def assign_reviewers(
 
     _save_json(container, requests_bp, requests)
 
-    _log_activity(container, username, project_id, "reviewers_assigned", {
+    _log_activity(container, owner, project_id, "reviewers_assigned", {
         "request_id": request_id,
         "lead_reviewer": req.lead_reviewer,
         "squad_reviewers": req.squad_reviewers or [],
-    })
+    }, actor=username)
 
     return {"status": "success", "request": review_req}
 
@@ -1404,7 +1593,8 @@ async def update_reviewer_status(
     username = _get_username(authorization)
     container = _get_container()
 
-    requests_bp = _requests_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     review_req = next((r for r in requests if r["request_id"] == request_id), None)
@@ -1445,7 +1635,8 @@ async def consolidate_review(
     username = _get_username(authorization)
     container = _get_container()
 
-    requests_bp = _requests_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     review_req = next((r for r in requests if r["request_id"] == request_id), None)
@@ -1462,7 +1653,7 @@ async def consolidate_review(
 
     # Mark selected markups as final
     if req.confirmed_markup_ids:
-        markups_bp = _markups_path(username, project_id)
+        markups_bp = _markups_path(owner, project_id)
         markups = _load_json(container, markups_bp) or []
         for m in markups:
             if m["markup_id"] in req.confirmed_markup_ids:
@@ -1474,10 +1665,10 @@ async def consolidate_review(
     review_req["updated_at"] = now
     _save_json(container, requests_bp, requests)
 
-    _log_activity(container, username, project_id, "review_consolidated", {
+    _log_activity(container, owner, project_id, "review_consolidated", {
         "request_id": request_id,
         "confirmed_markups": len(req.confirmed_markup_ids or []),
-    })
+    }, actor=username)
 
     return {"status": "success", "request": review_req}
 
@@ -1494,14 +1685,15 @@ async def get_conflicts(
     username = _get_username(authorization)
     container = _get_container()
 
-    requests_bp = _requests_path(username, project_id)
+    owner = _resolve_owner(container, username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests_data = _load_json(container, requests_bp) or []
 
     review_req = next((r for r in requests_data if r["request_id"] == request_id), None)
     if not review_req:
         raise HTTPException(status_code=404, detail="Request not found")
 
-    markups_bp = _markups_path(username, project_id)
+    markups_bp = _markups_path(owner, project_id)
     all_markups = _load_json(container, markups_bp) or []
 
     # Filter markups linked to this request's drawing
@@ -1544,11 +1736,12 @@ async def set_return_code(
     username = _get_username(authorization)
     container = _get_container()
 
+    owner = _resolve_owner(container, username, project_id)
     valid_codes = ["code_1", "code_2", "code_3", "code_4"]
     if req.return_code not in valid_codes:
         raise HTTPException(status_code=400, detail=f"Invalid return code. Must be one of: {valid_codes}")
 
-    requests_bp = _requests_path(username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     review_req = next((r for r in requests if r["request_id"] == request_id), None)
@@ -1562,7 +1755,7 @@ async def set_return_code(
     _save_json(container, requests_bp, requests)
 
     # Update drawing em_approval based on return code
-    meta = _load_json(container, _meta_path(username, project_id))
+    meta = _load_json(container, _meta_path(owner, project_id))
     if meta:
         drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == review_req.get("drawing_id")), None)
         if drawing:
@@ -1595,13 +1788,13 @@ async def set_return_code(
 
             drawing["updated_at"] = now
             meta["updated_at"] = now
-            _save_json(container, _meta_path(username, project_id), meta)
+            _save_json(container, _meta_path(owner, project_id), meta)
 
-    _log_activity(container, username, project_id, "return_code_set", {
+    _log_activity(container, owner, project_id, "return_code_set", {
         "request_id": request_id,
         "return_code": req.return_code,
         "drawing_id": review_req.get("drawing_id", ""),
-    })
+    }, actor=username)
 
     return {"status": "success", "request": review_req}
 
@@ -1619,11 +1812,12 @@ async def create_transmittal(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    requests_bp = _requests_path(username, project_id)
+    requests_bp = _requests_path(owner, project_id)
     requests = _load_json(container, requests_bp) or []
 
     review_req = next((r for r in requests if r["request_id"] == request_id), None)
@@ -1649,14 +1843,14 @@ async def create_transmittal(
     if drawing:
         drawing["updated_at"] = now
         meta["updated_at"] = now
-        _save_json(container, _meta_path(username, project_id), meta)
+        _save_json(container, _meta_path(owner, project_id), meta)
 
-    _log_activity(container, username, project_id, "transmittal_created", {
+    _log_activity(container, owner, project_id, "transmittal_created", {
         "request_id": request_id,
         "transmittal_no": tr_number,
         "drawing_id": review_req.get("drawing_id", ""),
         "return_code": review_req.get("return_code", ""),
-    })
+    }, actor=username)
 
     print(f"[PlantSync] Transmittal created: {tr_number} for request {request_id}", flush=True)
     return {"status": "success", "request": review_req, "transmittal_no": tr_number}
@@ -1692,7 +1886,8 @@ async def register_drawing(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -1720,12 +1915,12 @@ async def register_drawing(
 
     drawing["updated_at"] = datetime.now(timezone.utc).isoformat()
     meta["updated_at"] = drawing["updated_at"]
-    _save_json(container, _meta_path(username, project_id), meta)
+    _save_json(container, _meta_path(owner, project_id), meta)
 
-    _log_activity(container, username, project_id, "drawing_registered", {
+    _log_activity(container, owner, project_id, "drawing_registered", {
         "drawing_id": drawing_id,
         "drawing_number": drawing.get("drawing_number", ""),
-    })
+    }, actor=username)
 
     print(f"[PlantSync] Drawing registered: {drawing_id}", flush=True)
     return {"status": "success", "drawing": drawing}
@@ -1740,7 +1935,8 @@ async def list_staged_drawings(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -1766,7 +1962,8 @@ async def get_diff_urls(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -1812,7 +2009,8 @@ async def get_nearby_text(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -1907,12 +2105,13 @@ async def related_search(
     username = _get_username(authorization)
     container = _get_container()
 
+    owner = _resolve_owner(container, username, project_id)
     query = req.query.strip().lower()
     if not query:
         return {"status": "success", "markups": [], "documents": []}
 
     # 1) Search markups.json for keyword matches
-    markups_bp = _markups_path(username, project_id)
+    markups_bp = _markups_path(owner, project_id)
     all_markups = _load_json(container, markups_bp) or []
     matched_markups = []
     for m in all_markups:
@@ -1964,11 +2163,12 @@ async def export_excel(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    markups = _load_json(container, _markups_path(username, project_id)) or []
+    markups = _load_json(container, _markups_path(owner, project_id)) or []
 
     try:
         import openpyxl
@@ -2092,7 +2292,8 @@ async def bulk_upload_drawings(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -2108,7 +2309,7 @@ async def bulk_upload_drawings(
             filename = file.filename or f"{drawing_id}.pdf"
 
             # Upload PDF to temp path
-            temp_blob_path = f"{username}/plantsync/{project_id}/temp/{drawing_id}/{filename}"
+            temp_blob_path = f"{owner}/plantsync/{project_id}/temp/{drawing_id}/{filename}"
             container.upload_blob(name=temp_blob_path, data=file_content, overwrite=True)
 
             # Generate SAS URL for DI analysis
@@ -2128,7 +2329,7 @@ async def bulk_upload_drawings(
             discipline = title_block.get("discipline") or "unknown"
 
             # Move PDF to discipline folder
-            blob_path = f"{username}/plantsync/{project_id}/{discipline}/{drawing_id}/{filename}"
+            blob_path = f"{owner}/plantsync/{project_id}/{discipline}/{drawing_id}/{filename}"
             container.upload_blob(name=blob_path, data=file_content, overwrite=True)
             try:
                 container.delete_blob(temp_blob_path)
@@ -2137,7 +2338,7 @@ async def bulk_upload_drawings(
 
             # Save DI result
             if di_result:
-                di_path = f"{username}/plantsync/{project_id}/{discipline}/{drawing_id}/di_result.json"
+                di_path = f"{owner}/plantsync/{project_id}/{discipline}/{drawing_id}/di_result.json"
                 _save_json(container, di_path, di_result)
 
             page_count = len(di_result) if di_result else 1
@@ -2210,14 +2411,14 @@ async def bulk_upload_drawings(
             results.append({"filename": file.filename, "status": "error", "error": str(e)})
 
     meta["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _save_json(container, _meta_path(username, project_id), meta)
+    _save_json(container, _meta_path(owner, project_id), meta)
 
     success_count = sum(1 for r in results if r["status"] == "success")
-    _log_activity(container, username, project_id, "drawing_uploaded", {
+    _log_activity(container, owner, project_id, "drawing_uploaded", {
         "bulk": True,
         "total": len(files),
         "success": success_count,
-    })
+    }, actor=username)
 
     print(f"[PlantSync] Bulk upload: {success_count}/{len(files)} succeeded", flush=True)
     return {"status": "success", "results": results, "success_count": success_count, "total": len(files)}
@@ -2235,7 +2436,8 @@ async def get_activity(
     username = _get_username(authorization)
     container = _get_container()
 
-    activities = _load_json(container, _activity_path(username, project_id)) or []
+    owner = _resolve_owner(container, username, project_id)
+    activities = _load_json(container, _activity_path(owner, project_id)) or []
     return {"status": "success", "activities": activities[:limit]}
 
 
@@ -2251,7 +2453,8 @@ async def review_gate(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -2297,7 +2500,8 @@ async def export_markup_pdf(
     username = _get_username(authorization)
     container = _get_container()
 
-    meta = _load_json(container, _meta_path(username, project_id))
+    owner = _resolve_owner(container, username, project_id)
+    meta = _load_json(container, _meta_path(owner, project_id))
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -2321,7 +2525,7 @@ async def export_markup_pdf(
         raise HTTPException(status_code=500, detail=f"Failed to download PDF: {e}")
 
     # Load markups for this drawing
-    markups_list = _load_json(container, _markups_path(username, project_id)) or []
+    markups_list = _load_json(container, _markups_path(owner, project_id)) or []
     drawing_markups = [m for m in markups_list if m.get("drawing_id") == drawing_id]
 
     if not drawing_markups:
