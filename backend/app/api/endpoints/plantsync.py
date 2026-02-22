@@ -943,6 +943,28 @@ async def upload_drawing(
         "is_new_revision": is_new_revision,
     }, actor=username)
 
+    # Index in Azure AI Search for content search
+    if di_result:
+        try:
+            from app.services.azure_search import azure_search_service
+            # Prepare pages_data with page_number for index_documents
+            pages_for_index = []
+            for idx, page in enumerate(di_result):
+                page_copy = dict(page)
+                page_copy["page_number"] = idx + 1
+                page_copy["도면번호(DWG. NO.)"] = drawing_data.get("drawing_number", "")
+                page_copy["도면명(TITLE)"] = drawing_data.get("title", filename)
+                pages_for_index.append(page_copy)
+            azure_search_service.index_documents(
+                filename=filename,
+                category="plantsync",
+                pages_data=pages_for_index,
+                blob_name=blob_path,
+            )
+            print(f"[PlantSync] Indexed {len(pages_for_index)} pages in Azure AI Search", flush=True)
+        except Exception as e:
+            print(f"[PlantSync] Azure Search indexing failed (non-fatal): {e}", flush=True)
+
     # Extract words with confidence & polygon for staging overlay
     # DI _format_result nests width/height/words inside "layout" key
     title_block_words = []
@@ -1447,6 +1469,184 @@ async def get_dashboard(
             "drawings_summary": drawings_summary,
             "all_markups": all_markups,
         }
+    }
+
+
+# ── Drawing Content Search (Azure AI Search) ──
+
+@router.get("/projects/{project_id}/search-content")
+async def search_drawing_content(
+    project_id: str,
+    q: str = Query(..., min_length=1),
+    authorization: Optional[str] = Header(None)
+):
+    """Search within drawing OCR content using Azure AI Search."""
+    username = _get_username(authorization)
+    project = fs_resolve_project(username, project_id)
+    owner = project["owner"]
+
+    drawings = fs_list_drawings(project_id)
+    if not drawings:
+        return {"status": "success", "results": []}
+
+    # Build blob_path prefix filter for this project's drawings
+    # All plantsync blobs are under: {owner}/plantsync/{project_id}/
+    blob_prefix = f"{owner}/plantsync/{project_id}/"
+
+    # Build drawing lookup by blob_path → drawing metadata
+    blob_to_drawing = {}
+    for d in drawings:
+        for rev in d.get("revisions", []):
+            bp = rev.get("blob_path", "")
+            if bp:
+                blob_to_drawing[bp] = d
+
+    try:
+        from app.services.azure_search import azure_search_service
+        if not azure_search_service.client:
+            return {"status": "success", "results": []}
+
+        # Normalize query for tag matching: insert optional separators
+        search_query = q.strip()
+
+        # Azure AI Search: keyword search with blob_path filter
+        search_filter = f"blob_path ge '{blob_prefix}' and blob_path lt '{blob_prefix}~'"
+
+        search_results = azure_search_service.client.search(
+            search_text=search_query,
+            query_type="simple",
+            filter=search_filter,
+            top=30,
+            select=["content", "source", "page", "title", "blob_path", "type"],
+            highlight_fields="content",
+            highlight_pre_tag="<mark>",
+            highlight_post_tag="</mark>",
+        )
+
+        results = []
+        seen = set()
+
+        for res in search_results:
+            bp = res.get("blob_path", "")
+            page = res.get("page", "1")
+            dedup_key = (bp, page)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+
+            # Map back to PlantSync drawing
+            dwg = blob_to_drawing.get(bp, {})
+            drawing_id = dwg.get("drawing_id", "")
+            if not drawing_id:
+                continue
+
+            # Build highlight snippet
+            azure_hl = (res.get("@search.highlights") or {}).get("content", [])
+            if azure_hl:
+                snippet = " ... ".join(azure_hl[:2])
+            else:
+                raw = res.get("content", "")
+                # Try to find query in content for snippet
+                pos = raw.lower().find(search_query.lower())
+                if pos >= 0:
+                    start = max(0, pos - 40)
+                    end = min(len(raw), pos + len(search_query) + 40)
+                    snippet = ("..." if start > 0 else "") + raw[start:end] + ("..." if end < len(raw) else "")
+                else:
+                    snippet = raw[:100] + ("..." if len(raw) > 100 else "")
+
+            results.append({
+                "drawing_id": drawing_id,
+                "drawing_number": dwg.get("drawing_number", ""),
+                "title": dwg.get("title", ""),
+                "discipline": dwg.get("discipline", ""),
+                "page": int(page) if str(page).isdigit() else 1,
+                "snippet": snippet,
+                "score": res.get("@search.score", 0),
+            })
+
+        # Sort by score descending
+        results.sort(key=lambda r: r["score"], reverse=True)
+
+        return {"status": "success", "results": results}
+
+    except Exception as e:
+        print(f"[PlantSync] Content search error: {e}", flush=True)
+        return {"status": "success", "results": []}
+
+
+@router.post("/projects/{project_id}/reindex-content")
+async def reindex_drawing_content(
+    project_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Reindex all existing drawings in Azure AI Search (for drawings uploaded before indexing was added)."""
+    username = _get_username(authorization)
+    project = fs_resolve_project(username, project_id)
+    owner = project["owner"]
+
+    drawings = fs_list_drawings(project_id)
+    container = _get_container()
+
+    try:
+        from app.services.azure_search import azure_search_service
+        if not azure_search_service.client:
+            raise HTTPException(status_code=500, detail="Azure Search not configured")
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Azure Search service not available")
+
+    indexed_count = 0
+    skipped_count = 0
+
+    for d in drawings:
+        # Use latest revision
+        revisions = d.get("revisions", [])
+        if not revisions:
+            skipped_count += 1
+            continue
+
+        latest_rev = revisions[-1]
+        blob_path = latest_rev.get("blob_path", "")
+        if not blob_path:
+            skipped_count += 1
+            continue
+
+        # Load DI result from blob
+        di_path = blob_path.rsplit('/', 1)[0] + "/di_result.json"
+        di_data = _load_json(container, di_path)
+        if not di_data or not isinstance(di_data, list):
+            skipped_count += 1
+            continue
+
+        filename = latest_rev.get("filename", f"{d['drawing_id']}.pdf")
+
+        # Prepare pages for indexing
+        pages_for_index = []
+        for idx, page in enumerate(di_data):
+            page_copy = dict(page)
+            page_copy["page_number"] = idx + 1
+            page_copy["도면번호(DWG. NO.)"] = d.get("drawing_number", "")
+            page_copy["도면명(TITLE)"] = d.get("title", filename)
+            pages_for_index.append(page_copy)
+
+        try:
+            azure_search_service.index_documents(
+                filename=filename,
+                category="plantsync",
+                pages_data=pages_for_index,
+                blob_name=blob_path,
+            )
+            indexed_count += 1
+            print(f"[PlantSync] Reindexed: {d.get('drawing_number', d['drawing_id'])} ({len(pages_for_index)} pages)", flush=True)
+        except Exception as e:
+            print(f"[PlantSync] Reindex failed for {d['drawing_id']}: {e}", flush=True)
+            skipped_count += 1
+
+    return {
+        "status": "success",
+        "indexed": indexed_count,
+        "skipped": skipped_count,
+        "total": len(drawings),
     }
 
 

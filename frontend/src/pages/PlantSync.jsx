@@ -107,6 +107,8 @@ const PlantSync = () => {
   const [dashboard, setDashboard] = useState(null);
   const [dashboardFilter, setDashboardFilter] = useState({ status: 'all', discipline: 'all' });
   const [dashboardExpanded, setDashboardExpanded] = useState(true);
+  const [contentResults, setContentResults] = useState([]);
+  const [contentSearching, setContentSearching] = useState(false);
   const [editingDrawing, setEditingDrawing] = useState(null);
   const [editForm, setEditForm] = useState({ drawing_number: '', title: '', revision: '', discipline: '', vendor_name: '', issue_purpose: '' });
 
@@ -517,6 +519,32 @@ const PlantSync = () => {
       loadReviewGate(selectedProject.project_id, selectedDrawing.drawing_id);
     }
   }, [selectedProject, selectedDrawing, loadPdfUrl, loadMarkups, loadReviewRequests, loadReviewGate]);
+
+  // ── Content search (debounced Azure AI Search) ──
+  useEffect(() => {
+    if (!selectedProject || searchQuery.length < 2) {
+      setContentResults([]);
+      return;
+    }
+    setContentSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch(getUrl(`projects/${selectedProject.project_id}/search-content?q=${encodeURIComponent(searchQuery)}`), {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setContentResults(data.results || []);
+        }
+      } catch (e) {
+        console.error('Content search error:', e);
+      } finally {
+        setContentSearching(false);
+      }
+    }, 400);
+    return () => { clearTimeout(timer); setContentSearching(false); };
+  }, [searchQuery, selectedProject]);
 
   // ── Sidebar resize ──
   useEffect(() => {
@@ -1491,6 +1519,66 @@ const PlantSync = () => {
               ))}
             </div>
           </div>
+
+          {/* Content Search Results */}
+          {searchQuery.length >= 2 && (
+            <div className="border-b border-gray-200">
+              <div className="px-3 py-1.5 flex items-center justify-between bg-amber-50/50">
+                <span className="text-[9px] font-medium text-amber-700">
+                  {contentSearching ? '검색 중...' : `도면 내 검색 (${contentResults.length}건)`}
+                </span>
+                {contentResults.length > 0 && (
+                  <button onClick={() => { setContentResults([]); setSearchQuery(''); }} className="text-[9px] text-gray-400 hover:text-gray-600">닫기</button>
+                )}
+              </div>
+              {!contentSearching && contentResults.length > 0 && (
+                <div className="max-h-48 overflow-auto">
+                  {contentResults.map((r, i) => (
+                    <button
+                      key={`${r.drawing_id}-${r.page}-${i}`}
+                      onClick={() => {
+                        const dwg = (projectDetail?.drawings || []).find(d => d.drawing_id === r.drawing_id);
+                        if (dwg) { setSelectedDrawing(dwg); setCurrentPage(r.page); setSelectedMarkup(null); }
+                      }}
+                      className={`w-full px-3 py-1.5 text-left hover:bg-sky-50 flex items-center gap-1.5 border-b border-gray-50 transition-colors ${
+                        selectedDrawing?.drawing_id === r.drawing_id ? 'bg-sky-50' : ''
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color || '#888' }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-medium text-gray-700 truncate">{r.drawing_number || r.title || '-'}</span>
+                          <span className="text-[9px] text-gray-400 flex-shrink-0">p.{r.page}</span>
+                        </div>
+                        <p className="text-[9px] text-gray-400 truncate" dangerouslySetInnerHTML={{ __html: r.snippet }} />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!contentSearching && contentResults.length === 0 && filteredDrawings.length === 0 && (
+                <div className="px-3 py-2 text-center">
+                  <p className="text-[9px] text-gray-400 mb-1">검색 결과가 없습니다</p>
+                  <button
+                    onClick={async () => {
+                      if (!selectedProject) return;
+                      try {
+                        const token = await getToken();
+                        const res = await fetch(getUrl(`projects/${selectedProject.project_id}/reindex-content`), {
+                          method: 'POST', headers: { 'Authorization': `Bearer ${token}` },
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          alert(`인덱싱 완료: ${data.indexed}건 처리 (${data.skipped}건 스킵)`);
+                        }
+                      } catch (e) { console.error('Reindex error:', e); }
+                    }}
+                    className="text-[9px] text-sky-600 hover:text-sky-500 underline"
+                  >도면 검색 인덱싱 실행</button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Drawing Items */}
           <div className="flex-1 overflow-auto">
