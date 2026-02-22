@@ -1557,6 +1557,9 @@ async def intake_decision(
     new_status = "intake" if req.decision == "accepted" else "rejected"
     fs_update_request(project_id, request_id, {
         "status": new_status,
+        "intake_comment": req.comment or "",
+        "intake_decided_by": username,
+        "intake_decided_at": now,
         "updated_at": now,
     })
 
@@ -1564,6 +1567,7 @@ async def intake_decision(
         "request_id": request_id,
         "drawing_id": req.drawing_id,
         "decision": req.decision,
+        "comment": req.comment or "",
     }, actor=username)
 
     review_req["status"] = new_status

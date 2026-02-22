@@ -121,7 +121,7 @@ const PlantSync = () => {
   const [returnCodeSelection, setReturnCodeSelection] = useState('');
   const [transmittals, setTransmittals] = useState([]);
   const [showActivityDrawer, setShowActivityDrawer] = useState(false);
-  const [intakeComment, setIntakeComment] = useState('');
+  const [intakeComments, setIntakeComments] = useState({});
   const [userList, setUserList] = useState([]);
 
   // Member management
@@ -337,9 +337,9 @@ const PlantSync = () => {
       await fetch(getUrl(`projects/${selectedProject.project_id}/requests/${requestId}/intake-decision`), {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ drawing_id: drawingId, decision, comment: intakeComment }),
+        body: JSON.stringify({ drawing_id: drawingId, decision, comment: intakeComments[requestId] || '' }),
       });
-      setIntakeComment('');
+      setIntakeComments(prev => { const next = { ...prev }; delete next[requestId]; return next; });
       await loadReviewRequests(selectedProject.project_id, selectedDrawing?.drawing_id);
       await loadProjectDetail(selectedProject.project_id);
     } catch (e) {
@@ -1838,8 +1838,8 @@ const PlantSync = () => {
                                   {isRecipient ? (
                                     <>
                                       <input
-                                        value={intakeComment}
-                                        onChange={e => setIntakeComment(e.target.value)}
+                                        value={intakeComments[r.request_id] || ''}
+                                        onChange={e => setIntakeComments(prev => ({ ...prev, [r.request_id]: e.target.value }))}
                                         placeholder="접수/반려 코멘트..."
                                         className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
                                       />
@@ -1868,10 +1868,18 @@ const PlantSync = () => {
                           <div className="p-3 space-y-1.5 border-t border-gray-200">
                             <p className="text-[10px] font-medium text-green-600">접수 완료 ({acceptedRequests.length}건)</p>
                             {acceptedRequests.slice(0, 10).map(r => (
-                              <div key={r.request_id} className="flex items-center gap-2 p-1.5 bg-white/80 rounded">
-                                <CheckCircle2 className="w-3 h-3 text-green-600 flex-shrink-0" />
-                                <span className="text-[10px] text-gray-600 flex-1 truncate">{r.title}</span>
-                                <span className="text-[9px] text-gray-400">{r.drawing_number}</span>
+                              <div key={r.request_id} className="p-1.5 bg-white/80 rounded space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle2 className="w-3 h-3 text-green-600 flex-shrink-0" />
+                                  <span className="text-[10px] text-gray-600 flex-1 truncate">{r.title}</span>
+                                  <span className="text-[9px] text-gray-400">{r.drawing_number}</span>
+                                </div>
+                                {r.intake_comment && (
+                                  <p className="ml-5 text-[9px] text-gray-500 bg-green-50 px-2 py-0.5 rounded">{r.intake_comment}</p>
+                                )}
+                                {r.intake_decided_by && (
+                                  <p className="ml-5 text-[9px] text-gray-400">{r.intake_decided_by} · {r.intake_decided_at ? new Date(r.intake_decided_at).toLocaleDateString() : ''}</p>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -1880,11 +1888,19 @@ const PlantSync = () => {
                           <div className="p-3 space-y-1.5 border-t border-gray-200">
                             <p className="text-[10px] font-medium text-red-600">반려 ({rejectedRequests.length}건)</p>
                             {rejectedRequests.map(r => (
-                              <div key={r.request_id} className="flex items-center gap-2 p-1.5 bg-white/80 rounded">
-                                <XCircle className="w-3 h-3 text-red-600 flex-shrink-0" />
-                                <span className="text-[10px] text-gray-500 flex-1 truncate">{r.title}</span>
-                                <button onClick={() => handleUpdateRequestStatus(r.request_id, 'intake')}
-                                        className="text-[9px] text-amber-600 hover:text-amber-600">재접수</button>
+                              <div key={r.request_id} className="p-1.5 bg-white/80 rounded space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                  <XCircle className="w-3 h-3 text-red-600 flex-shrink-0" />
+                                  <span className="text-[10px] text-gray-500 flex-1 truncate">{r.title}</span>
+                                  <button onClick={() => handleUpdateRequestStatus(r.request_id, 'intake')}
+                                          className="text-[9px] text-amber-600 hover:text-amber-600">재접수</button>
+                                </div>
+                                {r.intake_comment && (
+                                  <p className="ml-5 text-[9px] text-gray-500 bg-red-50 px-2 py-0.5 rounded">반려 사유: {r.intake_comment}</p>
+                                )}
+                                {r.intake_decided_by && (
+                                  <p className="ml-5 text-[9px] text-gray-400">{r.intake_decided_by} · {r.intake_decided_at ? new Date(r.intake_decided_at).toLocaleDateString() : ''}</p>
+                                )}
                               </div>
                             ))}
                           </div>
