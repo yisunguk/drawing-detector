@@ -39,6 +39,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Header, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
+from openai import AzureOpenAI
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -78,6 +79,20 @@ from app.services.plantsync_firestore import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ── Azure OpenAI client (lazy singleton) ──
+_oai_client: Optional[AzureOpenAI] = None
+
+
+def _get_oai_client() -> AzureOpenAI:
+    global _oai_client
+    if _oai_client is None:
+        _oai_client = AzureOpenAI(
+            api_key=settings.AZURE_OPENAI_KEY,
+            api_version=settings.AZURE_OPENAI_API_VERSION,
+            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+        )
+    return _oai_client
 
 
 # ── Pydantic Models ──
@@ -249,6 +264,61 @@ DISCIPLINES = [
 
 def _empty_review_status():
     return {d: {"status": "not_started"} for d in DISCIPLINES}
+
+
+# ── LLM-based Metadata Extraction (hybrid fallback) ──
+
+_LLM_EXTRACT_PROMPT = """You are an EPC plant engineering drawing metadata extractor.
+Extract the following fields from this OCR text as JSON:
+{
+  "drawing_number": "도면번호 (e.g. 147600-012-SZ-0002)",
+  "title": "도면 제목",
+  "revision": "리비전 코드 (e.g. A, B, 0, 1, IAT)",
+  "discipline": "process|mechanical|piping|electrical|instrument|civil",
+  "issue_purpose": "IFA|IFI|IFC|IFD|IFR|AFC|AFD|As-Built",
+  "issue_date": "YYYY-MM-DD",
+  "vendor_drawing_number": "벤더 도면번호",
+  "vendor_name": "벤더/업체명"
+}
+Rules:
+- Use "" for uncertain fields
+- discipline: exactly one of the 6 options
+- Dates: YYYY-MM-DD only"""
+
+
+def _llm_extract_metadata(content: str, rule_result: dict) -> dict:
+    """Call GPT to extract metadata fields that rule-based extraction missed."""
+    try:
+        # Title block is usually at the bottom of the drawing → send head + tail
+        head = content[:3000]
+        tail = content[-2000:] if len(content) > 3000 else ""
+        snippet = head + ("\n...\n" + tail if tail else "")
+
+        empty_fields = [k for k, v in rule_result.items() if not v]
+        user_msg = (
+            f"Focus on extracting these missing fields: {', '.join(empty_fields)}\n\n"
+            f"--- OCR TEXT ---\n{snippet}"
+        )
+
+        client = _get_oai_client()
+        resp = client.chat.completions.create(
+            model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
+            messages=[
+                {"role": "system", "content": _LLM_EXTRACT_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.1,
+            timeout=15,
+        )
+        raw = resp.choices[0].message.content or "{}"
+        parsed = json.loads(raw)
+        # Only return keys that are in our expected schema
+        valid_keys = set(rule_result.keys())
+        return {k: v for k, v in parsed.items() if k in valid_keys and isinstance(v, str)}
+    except Exception as e:
+        logger.warning("LLM metadata extraction failed (non-fatal): %s", e, flush=True)
+        return {}
 
 
 # ── Title Block Extraction ──
@@ -427,6 +497,14 @@ def _extract_title_block(di_pages: list) -> dict:
                         break
         if result["vendor_name"]:
             break
+
+    # ── Hybrid: fill empty fields via LLM ──
+    empty_fields = [k for k, v in result.items() if not v]
+    if empty_fields and all_content.strip():
+        llm_result = _llm_extract_metadata(all_content, result)
+        for key in empty_fields:
+            if llm_result.get(key):
+                result[key] = llm_result[key]
 
     return result
 
