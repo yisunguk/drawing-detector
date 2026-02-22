@@ -446,6 +446,17 @@ const PlantSync = () => {
 
   useEffect(() => { loadProjects(); loadUsers(); }, [loadProjects, loadUsers]);
 
+  // Restore selected project from localStorage after projects load
+  useEffect(() => {
+    if (projects.length > 0 && !selectedProject) {
+      const savedId = localStorage.getItem('plantsync_selected_project');
+      if (savedId) {
+        const found = projects.find(p => p.project_id === savedId);
+        if (found) setSelectedProject(found);
+      }
+    }
+  }, [projects]);
+
   useEffect(() => {
     if (selectedProject) {
       loadProjectDetail(selectedProject.project_id);
@@ -508,6 +519,7 @@ const PlantSync = () => {
       setShowNewProject(false);
       await loadProjects();
       setSelectedProject(data.project);
+      localStorage.setItem('plantsync_selected_project', data.project.project_id);
     } catch (e) {
       console.error('Create project error:', e);
     }
@@ -525,6 +537,7 @@ const PlantSync = () => {
       setProjectDetail(null);
       setSelectedDrawing(null);
       setPdfUrl(null);
+      localStorage.removeItem('plantsync_selected_project');
       await loadProjects();
     } catch (e) {
       console.error('Delete error:', e);
@@ -1154,7 +1167,7 @@ const PlantSync = () => {
               {projects.map(p => (
                 <div
                   key={p.project_id}
-                  onClick={() => { if (editingProjectId !== p.project_id) setSelectedProject(p); }}
+                  onClick={() => { if (editingProjectId !== p.project_id) { setSelectedProject(p); localStorage.setItem('plantsync_selected_project', p.project_id); } }}
                   className="group relative cursor-pointer bg-gray-100 border border-gray-200 rounded-xl p-6 hover:border-sky-300 transition-all"
                 >
                   <div className="flex justify-between items-start">
