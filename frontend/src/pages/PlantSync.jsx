@@ -1810,8 +1810,8 @@ const PlantSync = () => {
                 <div className="flex-1 overflow-auto">
                   {/* Intake pending (newly created requests) */}
                   {(() => {
-                    const intakeRequests = reviewRequests.filter(r => r.status === 'intake' || r.status === 'requested');
-                    const acceptedRequests = reviewRequests.filter(r => !['intake', 'requested', 'rejected'].includes(r.status));
+                    const intakeRequests = reviewRequests.filter(r => r.status === 'requested');
+                    const acceptedRequests = reviewRequests.filter(r => !['requested', 'rejected'].includes(r.status));
                     const rejectedRequests = reviewRequests.filter(r => r.status === 'rejected');
                     return (
                       <>
