@@ -2285,6 +2285,11 @@ const App = () => {
 
     const handleResultClick = (result) => {
         console.log("Selected Result Debug:", result); // DEBUG
+        // Toggle off: 같은 결과를 다시 클릭하면 하이라이트 해제 (화면 위치 유지)
+        if (selectedResult && selectedResult === result) {
+            setSelectedResult(null);
+            return;
+        }
         setSelectedResult(result);
         if (result.docId !== activeDocId) {
             setActiveDocId(result.docId);
