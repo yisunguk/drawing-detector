@@ -852,15 +852,18 @@ async def upload_drawing(
     }, actor=username)
 
     # Extract words with confidence & polygon for staging overlay
+    # DI _format_result nests width/height/words inside "layout" key
     title_block_words = []
     di_page_layout = {"width": 0, "height": 0}
     if di_result and len(di_result) > 0:
         first_page = di_result[0]
+        layout = first_page.get("layout", {})
         di_page_layout = {
-            "width": first_page.get("width", 0),
-            "height": first_page.get("height", 0),
+            "width": layout.get("width", 0) or first_page.get("width", 0),
+            "height": layout.get("height", 0) or first_page.get("height", 0),
         }
-        for word in first_page.get("words", []):
+        words = layout.get("words", []) or first_page.get("words", [])
+        for word in words:
             title_block_words.append({
                 "content": word.get("content", ""),
                 "confidence": word.get("confidence", 0),
@@ -1987,8 +1990,9 @@ async def get_nearby_text(
         return {"status": "success", "words": [], "lines": []}
 
     page_data = di_result[page_idx]
-    page_w = page_data.get("width", 1)
-    page_h = page_data.get("height", 1)
+    layout = page_data.get("layout", {})
+    page_w = layout.get("width", 0) or page_data.get("width", 1)
+    page_h = layout.get("height", 0) or page_data.get("height", 1)
 
     # Pin coords: normalized (0-1) → DI pixel space
     pin_x = req.x * page_w
@@ -2005,9 +2009,12 @@ async def get_nearby_text(
     def dist(cx, cy):
         return math.sqrt((cx - pin_x) ** 2 + (cy - pin_y) ** 2)
 
-    # Words
+    # Words (DI nests words/lines inside "layout")
+    page_words = layout.get("words", []) or page_data.get("words", [])
+    page_lines = layout.get("lines", []) or page_data.get("lines", [])
+
     nearby_words = []
-    for w in page_data.get("words", []):
+    for w in page_words:
         cx, cy = polygon_center(w.get("polygon", []))
         if cx is None:
             continue
@@ -2022,7 +2029,7 @@ async def get_nearby_text(
 
     # Lines
     nearby_lines = []
-    for line in page_data.get("lines", []):
+    for line in page_lines:
         cx, cy = polygon_center(line.get("polygon", []))
         if cx is None:
             continue
