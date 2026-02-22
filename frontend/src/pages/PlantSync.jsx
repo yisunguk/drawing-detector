@@ -10,6 +10,7 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../firebase';
+import { parsePidTags } from '../utils/pidTagParser';
 import PDFViewer from '../components/PDFViewer';
 import DiffViewer from '../components/DiffViewer';
 
@@ -175,6 +176,12 @@ const PlantSync = () => {
     const found = userList.find(u => u.uid === currentUser?.uid);
     return found?.name || currentUser?.displayName || currentUser?.email || '';
   }, [userList, currentUser]);
+
+  // Parse nearby OCR words into categorized P&ID tags
+  const parsedTags = useMemo(() => {
+    if (nearbyWords.length === 0) return { equipment: [], lines: [], specs: [] };
+    return parsePidTags(nearbyWords.map(w => w.content));
+  }, [nearbyWords]);
 
   // ── API Calls ──
 
@@ -2469,19 +2476,19 @@ const PlantSync = () => {
                         placeholder="예: PSV-0905A, PIPE-2001"
                         className="w-full px-2 py-1 bg-gray-50 border border-gray-200 rounded text-[10px] text-gray-600 placeholder-gray-400 focus:outline-none focus:border-sky-300 mb-1"
                       />
-                      {nearbyWords.filter(w => /^[A-Z]{1,5}[-\s]?\d/.test(w.content)).length > 0 && (
+                      {parsedTags.equipment.length > 0 && (
                         <div className="flex flex-wrap gap-1">
-                          {nearbyWords.filter(w => /^[A-Z]{1,5}[-\s]?\d/.test(w.content)).map((w, i) => (
+                          {parsedTags.equipment.map((tag, i) => (
                             <button
                               key={i}
-                              onClick={() => setMarkupForm(f => ({ ...f, related_tag_no: w.content }))}
+                              onClick={() => setMarkupForm(f => ({ ...f, related_tag_no: tag }))}
                               className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
-                                markupForm.related_tag_no === w.content
+                                markupForm.related_tag_no === tag
                                   ? 'bg-sky-100 border-sky-400 text-sky-700 font-medium'
                                   : 'bg-sky-50 border-sky-200 text-sky-600 hover:bg-sky-100'
                               }`}
                             >
-                              {w.content}
+                              {tag}
                             </button>
                           ))}
                         </div>
@@ -2546,38 +2553,104 @@ const PlantSync = () => {
                       />
                     </div>
 
-                    {/* AI Extracted Tags (toggle chips) */}
-                    {(loadingNearby || nearbyWords.length > 0) && (
+                    {/* AI Analyzed Tags — 3-category parsed display */}
+                    {(loadingNearby || parsedTags.lines.length > 0 || parsedTags.specs.length > 0 || parsedTags.equipment.length > 0) && (
                       <div className="mb-2">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <Sparkles className="w-3 h-3 text-amber-600" />
-                          <span className="text-[10px] text-amber-600 font-medium">AI 추출 태그</span>
-                          {loadingNearby && <Loader2 className="w-3 h-3 text-amber-600 animate-spin" />}
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Sparkles className="w-3 h-3 text-purple-600" />
+                          <span className="text-[10px] text-purple-600 font-medium">AI 분석 태그</span>
+                          {loadingNearby && <Loader2 className="w-3 h-3 text-purple-600 animate-spin" />}
                         </div>
-                        <div className="flex flex-wrap gap-1">
-                          {nearbyWords.map((w, i) => {
-                            const isSelected = markupForm.extracted_tags.includes(w.content);
-                            return (
-                              <button
-                                key={i}
-                                onClick={() => setMarkupForm(f => ({
-                                  ...f,
-                                  extracted_tags: isSelected
-                                    ? f.extracted_tags.filter(t => t !== w.content)
-                                    : [...f.extracted_tags, w.content],
-                                }))}
-                                className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
-                                  isSelected
-                                    ? 'bg-amber-100 border-amber-400 text-amber-700 font-medium'
-                                    : 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
-                                }`}
-                                title={`Confidence: ${Math.round(w.confidence * 100)}%`}
-                              >
-                                {w.content}
-                              </button>
-                            );
-                          })}
-                        </div>
+
+                        {/* Equipment tags */}
+                        {parsedTags.equipment.length > 0 && (
+                          <div className="mb-1">
+                            <span className="text-[9px] text-sky-500 block mb-0.5">기기/계기</span>
+                            <div className="flex flex-wrap gap-1">
+                              {parsedTags.equipment.map((tag, i) => {
+                                const isSelected = markupForm.extracted_tags.includes(tag);
+                                return (
+                                  <button
+                                    key={i}
+                                    onClick={() => setMarkupForm(f => ({
+                                      ...f,
+                                      extracted_tags: isSelected
+                                        ? f.extracted_tags.filter(t => t !== tag)
+                                        : [...f.extracted_tags, tag],
+                                    }))}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                      isSelected
+                                        ? 'bg-sky-100 border-sky-400 text-sky-700 font-medium'
+                                        : 'bg-sky-50 border-sky-200 text-sky-600 hover:bg-sky-100'
+                                    }`}
+                                  >
+                                    {tag}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Line numbers */}
+                        {parsedTags.lines.length > 0 && (
+                          <div className="mb-1">
+                            <span className="text-[9px] text-emerald-500 block mb-0.5">배관 라인</span>
+                            <div className="flex flex-wrap gap-1">
+                              {parsedTags.lines.map((line, i) => {
+                                const isSelected = markupForm.extracted_tags.includes(line);
+                                return (
+                                  <button
+                                    key={i}
+                                    onClick={() => setMarkupForm(f => ({
+                                      ...f,
+                                      extracted_tags: isSelected
+                                        ? f.extracted_tags.filter(t => t !== line)
+                                        : [...f.extracted_tags, line],
+                                    }))}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                      isSelected
+                                        ? 'bg-emerald-100 border-emerald-400 text-emerald-700 font-medium'
+                                        : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
+                                    }`}
+                                  >
+                                    {line}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Specs */}
+                        {parsedTags.specs.length > 0 && (
+                          <div className="mb-1">
+                            <span className="text-[9px] text-amber-500 block mb-0.5">주요 스펙</span>
+                            <div className="flex flex-wrap gap-1">
+                              {parsedTags.specs.map((spec, i) => {
+                                const isSelected = markupForm.extracted_tags.includes(spec);
+                                return (
+                                  <button
+                                    key={i}
+                                    onClick={() => setMarkupForm(f => ({
+                                      ...f,
+                                      extracted_tags: isSelected
+                                        ? f.extracted_tags.filter(t => t !== spec)
+                                        : [...f.extracted_tags, spec],
+                                    }))}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                      isSelected
+                                        ? 'bg-amber-100 border-amber-400 text-amber-700 font-medium'
+                                        : 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
+                                    }`}
+                                  >
+                                    {spec}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
