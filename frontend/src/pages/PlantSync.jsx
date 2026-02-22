@@ -1946,66 +1946,79 @@ const PlantSync = () => {
                         {assignableRequests.length > 0 && (
                           <div className="space-y-2">
                             <p className="text-[10px] font-medium text-amber-600">할당 대기 ({assignableRequests.length}건)</p>
-                            {assignableRequests.map(r => (
-                              <div key={r.request_id} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
-                                  <span className="text-xs text-gray-800 flex-1 truncate">{r.title}</span>
-                                </div>
-                                <div className="space-y-1.5">
-                                  <select
-                                    value={assignForm.lead_reviewer}
-                                    onChange={e => setAssignForm(f => ({ ...f, lead_reviewer: e.target.value }))}
-                                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none focus:border-sky-500"
-                                  >
-                                    <option value="">주 담당자 (Lead) 선택</option>
-                                    {userList.map(u => (
-                                      <option key={u.uid} value={u.name || u.email}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
-                                    ))}
-                                  </select>
-                                  <select
-                                    value=""
-                                    onChange={e => {
-                                      const val = e.target.value;
-                                      if (!val) return;
-                                      const current = assignForm.squad_reviewers ? assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(Boolean) : [];
-                                      if (!current.includes(val)) {
-                                        setAssignForm(f => ({ ...f, squad_reviewers: [...current, val].join(', ') }));
-                                      }
-                                    }}
-                                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
-                                  >
-                                    <option value="">협조 검토자 추가</option>
-                                    {userList.filter(u => (u.name || u.email) !== assignForm.lead_reviewer).map(u => (
-                                      <option key={u.uid} value={u.name || u.email}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
-                                    ))}
-                                  </select>
-                                  {assignForm.squad_reviewers && (
-                                    <div className="flex flex-wrap gap-1">
-                                      {assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(Boolean).map(name => (
-                                        <span key={name} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-200 rounded text-[9px] text-gray-600">
-                                          {name}
-                                          <button onClick={() => {
-                                            const updated = assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(s => s && s !== name).join(', ');
-                                            setAssignForm(f => ({ ...f, squad_reviewers: updated }));
-                                          }} className="text-gray-400 hover:text-red-600 ml-0.5">×</button>
-                                        </span>
-                                      ))}
+                            {assignableRequests.map(r => {
+                              const isAssigner = (r.intake_decided_by || r.to_name) === currentName;
+                              return (
+                                <div key={r.request_id} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
+                                    <span className="text-xs text-gray-800 flex-1 truncate">{r.title}</span>
+                                  </div>
+                                  <p className="text-[9px] text-gray-400">접수: {r.intake_decided_by || r.to_name || '-'}</p>
+                                  {isAssigner ? (
+                                    <div className="space-y-1.5">
+                                      <select
+                                        value={assignForm.lead_reviewer}
+                                        onChange={e => setAssignForm(f => ({ ...f, lead_reviewer: e.target.value }))}
+                                        className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none focus:border-sky-500"
+                                      >
+                                        <option value="">주 담당자 (Lead) 선택</option>
+                                        {userList.map(u => (
+                                          <option key={u.uid} value={u.name || u.email}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
+                                        ))}
+                                      </select>
+                                      <select
+                                        value=""
+                                        onChange={e => {
+                                          const val = e.target.value;
+                                          if (!val) return;
+                                          const current = assignForm.squad_reviewers ? assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(Boolean) : [];
+                                          if (!current.includes(val)) {
+                                            setAssignForm(f => ({ ...f, squad_reviewers: [...current, val].join(', ') }));
+                                          }
+                                        }}
+                                        className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
+                                      >
+                                        <option value="">협조 검토자 추가</option>
+                                        {userList.filter(u => (u.name || u.email) !== assignForm.lead_reviewer).map(u => (
+                                          <option key={u.uid} value={u.name || u.email}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
+                                        ))}
+                                      </select>
+                                      {assignForm.squad_reviewers && (
+                                        <div className="flex flex-wrap gap-1">
+                                          {assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(Boolean).map(name => (
+                                            <span key={name} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-200 rounded text-[9px] text-gray-600">
+                                              {name}
+                                              <button onClick={() => {
+                                                const updated = assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(s => s && s !== name).join(', ');
+                                                setAssignForm(f => ({ ...f, squad_reviewers: updated }));
+                                              }} className="text-gray-400 hover:text-red-600 ml-0.5">×</button>
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+                                      <div className="relative">
+                                        <label className="text-[9px] text-gray-400">업무 종료일</label>
+                                        <input
+                                          type="date"
+                                          value={assignForm.due_date}
+                                          onChange={e => setAssignForm(f => ({ ...f, due_date: e.target.value }))}
+                                          className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
+                                        />
+                                      </div>
+                                      <button onClick={() => handleAssignReviewers(r.request_id)}
+                                              className="w-full flex items-center justify-center gap-1 px-2 py-1 bg-sky-100 text-sky-600 rounded text-[10px] hover:bg-sky-100">
+                                        <UserCheck className="w-3 h-3" /> 할당
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="px-2 py-1.5 bg-amber-50 rounded text-[10px] text-amber-600 text-center">
+                                      <Clock className="w-3 h-3 inline mr-1" />접수자 할당 대기 중
                                     </div>
                                   )}
-                                  <input
-                                    type="date"
-                                    value={assignForm.due_date}
-                                    onChange={e => setAssignForm(f => ({ ...f, due_date: e.target.value }))}
-                                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
-                                  />
-                                  <button onClick={() => handleAssignReviewers(r.request_id)}
-                                          className="w-full flex items-center justify-center gap-1 px-2 py-1 bg-sky-100 text-sky-600 rounded text-[10px] hover:bg-sky-100">
-                                    <UserCheck className="w-3 h-3" /> 할당
-                                  </button>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         )}
 
@@ -2035,11 +2048,12 @@ const PlantSync = () => {
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-[10px] text-gray-400">
-                                    <span>Lead: <span className="text-sky-600">{r.lead_reviewer || r.to_name}</span></span>
+                                  <div className="text-[10px] text-gray-400 space-y-0.5">
+                                    <p>Lead: <span className="text-sky-600">{r.lead_reviewer || r.to_name}</span>
                                     {(r.squad_reviewers || []).length > 0 && (
                                       <span className="ml-2">Squad: <span className="text-gray-600">{r.squad_reviewers.join(', ')}</span></span>
-                                    )}
+                                    )}</p>
+                                    {dueDate && <p>종료일: <span className="text-gray-600">{dueDate}</span></p>}
                                   </div>
                                   {/* Reviewer status dots */}
                                   {Object.keys(reviewerStatuses).length > 0 && (
