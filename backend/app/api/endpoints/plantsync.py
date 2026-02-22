@@ -134,6 +134,8 @@ class CreateMarkupRequest(BaseModel):
     target_disciplines: Optional[List[str]] = None
     issue_category: Optional[str] = None
     impact_level: Optional[str] = None
+    related_tag_no: Optional[str] = None
+    custom_tags: Optional[List[str]] = None
 
 
 class UpdateMarkupRequest(BaseModel):
@@ -145,6 +147,8 @@ class UpdateMarkupRequest(BaseModel):
     target_disciplines: Optional[List[str]] = None
     issue_category: Optional[str] = None
     impact_level: Optional[str] = None
+    related_tag_no: Optional[str] = None
+    custom_tags: Optional[List[str]] = None
 
 
 class AddMarkupReplyRequest(BaseModel):
@@ -1137,9 +1141,18 @@ async def create_markup(
         "resolution_comment": "",
         "root_cause": "",
         "linked_rfi_id": "",
+        "related_tag_no": req.related_tag_no or "",
+        "custom_tags": req.custom_tags or [],
     }
 
     fs_add_markup(project_id, markup_id, markup)
+
+    # Fire-and-forget: index markup for semantic search
+    try:
+        from app.services.markup_search import markup_search_service
+        markup_search_service.index_markup(project_id, markup)
+    except Exception as e:
+        logger.debug(f"Markup indexing skipped: {e}")
 
     fs_add_activity(project_id, "markup_created", {
         "markup_id": markup_id,
@@ -1198,6 +1211,10 @@ async def update_markup_endpoint(
         updates["issue_category"] = req.issue_category
     if req.impact_level is not None:
         updates["impact_level"] = req.impact_level
+    if req.related_tag_no is not None:
+        updates["related_tag_no"] = req.related_tag_no
+    if req.custom_tags is not None:
+        updates["custom_tags"] = req.custom_tags
 
     fs_update_markup(project_id, markup_id, updates)
 
@@ -1207,6 +1224,16 @@ async def update_markup_endpoint(
         }, actor=username)
 
     markup.update(updates)
+
+    # Fire-and-forget: re-index markup for semantic search
+    try:
+        from app.services.markup_search import markup_search_service
+        full_markup = fs_get_markup(project_id, markup_id)
+        if full_markup:
+            markup_search_service.index_markup(project_id, full_markup)
+    except Exception as e:
+        logger.debug(f"Markup re-indexing skipped: {e}")
+
     return {"status": "success", "markup": markup}
 
 
@@ -2170,47 +2197,68 @@ async def related_search(
     req: RelatedSearchRequest,
     authorization: Optional[str] = Header(None)
 ):
-    """Search related markups in the project and Azure AI Search index."""
+    """Search related markups (semantic) and documents (lessons) in the project."""
     username = _get_username(authorization)
     fs_resolve_project(username, project_id)
 
-    query = req.query.strip().lower()
+    query = req.query.strip()
     if not query:
         return {"status": "success", "markups": [], "documents": []}
 
-    # 1) Search markups for keyword matches
-    all_markups = fs_list_markups_all(project_id)
+    # 1) Markup semantic search via Azure AI Search (primary)
     matched_markups = []
-    for m in all_markups:
-        text = (m.get("comment", "") + " " + " ".join(
-            r.get("content", "") for r in m.get("replies", [])
-        )).lower()
-        if query in text:
+    try:
+        from app.services.markup_search import markup_search_service
+        hits = markup_search_service.hybrid_search(query, project_id=project_id, top=10)
+        for h in hits:
             matched_markups.append({
-                "markup_id": m.get("markup_id"),
-                "drawing_id": m.get("drawing_id"),
-                "comment": m.get("comment", ""),
-                "discipline": m.get("discipline", ""),
-                "author_name": m.get("author_name", ""),
-                "status": m.get("status", ""),
-                "page": m.get("page", 1),
+                "markup_id": h.get("markup_id", ""),
+                "drawing_id": h.get("drawing_id", ""),
+                "comment": h.get("content_preview", ""),
+                "discipline": h.get("discipline", ""),
+                "author_name": h.get("author_name", ""),
+                "status": h.get("status", ""),
+                "related_tag_no": h.get("related_tag_no", ""),
+                "score": h.get("score", 0),
             })
+    except Exception as e:
+        logger.debug(f"Markup semantic search skipped: {e}")
 
-    # 2) Search Azure AI Search (best-effort, skip if not configured)
+    # Fallback: Firestore keyword matching if semantic search returned nothing
+    if not matched_markups:
+        query_lower = query.lower()
+        all_markups = fs_list_markups_all(project_id)
+        for m in all_markups:
+            text = (m.get("comment", "") + " " + m.get("related_tag_no", "") + " " + " ".join(
+                r.get("content", "") for r in m.get("replies", [])
+            )).lower()
+            if query_lower in text:
+                matched_markups.append({
+                    "markup_id": m.get("markup_id"),
+                    "drawing_id": m.get("drawing_id"),
+                    "comment": m.get("comment", ""),
+                    "discipline": m.get("discipline", ""),
+                    "author_name": m.get("author_name", ""),
+                    "status": m.get("status", ""),
+                    "related_tag_no": m.get("related_tag_no", ""),
+                    "page": m.get("page", 1),
+                })
+
+    # 2) Document search via lessons_search_service
     search_results = []
     try:
-        from app.services.azure_search import search_documents
-        hits = search_documents(query, top=5)
+        from app.services.lessons_search import lessons_search_service
+        hits = lessons_search_service.hybrid_search(query, top=5)
         for h in hits:
             search_results.append({
                 "type": "document",
                 "title": h.get("title", ""),
-                "content_snippet": h.get("content", "")[:200],
-                "score": h.get("@search.score", 0),
-                "source": h.get("source", ""),
+                "content_snippet": (h.get("content", "") or h.get("content_preview", ""))[:200],
+                "score": h.get("score", 0),
+                "source": h.get("source_file", ""),
             })
     except Exception as e:
-        logger.debug(f"Azure Search skipped: {e}")
+        logger.debug(f"Lessons search skipped: {e}")
 
     return {
         "status": "success",

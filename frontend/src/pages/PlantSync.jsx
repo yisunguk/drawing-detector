@@ -96,7 +96,9 @@ const PlantSync = () => {
   const [markupForm, setMarkupForm] = useState({
     comment: '', extracted_tags: [], target_disciplines: [],
     issue_category: '', impact_level: 'normal',
+    related_tag_no: '', custom_tags: [],
   });
+  const [tagInput, setTagInput] = useState('');
   const [resolveForm, setResolveForm] = useState({
     resolution_comment: '', root_cause: '', linked_rfi_id: '',
   });
@@ -727,7 +729,7 @@ const PlantSync = () => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
-    setMarkupForm({ comment: '', extracted_tags: [], target_disciplines: [], issue_category: '', impact_level: 'normal' });
+    setMarkupForm({ comment: '', extracted_tags: [], target_disciplines: [], issue_category: '', impact_level: 'normal', related_tag_no: '', custom_tags: [] }); setTagInput('');
     setNearbyWords([]);
     setNearbyLines([]);
     setRelatedResults({ markups: [], documents: [] });
@@ -774,13 +776,15 @@ const PlantSync = () => {
           target_disciplines: markupForm.target_disciplines,
           issue_category: markupForm.issue_category || undefined,
           impact_level: markupForm.impact_level || undefined,
+          related_tag_no: markupForm.related_tag_no || undefined,
+          custom_tags: markupForm.custom_tags.length > 0 ? markupForm.custom_tags : undefined,
         }),
       });
       if (!res.ok) throw new Error('Failed');
       const data = await res.json();
       setSelectedMarkup(data.markup);
       setIsPlacingPin(false);
-      setMarkupForm({ comment: '', extracted_tags: [], target_disciplines: [], issue_category: '', impact_level: 'normal' });
+      setMarkupForm({ comment: '', extracted_tags: [], target_disciplines: [], issue_category: '', impact_level: 'normal', related_tag_no: '', custom_tags: [] }); setTagInput('');
       await loadMarkups(selectedProject.project_id, selectedDrawing.drawing_id);
     } catch (e) {
       console.error('Save markup error:', e);
@@ -973,7 +977,7 @@ const PlantSync = () => {
     setPinDiscipline(request.discipline);
     setIsPlacingPin(true);
     setSelectedMarkup(null);
-    setMarkupForm({ comment: '', extracted_tags: [], target_disciplines: [], issue_category: '', impact_level: 'normal' });
+    setMarkupForm({ comment: '', extracted_tags: [], target_disciplines: [], issue_category: '', impact_level: 'normal', related_tag_no: '', custom_tags: [] }); setTagInput('');
     const dwg = (projectDetail?.drawings || []).find(d => d.drawing_id === request.drawing_id);
     if (dwg && selectedDrawing?.drawing_id !== dwg.drawing_id) {
       setSelectedDrawing(dwg);
@@ -2253,6 +2257,22 @@ const PlantSync = () => {
                           ))}
                         </div>
                       )}
+                      {selectedMarkup.related_tag_no && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          <span className="text-[9px] px-1.5 py-0.5 bg-sky-50 text-sky-700 border border-sky-200 rounded">
+                            {selectedMarkup.related_tag_no}
+                          </span>
+                        </div>
+                      )}
+                      {selectedMarkup.custom_tags?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {selectedMarkup.custom_tags.map((tag, i) => (
+                            <span key={i} className="text-[9px] px-1.5 py-0.5 bg-sky-100 text-sky-700 rounded">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {selectedMarkup.extracted_tags?.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {selectedMarkup.extracted_tags.map((tag, i) => (
@@ -2440,6 +2460,34 @@ const PlantSync = () => {
                       </div>
                     </div>
 
+                    {/* Related Tag / Equipment Number */}
+                    <div className="mb-2">
+                      <span className="text-[10px] text-gray-500 font-medium block mb-1">관련 기기/태그번호</span>
+                      <input
+                        value={markupForm.related_tag_no}
+                        onChange={e => setMarkupForm(f => ({ ...f, related_tag_no: e.target.value }))}
+                        placeholder="예: PSV-0905A, PIPE-2001"
+                        className="w-full px-2 py-1 bg-gray-50 border border-gray-200 rounded text-[10px] text-gray-600 placeholder-gray-400 focus:outline-none focus:border-sky-300 mb-1"
+                      />
+                      {nearbyWords.filter(w => /^[A-Z]{1,5}[-\s]?\d/.test(w.content)).length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {nearbyWords.filter(w => /^[A-Z]{1,5}[-\s]?\d/.test(w.content)).map((w, i) => (
+                            <button
+                              key={i}
+                              onClick={() => setMarkupForm(f => ({ ...f, related_tag_no: w.content }))}
+                              className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                markupForm.related_tag_no === w.content
+                                  ? 'bg-sky-100 border-sky-400 text-sky-700 font-medium'
+                                  : 'bg-sky-50 border-sky-200 text-sky-600 hover:bg-sky-100'
+                              }`}
+                            >
+                              {w.content}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Target Disciplines (multi-select checkboxes) */}
                     <div className="mb-2">
                       <span className="text-[10px] text-gray-500 font-medium block mb-1">대상 공종</span>
@@ -2462,6 +2510,40 @@ const PlantSync = () => {
                           </label>
                         ))}
                       </div>
+                    </div>
+
+                    {/* Custom Tags (Hashtags) */}
+                    <div className="mb-2">
+                      <span className="text-[10px] text-gray-500 font-medium block mb-1">사용자 태그</span>
+                      {markupForm.custom_tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-1">
+                          {markupForm.custom_tags.map((tag, i) => (
+                            <span key={i} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-sky-100 text-sky-700 rounded text-[10px]">
+                              {tag}
+                              <button
+                                onClick={() => setMarkupForm(f => ({ ...f, custom_tags: f.custom_tags.filter((_, idx) => idx !== i) }))}
+                                className="text-sky-400 hover:text-sky-600 ml-0.5"
+                              >×</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <input
+                        value={tagInput}
+                        onChange={e => setTagInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && tagInput.trim()) {
+                            e.preventDefault();
+                            const newTag = tagInput.trim().startsWith('#') ? tagInput.trim() : `#${tagInput.trim()}`;
+                            if (!markupForm.custom_tags.includes(newTag)) {
+                              setMarkupForm(f => ({ ...f, custom_tags: [...f.custom_tags, newTag] }));
+                            }
+                            setTagInput('');
+                          }
+                        }}
+                        placeholder="#태그 입력 후 Enter"
+                        className="w-full px-2 py-1 bg-gray-50 border border-gray-200 rounded text-[10px] text-gray-600 placeholder-gray-400 focus:outline-none focus:border-sky-300"
+                      />
                     </div>
 
                     {/* AI Extracted Tags (toggle chips) */}
@@ -2616,9 +2698,16 @@ const PlantSync = () => {
                               {i + 1}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className={`text-xs ${m.status === 'resolved' ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
-                                {m.comment}
-                              </p>
+                              <div className="flex items-center gap-1">
+                                <p className={`text-xs truncate ${m.status === 'resolved' ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
+                                  {m.comment}
+                                </p>
+                                {m.related_tag_no && (
+                                  <span className="text-[9px] px-1 py-0.5 bg-sky-50 text-sky-600 border border-sky-200 rounded flex-shrink-0">
+                                    {m.related_tag_no}
+                                  </span>
+                                )}
+                              </div>
                               {(m.issue_category || (m.impact_level && m.impact_level !== 'normal') || m.target_disciplines?.length > 0) && (
                                 <div className="flex flex-wrap items-center gap-1 mt-0.5">
                                   {m.issue_category && ISSUE_CATEGORIES[m.issue_category] && (
