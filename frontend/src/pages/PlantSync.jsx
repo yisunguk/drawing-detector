@@ -23,19 +23,19 @@ const getToken = async () => {
 };
 
 const DISCIPLINES = {
-  process:     { label: '공정',    color: '#ef4444', bg: 'bg-red-500/20',    text: 'text-red-400' },
-  mechanical:  { label: '기계',    color: '#3b82f6', bg: 'bg-blue-500/20',   text: 'text-blue-400' },
-  piping:      { label: '배관',    color: '#22c55e', bg: 'bg-green-500/20',  text: 'text-green-400' },
-  electrical:  { label: '전기',    color: '#eab308', bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
-  instrument:  { label: '계장',    color: '#a855f7', bg: 'bg-purple-500/20', text: 'text-purple-400' },
-  civil:       { label: '토목',    color: '#f97316', bg: 'bg-orange-500/20', text: 'text-orange-400' },
+  process:     { label: '공정',    color: '#ef4444', bg: 'bg-red-50',    text: 'text-red-600' },
+  mechanical:  { label: '기계',    color: '#3b82f6', bg: 'bg-blue-50',   text: 'text-blue-600' },
+  piping:      { label: '배관',    color: '#22c55e', bg: 'bg-green-50',  text: 'text-green-600' },
+  electrical:  { label: '전기',    color: '#eab308', bg: 'bg-yellow-50', text: 'text-yellow-600' },
+  instrument:  { label: '계장',    color: '#a855f7', bg: 'bg-purple-50', text: 'text-purple-600' },
+  civil:       { label: '토목',    color: '#f97316', bg: 'bg-orange-50', text: 'text-orange-600' },
 };
 
 const REVIEW_STATUSES = {
-  not_started: { label: '미시작',   icon: Clock,          color: 'text-slate-400' },
-  in_progress: { label: '진행중',   icon: Loader2,        color: 'text-blue-400' },
-  completed:   { label: '완료',     icon: CheckCircle2,   color: 'text-green-400' },
-  rejected:    { label: '반려',     icon: XCircle,         color: 'text-red-400' },
+  not_started: { label: '미시작',   icon: Clock,          color: 'text-gray-400' },
+  in_progress: { label: '진행중',   icon: Loader2,        color: 'text-blue-600' },
+  completed:   { label: '완료',     icon: CheckCircle2,   color: 'text-green-600' },
+  rejected:    { label: '반려',     icon: XCircle,         color: 'text-red-600' },
 };
 
 const PlantSync = () => {
@@ -1020,13 +1020,13 @@ const PlantSync = () => {
   // ── Project Selection Screen ──
   if (!selectedProject) {
     return (
-      <div className="h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700/50">
+      <div className="h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500/20 to-cyan-500/20 flex items-center justify-center">
-              <Layers className="w-5 h-5 text-sky-400" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-100 to-cyan-100 flex items-center justify-center">
+              <Layers className="w-5 h-5 text-sky-600" />
             </div>
-            <h1 className="text-xl font-bold text-slate-100">도면 리비전 관리</h1>
+            <h1 className="text-xl font-bold text-gray-900">도면 리비전 관리</h1>
           </div>
         </div>
 
@@ -1034,8 +1034,8 @@ const PlantSync = () => {
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-between mb-8">
               <div>
-                <h2 className="text-2xl font-bold text-slate-100">프로젝트</h2>
-                <p className="text-slate-400 mt-1">프로젝트를 선택하거나 새로 생성하세요</p>
+                <h2 className="text-2xl font-bold text-gray-900">프로젝트</h2>
+                <p className="text-gray-500 mt-1">프로젝트를 선택하거나 새로 생성하세요</p>
               </div>
               <button
                 onClick={() => setShowNewProject(true)}
@@ -1046,18 +1046,18 @@ const PlantSync = () => {
             </div>
 
             {showNewProject && (
-              <div className="mb-6 bg-slate-800/80 border border-slate-700/50 rounded-xl p-4 flex gap-3">
+              <div className="mb-6 bg-gray-100 border border-gray-200 rounded-xl p-4 flex gap-3">
                 <input
                   type="text"
                   value={newProjectName}
                   onChange={e => setNewProjectName(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleCreateProject()}
                   placeholder="프로젝트명 입력..."
-                  className="flex-1 px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg text-gray-800 placeholder-gray-400 focus:outline-none focus:border-sky-500"
                   autoFocus
                 />
                 <button onClick={handleCreateProject} className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white rounded-lg">생성</button>
-                <button onClick={() => setShowNewProject(false)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg">취소</button>
+                <button onClick={() => setShowNewProject(false)} className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-600 rounded-lg">취소</button>
               </div>
             )}
 
@@ -1066,7 +1066,7 @@ const PlantSync = () => {
                 <div
                   key={p.project_id}
                   onClick={() => { if (editingProjectId !== p.project_id) setSelectedProject(p); }}
-                  className="group relative cursor-pointer bg-slate-800/80 border border-slate-700/50 rounded-xl p-6 hover:border-sky-500/50 transition-all"
+                  className="group relative cursor-pointer bg-gray-100 border border-gray-200 rounded-xl p-6 hover:border-sky-300 transition-all"
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1 min-w-0">
@@ -1077,46 +1077,46 @@ const PlantSync = () => {
                             value={editProjectName}
                             onChange={e => setEditProjectName(e.target.value)}
                             onKeyDown={e => { if (e.key === 'Enter') handleRenameProject(p.project_id); if (e.key === 'Escape') setEditingProjectId(null); }}
-                            className="flex-1 px-2 py-1 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-200 focus:outline-none focus:border-sky-500"
+                            className="flex-1 px-2 py-1 bg-white border border-gray-300 rounded-lg text-gray-800 focus:outline-none focus:border-sky-500"
                             autoFocus
                           />
-                          <button onClick={() => handleRenameProject(p.project_id)} className="p-1 text-green-400 hover:bg-green-500/10 rounded">
+                          <button onClick={() => handleRenameProject(p.project_id)} className="p-1 text-green-600 hover:bg-green-50 rounded">
                             <Check className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setEditingProjectId(null)} className="p-1 text-slate-400 hover:bg-slate-700 rounded">
+                          <button onClick={() => setEditingProjectId(null)} className="p-1 text-gray-500 hover:bg-gray-200 rounded">
                             <X className="w-4 h-4" />
                           </button>
                         </div>
                       ) : (
-                        <h3 className="text-lg font-semibold text-slate-100 group-hover:text-sky-400 transition-colors truncate">{p.project_name}</h3>
+                        <h3 className="text-lg font-semibold text-gray-900 group-hover:text-sky-600 transition-colors truncate">{p.project_name}</h3>
                       )}
-                      {p.project_code && <p className="text-sm text-slate-500 mt-1">{p.project_code}</p>}
+                      {p.project_code && <p className="text-sm text-gray-400 mt-1">{p.project_code}</p>}
                     </div>
                     {editingProjectId !== p.project_id && (
                       <div className="flex items-center gap-1 ml-2 flex-shrink-0">
                         <button
                           onClick={e => { e.stopPropagation(); setEditingProjectId(p.project_id); setEditProjectName(p.project_name); }}
-                          className="p-1.5 text-slate-500 hover:text-sky-400 hover:bg-sky-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                          className="p-1.5 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
                           onClick={e => { e.stopPropagation(); handleDeleteProject(p.project_id); }}
-                          className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-4 mt-4 text-sm text-slate-400">
+                  <div className="flex items-center gap-4 mt-4 text-sm text-gray-500">
                     <span className="flex items-center gap-1"><FileText className="w-4 h-4" /> {p.drawing_count}건 도면</span>
                     <span>{new Date(p.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
               ))}
               {projects.length === 0 && !showNewProject && (
-                <div className="col-span-2 text-center py-16 text-slate-500">
+                <div className="col-span-2 text-center py-16 text-gray-400">
                   <Layers className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>프로젝트가 없습니다. 새로 생성해 주세요.</p>
                 </div>
@@ -1130,20 +1130,20 @@ const PlantSync = () => {
 
   // ── 3-Panel Layout ──
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col overflow-hidden">
+    <div className="h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 flex flex-col overflow-hidden">
       {/* Main Layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Panel - Drawing List (KnowhowDB style) */}
-        <div className="border-r border-slate-700/50 flex flex-col flex-shrink-0 bg-slate-900/60 relative" style={{ width: leftWidth, minWidth: 200, maxWidth: 500 }}>
+        <div className="border-r border-gray-200 flex flex-col flex-shrink-0 bg-white relative" style={{ width: leftWidth, minWidth: 200, maxWidth: 500 }}>
           {/* Header - Project Info */}
-          <div className="p-4 border-b border-slate-700/50">
+          <div className="p-4 border-b border-gray-200">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-500/20 to-cyan-500/20 flex items-center justify-center flex-shrink-0">
-                <Layers className="w-5 h-5 text-sky-400" />
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-sky-100 to-cyan-100 flex items-center justify-center flex-shrink-0">
+                <Layers className="w-5 h-5 text-sky-600" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-sm font-bold text-slate-100 truncate">{selectedProject.project_name}</h1>
-                <p className="text-xs text-slate-500">{drawings.length}건 도면</p>
+                <h1 className="text-sm font-bold text-gray-900 truncate">{selectedProject.project_name}</h1>
+                <p className="text-xs text-gray-400">{drawings.length}건 도면</p>
               </div>
             </div>
           </div>
@@ -1151,8 +1151,8 @@ const PlantSync = () => {
           {/* Staging Badge + Upload Button */}
           <div className="px-3 pt-3 pb-1 space-y-1.5">
             {currentStagedCount > 0 && (
-              <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                <span className="text-[10px] text-amber-400">대기 {currentStagedCount}건</span>
+              <div className="flex items-center justify-between px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+                <span className="text-[10px] text-amber-600">대기 {currentStagedCount}건</span>
                 <button
                   onClick={() => {
                     const staged = drawings.find(d => d.staging_status === 'staged');
@@ -1177,7 +1177,7 @@ const PlantSync = () => {
                       setShowTitleBlockModal(true);
                     }
                   }}
-                  className="text-[10px] text-amber-400 hover:text-amber-300 underline"
+                  className="text-[10px] text-amber-600 hover:text-amber-600 underline"
                 >확인하기</button>
               </div>
             )}
@@ -1185,7 +1185,7 @@ const PlantSync = () => {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading || bulkUploading}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 disabled:from-slate-600 disabled:to-slate-600 text-white rounded-lg text-sm font-medium transition-all shadow-sm"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 disabled:from-gray-300 disabled:to-gray-300 text-white rounded-lg text-sm font-medium transition-all shadow-sm"
             >
               {uploading || bulkUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
               {bulkUploading ? `업로드 중 ${bulkProgress.current}/${bulkProgress.total}` : uploading ? '업로드 중...' : 'PDF 업로드'}
@@ -1194,11 +1194,11 @@ const PlantSync = () => {
 
           {/* Pin Controls (when drawing selected) */}
           {selectedDrawing && (
-            <div className="px-3 py-2 border-b border-slate-700/50 flex items-center gap-2">
+            <div className="px-3 py-2 border-b border-gray-200 flex items-center gap-2">
               <select
                 value={pinDiscipline}
                 onChange={e => setPinDiscipline(e.target.value)}
-                className="flex-1 px-2 py-1.5 bg-slate-800/50 border border-slate-700/50 rounded-lg text-xs text-slate-300 focus:outline-none focus:border-sky-500/50"
+                className="flex-1 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-600 focus:outline-none focus:border-sky-300"
               >
                 {Object.entries(DISCIPLINES).map(([k, v]) => (
                   <option key={k} value={k}>{v.label}</option>
@@ -1209,15 +1209,15 @@ const PlantSync = () => {
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                   isPlacingPin
                     ? 'bg-sky-500 text-white'
-                    : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50'
+                    : 'bg-white text-gray-600 hover:bg-gray-300'
                 }`}
               >
                 <MapPin className="w-3.5 h-3.5" /> {isPlacingPin ? '배치중' : '핀'}
               </button>
               {activeRequestId && (
-                <div className="flex items-center gap-1 px-1.5 py-1 bg-amber-500/20 border border-amber-500/30 rounded-lg">
-                  <span className="text-[9px] text-amber-400">연결중</span>
-                  <button onClick={handleStopMarkup} className="text-amber-400 hover:text-amber-300">
+                <div className="flex items-center gap-1 px-1.5 py-1 bg-amber-50 border border-amber-200 rounded-lg">
+                  <span className="text-[9px] text-amber-600">연결중</span>
+                  <button onClick={handleStopMarkup} className="text-amber-600 hover:text-amber-600">
                     <X className="w-3 h-3" />
                   </button>
                 </div>
@@ -1226,22 +1226,22 @@ const PlantSync = () => {
           )}
 
           {/* Search & Filter */}
-          <div className="p-3 border-b border-slate-700/50 space-y-2">
+          <div className="p-3 border-b border-gray-200 space-y-2">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="도면 검색..."
-                className="w-full pl-8 pr-3 py-1.5 bg-slate-800/50 border border-slate-700/50 rounded-lg text-xs text-slate-300 placeholder-slate-500 focus:outline-none focus:border-sky-500/50"
+                className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-600 placeholder-gray-400 focus:outline-none focus:border-sky-300"
               />
             </div>
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setDisciplineFilter('all')}
                 className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                  disciplineFilter === 'all' ? 'bg-sky-500/20 text-sky-400' : 'text-slate-500 hover:text-slate-300'
+                  disciplineFilter === 'all' ? 'bg-sky-100 text-sky-600' : 'text-gray-400 hover:text-gray-600'
                 }`}
               >전체</button>
               {Object.entries(DISCIPLINES).map(([k, v]) => (
@@ -1249,7 +1249,7 @@ const PlantSync = () => {
                   key={k}
                   onClick={() => setDisciplineFilter(k)}
                   className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
-                    disciplineFilter === k ? `${v.bg} ${v.text}` : 'text-slate-500 hover:text-slate-300'
+                    disciplineFilter === k ? `${v.bg} ${v.text}` : 'text-gray-400 hover:text-gray-600'
                   }`}
                   title={v.label}
                 >
@@ -1265,10 +1265,10 @@ const PlantSync = () => {
               <div
                 key={d.drawing_id}
                 onClick={() => { if (editingDrawing !== d.drawing_id) { setSelectedDrawing(d); setSelectedMarkup(null); setCurrentPage(1); } }}
-                className={`group/item px-3 py-2.5 cursor-pointer border-b border-slate-800/50 transition-colors ${
+                className={`group/item px-3 py-2.5 cursor-pointer border-b border-gray-100 transition-colors ${
                   selectedDrawing?.drawing_id === d.drawing_id
-                    ? 'bg-sky-500/10 border-l-2 border-l-sky-500'
-                    : 'hover:bg-slate-800/50 border-l-2 border-l-transparent'
+                    ? 'bg-sky-50 border-l-2 border-l-sky-500'
+                    : 'hover:bg-gray-50 border-l-2 border-l-transparent'
                 }`}
               >
                 {editingDrawing === d.drawing_id ? (
@@ -1279,7 +1279,7 @@ const PlantSync = () => {
                       <select
                         value={editForm.discipline}
                         onChange={e => setEditForm(f => ({ ...f, discipline: e.target.value }))}
-                        className="w-16 px-1 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none focus:border-sky-500"
+                        className="w-16 px-1 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none focus:border-sky-500"
                       >
                         <option value="">분야</option>
                         {Object.entries(DISCIPLINES).map(([k, v]) => (
@@ -1290,13 +1290,13 @@ const PlantSync = () => {
                         value={editForm.title}
                         onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
                         placeholder="도면 타이틀"
-                        className="flex-1 px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                        className="flex-1 px-2 py-1 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none focus:border-sky-500"
                       />
                       <input
                         value={editForm.revision}
                         onChange={e => setEditForm(f => ({ ...f, revision: e.target.value }))}
                         placeholder="Rev"
-                        className="w-14 px-1.5 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500 text-center"
+                        className="w-14 px-1.5 py-1 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none focus:border-sky-500 text-center"
                       />
                     </div>
                     {/* Row 2: Drawing Number */}
@@ -1304,7 +1304,7 @@ const PlantSync = () => {
                       value={editForm.drawing_number}
                       onChange={e => setEditForm(f => ({ ...f, drawing_number: e.target.value }))}
                       placeholder="도면번호 (DWG No.)"
-                      className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                      className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none focus:border-sky-500"
                     />
                     {/* Row 3: Vendor + Issue Purpose */}
                     <div className="flex gap-1.5">
@@ -1312,12 +1312,12 @@ const PlantSync = () => {
                         value={editForm.vendor_name}
                         onChange={e => setEditForm(f => ({ ...f, vendor_name: e.target.value }))}
                         placeholder="Vendor명"
-                        className="flex-1 px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                        className="flex-1 px-2 py-1 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none focus:border-sky-500"
                       />
                       <select
                         value={editForm.issue_purpose}
                         onChange={e => setEditForm(f => ({ ...f, issue_purpose: e.target.value }))}
-                        className="w-20 px-1 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none focus:border-sky-500"
+                        className="w-20 px-1 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none focus:border-sky-500"
                       >
                         <option value="">발행목적</option>
                         <option value="IFA">IFA</option>
@@ -1333,7 +1333,7 @@ const PlantSync = () => {
                         <Check className="w-3 h-3" /> 저장
                       </button>
                       <button onClick={e => { e.stopPropagation(); setEditingDrawing(null); }}
-                              className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-[10px]">
+                              className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-600 rounded text-[10px]">
                         취소
                       </button>
                     </div>
@@ -1349,41 +1349,41 @@ const PlantSync = () => {
                             {DISCIPLINES[d.discipline].label}
                           </span>
                         )}
-                        <p className="text-xs font-semibold text-slate-200 truncate leading-tight">{d.title || 'Untitled'}</p>
+                        <p className="text-xs font-semibold text-gray-800 truncate leading-tight">{d.title || 'Untitled'}</p>
                       </div>
                       <div className="flex items-center gap-1 ml-1 flex-shrink-0">
                         <button onClick={e => handleEditDrawing(d, e)} title="Edit"
-                                className="p-0.5 text-slate-600 hover:text-sky-400 opacity-0 group-hover/item:opacity-100 transition-all">
+                                className="p-0.5 text-gray-400 hover:text-sky-600 opacity-0 group-hover/item:opacity-100 transition-all">
                           <Pencil className="w-3 h-3" />
                         </button>
                         <button onClick={e => handleDeleteDrawing(d.drawing_id, e)} title="Delete"
-                                className="p-0.5 text-slate-600 hover:text-red-400 opacity-0 group-hover/item:opacity-100 transition-all">
+                                className="p-0.5 text-gray-400 hover:text-red-600 opacity-0 group-hover/item:opacity-100 transition-all">
                           <Trash2 className="w-3 h-3" />
                         </button>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-400 font-medium">Rev.{d.current_revision || '-'}</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-500 font-medium">Rev.{d.current_revision || '-'}</span>
                       </div>
                     </div>
                     {/* Row 2: DWG No. label + drawing number */}
-                    <p className="text-[11px] text-slate-500 truncate mt-1">
-                      <span className="text-slate-600 font-medium">DWG No.</span> {d.drawing_number || 'No Number'}
+                    <p className="text-[11px] text-gray-400 truncate mt-1">
+                      <span className="text-gray-400 font-medium">DWG No.</span> {d.drawing_number || 'No Number'}
                     </p>
                     {/* Row 3: Vendor + Issue Purpose + DWG badge */}
                     <div className="flex items-center gap-1.5 mt-1">
                       {d.vendor_name && (
-                        <span className="text-[9px] text-slate-500 truncate max-w-[80px]">{d.vendor_name}</span>
+                        <span className="text-[9px] text-gray-400 truncate max-w-[80px]">{d.vendor_name}</span>
                       )}
-                      {d.vendor_name && (d.issue_purpose || d.has_dwg) && <span className="text-slate-700">│</span>}
+                      {d.vendor_name && (d.issue_purpose || d.has_dwg) && <span className="text-gray-300">│</span>}
                       {d.issue_purpose && (
                         <span className={`text-[8px] px-1 py-0.5 rounded font-bold ${
-                          d.issue_purpose === 'IFC' ? 'bg-green-500/20 text-green-400' :
-                          d.issue_purpose === 'IFA' ? 'bg-amber-500/20 text-amber-400' :
-                          d.issue_purpose === 'IFI' ? 'bg-blue-500/20 text-blue-400' :
-                          d.issue_purpose === 'As-Built' ? 'bg-purple-500/20 text-purple-400' :
-                          'bg-slate-500/20 text-slate-400'
+                          d.issue_purpose === 'IFC' ? 'bg-green-50 text-green-600' :
+                          d.issue_purpose === 'IFA' ? 'bg-amber-50 text-amber-600' :
+                          d.issue_purpose === 'IFI' ? 'bg-blue-50 text-blue-600' :
+                          d.issue_purpose === 'As-Built' ? 'bg-purple-50 text-purple-600' :
+                          'bg-gray-100 text-gray-500'
                         }`}>{d.issue_purpose}</span>
                       )}
                       {d.has_dwg && (
-                        <span className="text-[8px] px-1 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-medium" title="DWG 파일 있음">DWG</span>
+                        <span className="text-[8px] px-1 py-0.5 rounded bg-cyan-50 text-cyan-600 font-medium" title="DWG 파일 있음">DWG</span>
                       )}
                     </div>
                     {/* Row 4: Discipline review status with abbreviations + EM approval */}
@@ -1394,18 +1394,18 @@ const PlantSync = () => {
                             <span className={`w-2 h-2 rounded-full ${
                               rs.status === 'completed' ? 'bg-green-400' :
                               rs.status === 'in_progress' ? 'bg-blue-400' :
-                              rs.status === 'rejected' ? 'bg-red-400' : 'bg-slate-600'
+                              rs.status === 'rejected' ? 'bg-red-400' : 'bg-gray-300'
                             }`} />
                             <span className={`text-[9px] ${
-                              rs.status === 'completed' ? 'text-green-400' :
-                              rs.status === 'in_progress' ? 'text-blue-400' :
-                              rs.status === 'rejected' ? 'text-red-400' : 'text-slate-600'
+                              rs.status === 'completed' ? 'text-green-600' :
+                              rs.status === 'in_progress' ? 'text-blue-600' :
+                              rs.status === 'rejected' ? 'text-red-600' : 'text-gray-400'
                             }`}>{DISCIPLINES[disc]?.label?.[0] || disc[0]}</span>
                           </span>
                         ))}
                       </div>
                       {d.em_approval?.status === 'approved' && (
-                        <span className="flex items-center gap-0.5 text-[9px] text-green-400">
+                        <span className="flex items-center gap-0.5 text-[9px] text-green-600">
                           <CheckCircle2 className="w-3 h-3" /> 승인
                         </span>
                       )}
@@ -1415,27 +1415,27 @@ const PlantSync = () => {
               </div>
             ))}
             {filteredDrawings.length === 0 && (
-              <div className="p-6 text-center text-slate-500 text-xs">
+              <div className="p-6 text-center text-gray-400 text-xs">
                 {drawings.length === 0 ? '도면을 업로드해 주세요' : '검색 결과가 없습니다'}
               </div>
             )}
           </div>
 
           {/* User Profile Footer */}
-          <div className="p-3 border-t border-slate-700/50 bg-slate-900/80 mt-auto">
+          <div className="p-3 border-t border-gray-200 bg-gray-100 mt-auto">
             <div className="flex items-center justify-between gap-2">
-              <Link to="/profile" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-slate-700/50 p-1.5 -ml-1.5 rounded-lg transition-colors group">
+              <Link to="/profile" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-white p-1.5 -ml-1.5 rounded-lg transition-colors group">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-sky-500 to-cyan-500 flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform text-sm">
                   {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span className="text-sm font-medium text-slate-200 truncate">{currentUser?.displayName || 'User'}</span>
-                  <span className="text-[10px] text-slate-500 truncate">{currentUser?.email}</span>
+                  <span className="text-sm font-medium text-gray-800 truncate">{currentUser?.displayName || 'User'}</span>
+                  <span className="text-[10px] text-gray-400 truncate">{currentUser?.email}</span>
                 </div>
               </Link>
               <button
                 onClick={async () => { try { await logout(); navigate('/login'); } catch {} }}
-                className="p-2 hover:bg-slate-700/50 text-slate-500 hover:text-sky-400 rounded-md transition-colors"
+                className="p-2 hover:bg-white text-gray-400 hover:text-sky-600 rounded-md transition-colors"
                 title="로그아웃"
               >
                 <LogOut size={18} />
@@ -1444,37 +1444,37 @@ const PlantSync = () => {
           </div>
           {/* Left resize handle */}
           <div
-            className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sky-500/50 transition-colors z-10"
+            className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sky-200 transition-colors z-10"
             onMouseDown={(e) => { e.preventDefault(); isResizingLeft.current = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; }}
           />
         </div>
 
         {/* Center Panel - PDF Viewer */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-slate-800/30">
+        <div className="flex-1 flex flex-col overflow-hidden bg-white/80">
           {/* Diff revision selector */}
           {diffRevSelecting && selectedDrawing && (selectedDrawing.revisions || []).length >= 2 && (
-            <div className="px-3 py-2 bg-slate-800/80 border-b border-slate-700/50 flex items-center gap-2 flex-shrink-0">
-              <GitCompare className="w-4 h-4 text-sky-400 flex-shrink-0" />
+            <div className="px-3 py-2 bg-gray-100 border-b border-gray-200 flex items-center gap-2 flex-shrink-0">
+              <GitCompare className="w-4 h-4 text-sky-600 flex-shrink-0" />
               <select value={diffRevA} onChange={e => setDiffRevA(e.target.value)}
-                      className="px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none">
+                      className="px-2 py-1 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none">
                 <option value="">Before...</option>
                 {(selectedDrawing.revisions || []).map(r => (
                   <option key={r.revision_id} value={r.revision_id}>Rev.{r.revision} ({r.revision_id})</option>
                 ))}
               </select>
-              <span className="text-xs text-slate-500">vs</span>
+              <span className="text-xs text-gray-400">vs</span>
               <select value={diffRevB} onChange={e => setDiffRevB(e.target.value)}
-                      className="px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none">
+                      className="px-2 py-1 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none">
                 <option value="">After...</option>
                 {(selectedDrawing.revisions || []).map(r => (
                   <option key={r.revision_id} value={r.revision_id}>Rev.{r.revision} ({r.revision_id})</option>
                 ))}
               </select>
               <button onClick={handleOpenDiff} disabled={!diffRevA || !diffRevB || diffRevA === diffRevB}
-                      className="px-2.5 py-1 bg-sky-500 hover:bg-sky-400 disabled:bg-slate-600 text-white rounded text-xs font-medium">
+                      className="px-2.5 py-1 bg-sky-500 hover:bg-sky-400 disabled:bg-gray-300 text-white rounded text-xs font-medium">
                 비교
               </button>
-              <button onClick={() => setDiffRevSelecting(false)} className="text-slate-500 hover:text-slate-300">
+              <button onClick={() => setDiffRevSelecting(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1482,10 +1482,10 @@ const PlantSync = () => {
 
           {/* Revision compare button */}
           {selectedDrawing && (selectedDrawing.revisions || []).length >= 2 && !diffRevSelecting && (
-            <div className="px-3 py-1.5 bg-slate-800/50 border-b border-slate-700/30 flex items-center justify-between flex-shrink-0">
-              <span className="text-[10px] text-slate-500">리비전 {(selectedDrawing.revisions || []).length}개</span>
+            <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
+              <span className="text-[10px] text-gray-400">리비전 {(selectedDrawing.revisions || []).length}개</span>
               <button onClick={() => { setDiffRevSelecting(true); setDiffRevA(''); setDiffRevB(''); }}
-                      className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px] hover:bg-sky-500/30 transition-colors">
+                      className="flex items-center gap-1 px-2 py-1 bg-sky-100 text-sky-600 rounded text-[10px] hover:bg-sky-100 transition-colors">
                 <GitCompare className="w-3 h-3" /> 리비전 비교
               </button>
             </div>
@@ -1541,7 +1541,7 @@ const PlantSync = () => {
               )}
             />
           ) : (
-            <div className="flex-1 flex items-center justify-center text-slate-500">
+            <div className="flex-1 flex items-center justify-center text-gray-400">
               <div className="text-center">
                 <FileText className="w-16 h-16 mx-auto mb-4 opacity-30" />
                 <p className="text-lg">도면을 선택하세요</p>
@@ -1552,14 +1552,14 @@ const PlantSync = () => {
         </div>
 
         {/* Right Panel - Comments / Review */}
-        <div className="border-l border-slate-700/50 flex flex-col flex-shrink-0 bg-slate-900/40 relative" style={{ width: rightWidth, minWidth: 280, maxWidth: 600 }}>
+        <div className="border-l border-gray-200 flex flex-col flex-shrink-0 bg-gray-50 relative" style={{ width: rightWidth, minWidth: 280, maxWidth: 600 }}>
           {/* Right resize handle */}
           <div
-            className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-sky-500/50 transition-colors z-10"
+            className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-sky-200 transition-colors z-10"
             onMouseDown={(e) => { e.preventDefault(); isResizingRight.current = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; }}
           />
           {/* Tabs - EPC 5-Step Workflow */}
-          <div className="flex border-b border-slate-700/50 flex-shrink-0">
+          <div className="flex border-b border-gray-200 flex-shrink-0">
             {[
               { key: 'intake', label: '① 접수', icon: Inbox },
               { key: 'assign', label: '② 할당', icon: UserCheck },
@@ -1572,8 +1572,8 @@ const PlantSync = () => {
                 onClick={() => setRightTab(tab.key)}
                 className={`flex-1 flex items-center justify-center gap-1 px-2 py-2.5 text-[10px] font-medium transition-colors ${
                   rightTab === tab.key
-                    ? 'text-sky-400 border-b-2 border-sky-400'
-                    : 'text-slate-500 hover:text-slate-300'
+                    ? 'text-sky-600 border-b-2 border-sky-500'
+                    : 'text-gray-400 hover:text-gray-600'
                 }`}
               >
                 <tab.icon className="w-3 h-3" /> {tab.label}
@@ -1582,7 +1582,7 @@ const PlantSync = () => {
             {/* Activity history icon button */}
             <button
               onClick={() => setShowActivityDrawer(!showActivityDrawer)}
-              className={`px-2 py-2.5 transition-colors ${showActivityDrawer ? 'text-sky-400' : 'text-slate-500 hover:text-slate-300'}`}
+              className={`px-2 py-2.5 transition-colors ${showActivityDrawer ? 'text-sky-600' : 'text-gray-400 hover:text-gray-600'}`}
               title="활동 이력"
             >
               <History className="w-3.5 h-3.5" />
@@ -1595,12 +1595,12 @@ const PlantSync = () => {
             {/* ── ① 접수 (Intake) Tab ── */}
             {rightTab === 'intake' && (
               <div className="flex flex-col h-full">
-                <div className="p-3 border-b border-slate-700/50 flex-shrink-0">
+                <div className="p-3 border-b border-gray-200 flex-shrink-0">
                   <div className="flex items-center justify-between">
-                    <p className="text-xs text-slate-400">접수 대기 / 완료</p>
+                    <p className="text-xs text-gray-500">접수 대기 / 완료</p>
                     {selectedDrawing && (
                       <button onClick={() => setShowNewRequest(true)}
-                              className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px] hover:bg-sky-500/30">
+                              className="flex items-center gap-1 px-2 py-1 bg-sky-100 text-sky-600 rounded text-[10px] hover:bg-sky-100">
                         <Plus className="w-3 h-3" /> 요청 생성
                       </button>
                     )}
@@ -1609,12 +1609,12 @@ const PlantSync = () => {
 
                 {/* New request form */}
                 {showNewRequest && selectedDrawing && (
-                  <div className="p-3 border-b border-slate-700/50 space-y-2 bg-slate-800/30 flex-shrink-0">
-                    <p className="text-xs font-medium text-slate-300">새 검토 요청</p>
+                  <div className="p-3 border-b border-gray-200 space-y-2 bg-white/80 flex-shrink-0">
+                    <p className="text-xs font-medium text-gray-600">새 검토 요청</p>
                     <select
                       value={requestForm.to_name}
                       onChange={e => setRequestForm(f => ({ ...f, to_name: e.target.value }))}
-                      className="w-full px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                      className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none focus:border-sky-500"
                     >
                       <option value="">담당자 선택</option>
                       {userList.map(u => (
@@ -1625,7 +1625,7 @@ const PlantSync = () => {
                       <select
                         value={requestForm.discipline}
                         onChange={e => setRequestForm(f => ({ ...f, discipline: e.target.value }))}
-                        className="flex-1 px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none"
+                        className="flex-1 px-2 py-1.5 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none"
                       >
                         {Object.entries(DISCIPLINES).map(([k, v]) => (
                           <option key={k} value={k}>{v.label}</option>
@@ -1634,7 +1634,7 @@ const PlantSync = () => {
                       <select
                         value={requestForm.priority}
                         onChange={e => setRequestForm(f => ({ ...f, priority: e.target.value }))}
-                        className="w-20 px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none"
+                        className="w-20 px-2 py-1.5 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none"
                       >
                         <option value="low">낮음</option>
                         <option value="normal">보통</option>
@@ -1645,13 +1645,13 @@ const PlantSync = () => {
                       value={requestForm.title}
                       onChange={e => setRequestForm(f => ({ ...f, title: e.target.value }))}
                       placeholder="요청 제목"
-                      className="w-full px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                      className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none focus:border-sky-500"
                     />
                     <textarea
                       value={requestForm.message}
                       onChange={e => setRequestForm(f => ({ ...f, message: e.target.value }))}
                       placeholder="상세 내용 (선택사항)"
-                      className="w-full px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500 resize-none"
+                      className="w-full px-2 py-1.5 bg-white border border-gray-300 rounded text-xs text-gray-800 focus:outline-none focus:border-sky-500 resize-none"
                       rows={2}
                     />
                     <div className="flex gap-1.5">
@@ -1660,7 +1660,7 @@ const PlantSync = () => {
                         요청 보내기
                       </button>
                       <button onClick={() => setShowNewRequest(false)}
-                              className="px-2 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-xs">
+                              className="px-2 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-600 rounded text-xs">
                         취소
                       </button>
                     </div>
@@ -1677,35 +1677,35 @@ const PlantSync = () => {
                       <>
                         {intakeRequests.length > 0 && (
                           <div className="p-3 space-y-2">
-                            <p className="text-[10px] font-medium text-amber-400">접수 대기 ({intakeRequests.length}건)</p>
+                            <p className="text-[10px] font-medium text-amber-600">접수 대기 ({intakeRequests.length}건)</p>
                             {intakeRequests.map(r => {
                               const drawing = (projectDetail?.drawings || []).find(d => d.drawing_id === r.drawing_id);
                               return (
-                                <div key={r.request_id} className="bg-slate-800/50 rounded-lg p-2.5 space-y-2">
+                                <div key={r.request_id} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
                                   <div className="flex items-center gap-1.5">
                                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
-                                    <span className="text-xs font-medium text-slate-200 flex-1 truncate">{r.title}</span>
-                                    {r.priority === 'urgent' && <AlertTriangle className="w-3 h-3 text-red-400" />}
+                                    <span className="text-xs font-medium text-gray-800 flex-1 truncate">{r.title}</span>
+                                    {r.priority === 'urgent' && <AlertTriangle className="w-3 h-3 text-red-600" />}
                                   </div>
-                                  <div className="text-[10px] text-slate-500 space-y-0.5">
-                                    <p>도면: <span className="text-slate-300">{r.drawing_number || drawing?.drawing_number || '-'}</span></p>
-                                    <p>리비전: <span className="text-slate-300">{drawing?.current_revision || '-'}</span></p>
-                                    <p>Issue Purpose: <span className="text-slate-300">{drawing?.issue_purpose || '-'}</span></p>
-                                    <p>VDRL: <span className={drawing?.vdrl_match ? 'text-green-400' : 'text-slate-500'}>{drawing?.vdrl_match ? '✓ 매치' : '— 미확인'}</span></p>
+                                  <div className="text-[10px] text-gray-400 space-y-0.5">
+                                    <p>도면: <span className="text-gray-600">{r.drawing_number || drawing?.drawing_number || '-'}</span></p>
+                                    <p>리비전: <span className="text-gray-600">{drawing?.current_revision || '-'}</span></p>
+                                    <p>Issue Purpose: <span className="text-gray-600">{drawing?.issue_purpose || '-'}</span></p>
+                                    <p>VDRL: <span className={drawing?.vdrl_match ? 'text-green-600' : 'text-gray-400'}>{drawing?.vdrl_match ? '✓ 매치' : '— 미확인'}</span></p>
                                   </div>
                                   <input
                                     value={intakeComment}
                                     onChange={e => setIntakeComment(e.target.value)}
                                     placeholder="접수/반려 코멘트..."
-                                    className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none"
+                                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
                                   />
                                   <div className="flex gap-1.5">
                                     <button onClick={() => handleIntakeDecision(r.request_id, r.drawing_id, 'accepted')}
-                                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-green-500/20 text-green-400 rounded text-[10px] hover:bg-green-500/30">
+                                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-green-50 text-green-600 rounded text-[10px] hover:bg-green-100">
                                       <Check className="w-3 h-3" /> 접수
                                     </button>
                                     <button onClick={() => handleIntakeDecision(r.request_id, r.drawing_id, 'rejected_intake')}
-                                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-red-500/20 text-red-400 rounded text-[10px] hover:bg-red-500/30">
+                                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-[10px] hover:bg-red-100">
                                       <XCircle className="w-3 h-3" /> 반려
                                     </button>
                                   </div>
@@ -1715,32 +1715,32 @@ const PlantSync = () => {
                           </div>
                         )}
                         {acceptedRequests.length > 0 && (
-                          <div className="p-3 space-y-1.5 border-t border-slate-700/50">
-                            <p className="text-[10px] font-medium text-green-400">접수 완료 ({acceptedRequests.length}건)</p>
+                          <div className="p-3 space-y-1.5 border-t border-gray-200">
+                            <p className="text-[10px] font-medium text-green-600">접수 완료 ({acceptedRequests.length}건)</p>
                             {acceptedRequests.slice(0, 10).map(r => (
-                              <div key={r.request_id} className="flex items-center gap-2 p-1.5 bg-slate-800/30 rounded">
-                                <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
-                                <span className="text-[10px] text-slate-300 flex-1 truncate">{r.title}</span>
-                                <span className="text-[9px] text-slate-500">{r.drawing_number}</span>
+                              <div key={r.request_id} className="flex items-center gap-2 p-1.5 bg-white/80 rounded">
+                                <CheckCircle2 className="w-3 h-3 text-green-600 flex-shrink-0" />
+                                <span className="text-[10px] text-gray-600 flex-1 truncate">{r.title}</span>
+                                <span className="text-[9px] text-gray-400">{r.drawing_number}</span>
                               </div>
                             ))}
                           </div>
                         )}
                         {rejectedRequests.length > 0 && (
-                          <div className="p-3 space-y-1.5 border-t border-slate-700/50">
-                            <p className="text-[10px] font-medium text-red-400">반려 ({rejectedRequests.length}건)</p>
+                          <div className="p-3 space-y-1.5 border-t border-gray-200">
+                            <p className="text-[10px] font-medium text-red-600">반려 ({rejectedRequests.length}건)</p>
                             {rejectedRequests.map(r => (
-                              <div key={r.request_id} className="flex items-center gap-2 p-1.5 bg-slate-800/30 rounded">
-                                <XCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
-                                <span className="text-[10px] text-slate-400 flex-1 truncate">{r.title}</span>
+                              <div key={r.request_id} className="flex items-center gap-2 p-1.5 bg-white/80 rounded">
+                                <XCircle className="w-3 h-3 text-red-600 flex-shrink-0" />
+                                <span className="text-[10px] text-gray-500 flex-1 truncate">{r.title}</span>
                                 <button onClick={() => handleUpdateRequestStatus(r.request_id, 'intake')}
-                                        className="text-[9px] text-amber-400 hover:text-amber-300">재접수</button>
+                                        className="text-[9px] text-amber-600 hover:text-amber-600">재접수</button>
                               </div>
                             ))}
                           </div>
                         )}
                         {reviewRequests.length === 0 && (
-                          <div className="p-6 text-center text-slate-500 text-xs">
+                          <div className="p-6 text-center text-gray-400 text-xs">
                             {selectedDrawing ? '검토 요청이 없습니다' : '도면을 선택해 주세요'}
                           </div>
                         )}
@@ -1754,8 +1754,8 @@ const PlantSync = () => {
             {/* ── ② 할당 (Assignment) Tab ── */}
             {rightTab === 'assign' && (
               <div className="flex flex-col h-full">
-                <div className="p-3 border-b border-slate-700/50 flex-shrink-0">
-                  <p className="text-xs text-slate-400">검토 할당</p>
+                <div className="p-3 border-b border-gray-200 flex-shrink-0">
+                  <p className="text-xs text-gray-500">검토 할당</p>
                 </div>
                 <div className="flex-1 overflow-auto p-3 space-y-3">
                   {/* Requests ready for assignment (intake done, not yet assigned) */}
@@ -1766,18 +1766,18 @@ const PlantSync = () => {
                       <>
                         {assignableRequests.length > 0 && (
                           <div className="space-y-2">
-                            <p className="text-[10px] font-medium text-amber-400">할당 대기 ({assignableRequests.length}건)</p>
+                            <p className="text-[10px] font-medium text-amber-600">할당 대기 ({assignableRequests.length}건)</p>
                             {assignableRequests.map(r => (
-                              <div key={r.request_id} className="bg-slate-800/50 rounded-lg p-2.5 space-y-2">
+                              <div key={r.request_id} className="bg-gray-50 rounded-lg p-2.5 space-y-2">
                                 <div className="flex items-center gap-1.5">
                                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
-                                  <span className="text-xs text-slate-200 flex-1 truncate">{r.title}</span>
+                                  <span className="text-xs text-gray-800 flex-1 truncate">{r.title}</span>
                                 </div>
                                 <div className="space-y-1.5">
                                   <select
                                     value={assignForm.lead_reviewer}
                                     onChange={e => setAssignForm(f => ({ ...f, lead_reviewer: e.target.value }))}
-                                    className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none focus:border-sky-500"
+                                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none focus:border-sky-500"
                                   >
                                     <option value="">주 담당자 (Lead) 선택</option>
                                     {userList.map(u => (
@@ -1794,7 +1794,7 @@ const PlantSync = () => {
                                         setAssignForm(f => ({ ...f, squad_reviewers: [...current, val].join(', ') }));
                                       }
                                     }}
-                                    className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none"
+                                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
                                   >
                                     <option value="">협조 검토자 추가</option>
                                     {userList.filter(u => (u.name || u.email) !== assignForm.lead_reviewer).map(u => (
@@ -1804,12 +1804,12 @@ const PlantSync = () => {
                                   {assignForm.squad_reviewers && (
                                     <div className="flex flex-wrap gap-1">
                                       {assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(Boolean).map(name => (
-                                        <span key={name} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-700 rounded text-[9px] text-slate-300">
+                                        <span key={name} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-200 rounded text-[9px] text-gray-600">
                                           {name}
                                           <button onClick={() => {
                                             const updated = assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(s => s && s !== name).join(', ');
                                             setAssignForm(f => ({ ...f, squad_reviewers: updated }));
-                                          }} className="text-slate-500 hover:text-red-400 ml-0.5">×</button>
+                                          }} className="text-gray-400 hover:text-red-600 ml-0.5">×</button>
                                         </span>
                                       ))}
                                     </div>
@@ -1818,10 +1818,10 @@ const PlantSync = () => {
                                     type="date"
                                     value={assignForm.due_date}
                                     onChange={e => setAssignForm(f => ({ ...f, due_date: e.target.value }))}
-                                    className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none"
+                                    className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-[10px] text-gray-800 focus:outline-none"
                                   />
                                   <button onClick={() => handleAssignReviewers(r.request_id)}
-                                          className="w-full flex items-center justify-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px] hover:bg-sky-500/30">
+                                          className="w-full flex items-center justify-center gap-1 px-2 py-1 bg-sky-100 text-sky-600 rounded text-[10px] hover:bg-sky-100">
                                     <UserCheck className="w-3 h-3" /> 할당
                                   </button>
                                 </div>
@@ -1832,7 +1832,7 @@ const PlantSync = () => {
 
                         {assignedRequests.length > 0 && (
                           <div className="space-y-2">
-                            <p className="text-[10px] font-medium text-sky-400">할당 완료 ({assignedRequests.length}건)</p>
+                            <p className="text-[10px] font-medium text-sky-600">할당 완료 ({assignedRequests.length}건)</p>
                             {assignedRequests.map(r => {
                               const dueDate = r.due_date;
                               let daysLeft = null;
@@ -1842,24 +1842,24 @@ const PlantSync = () => {
                               }
                               const reviewerStatuses = r.reviewer_statuses || {};
                               return (
-                                <div key={r.request_id} className="bg-slate-800/50 rounded-lg p-2.5 space-y-1.5">
+                                <div key={r.request_id} className="bg-gray-50 rounded-lg p-2.5 space-y-1.5">
                                   <div className="flex items-center gap-1.5">
                                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
-                                    <span className="text-xs text-slate-200 flex-1 truncate">{r.title}</span>
+                                    <span className="text-xs text-gray-800 flex-1 truncate">{r.title}</span>
                                     {daysLeft !== null && (
                                       <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
-                                        daysLeft <= 3 ? 'bg-red-500/20 text-red-400' :
-                                        daysLeft <= 7 ? 'bg-amber-500/20 text-amber-400' :
-                                        'bg-slate-700/50 text-slate-400'
+                                        daysLeft <= 3 ? 'bg-red-50 text-red-600' :
+                                        daysLeft <= 7 ? 'bg-amber-50 text-amber-600' :
+                                        'bg-white text-gray-500'
                                       }`}>
                                         D{daysLeft > 0 ? `-${daysLeft}` : daysLeft === 0 ? '-Day' : `+${Math.abs(daysLeft)}`}
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-[10px] text-slate-500">
-                                    <span>Lead: <span className="text-sky-400">{r.lead_reviewer || r.to_name}</span></span>
+                                  <div className="text-[10px] text-gray-400">
+                                    <span>Lead: <span className="text-sky-600">{r.lead_reviewer || r.to_name}</span></span>
                                     {(r.squad_reviewers || []).length > 0 && (
-                                      <span className="ml-2">Squad: <span className="text-slate-300">{r.squad_reviewers.join(', ')}</span></span>
+                                      <span className="ml-2">Squad: <span className="text-gray-600">{r.squad_reviewers.join(', ')}</span></span>
                                     )}
                                   </div>
                                   {/* Reviewer status dots */}
@@ -1870,17 +1870,17 @@ const PlantSync = () => {
                                           <span className={`w-2 h-2 rounded-full ${
                                             rs.status === 'done' ? 'bg-green-400' :
                                             rs.status === 'in_progress' ? 'bg-blue-400' :
-                                            'bg-slate-500'
+                                            'bg-gray-400'
                                           }`} />
-                                          <span className="text-slate-400">{name}</span>
-                                          {rs.role === 'lead' && <span className="text-[8px] text-sky-400">(L)</span>}
+                                          <span className="text-gray-500">{name}</span>
+                                          {rs.role === 'lead' && <span className="text-[8px] text-sky-600">(L)</span>}
                                         </span>
                                       ))}
                                     </div>
                                   )}
                                   <div className="flex gap-1 mt-1">
                                     <button onClick={() => handleStartMarkup(r)}
-                                            className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-[9px] hover:bg-blue-500/30">
+                                            className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[9px] hover:bg-blue-100">
                                       <MapPin className="w-2.5 h-2.5" /> 마크업
                                     </button>
                                   </div>
@@ -1891,7 +1891,7 @@ const PlantSync = () => {
                         )}
 
                         {assignableRequests.length === 0 && assignedRequests.length === 0 && (
-                          <div className="p-6 text-center text-slate-500 text-xs">
+                          <div className="p-6 text-center text-gray-400 text-xs">
                             할당할 요청이 없습니다
                           </div>
                         )}
@@ -1916,22 +1916,22 @@ const PlantSync = () => {
                   const done = Object.values(rs).filter(s => s.status === 'done').length;
                   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
                   return (
-                    <div className="px-3 py-2 border-b border-slate-700/50 flex-shrink-0">
+                    <div className="px-3 py-2 border-b border-gray-200 flex-shrink-0">
                       <div className="flex items-center gap-2 mb-1.5">
-                        <Users className="w-3 h-3 text-slate-400" />
-                        <span className="text-[10px] text-slate-400">검토 진행률</span>
-                        <span className="text-[10px] text-sky-400 ml-auto">{done}/{total} ({pct}%)</span>
+                        <Users className="w-3 h-3 text-gray-500" />
+                        <span className="text-[10px] text-gray-500">검토 진행률</span>
+                        <span className="text-[10px] text-sky-600 ml-auto">{done}/{total} ({pct}%)</span>
                       </div>
-                      <div className="w-full h-1.5 bg-slate-700 rounded-full mb-1.5">
+                      <div className="w-full h-1.5 bg-gray-200 rounded-full mb-1.5">
                         <div className="h-1.5 bg-sky-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {Object.entries(rs).map(([name, s]) => (
                           <span key={name} className="flex items-center gap-1 text-[9px]">
                             <span className={`w-2 h-2 rounded-full ${
-                              s.status === 'done' ? 'bg-green-400' : s.status === 'in_progress' ? 'bg-blue-400 animate-pulse' : 'bg-slate-500'
+                              s.status === 'done' ? 'bg-green-400' : s.status === 'in_progress' ? 'bg-blue-400 animate-pulse' : 'bg-gray-400'
                             }`} />
-                            <span className="text-slate-400">{name}</span>
+                            <span className="text-gray-500">{name}</span>
                           </span>
                         ))}
                       </div>
@@ -1943,19 +1943,19 @@ const PlantSync = () => {
                 {activeRequestId && (() => {
                   const req = reviewRequests.find(r => r.request_id === activeRequestId);
                   return req ? (
-                    <div className="px-3 py-2 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between flex-shrink-0">
+                    <div className="px-3 py-2 bg-amber-50 border-b border-amber-200 flex items-center justify-between flex-shrink-0">
                       <div className="flex items-center gap-2 min-w-0">
-                        <ClipboardList className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                        <span className="text-[10px] text-amber-400 truncate">요청 연결중: {req.title}</span>
+                        <ClipboardList className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                        <span className="text-[10px] text-amber-600 truncate">요청 연결중: {req.title}</span>
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                         {(req.status === 'markup_in_progress') && (
                           <button onClick={() => { handleUpdateRequestStatus(req.request_id, 'markup_done'); handleStopMarkup(); setRightTab('consolidate'); }}
-                                  className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-[9px] hover:bg-purple-500/30">
+                                  className="flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-600 rounded text-[9px] hover:bg-purple-100">
                             <Check className="w-3 h-3" /> 마크업 완료
                           </button>
                         )}
-                        <button onClick={handleStopMarkup} className="text-amber-400 hover:text-amber-300">
+                        <button onClick={handleStopMarkup} className="text-amber-600 hover:text-amber-600">
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -1965,39 +1965,39 @@ const PlantSync = () => {
                 {selectedMarkup && !selectedMarkup._pending ? (
                   /* Selected Markup Detail */
                   <div className="flex flex-col h-full">
-                    <div className="p-3 border-b border-slate-700/50">
+                    <div className="p-3 border-b border-gray-200">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="w-3 h-3 rounded-full" style={{ backgroundColor: DISCIPLINES[selectedMarkup.discipline]?.color }} />
-                          <span className="text-xs font-medium text-slate-300">{DISCIPLINES[selectedMarkup.discipline]?.label}</span>
+                          <span className="text-xs font-medium text-gray-600">{DISCIPLINES[selectedMarkup.discipline]?.label}</span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                            selectedMarkup.status === 'open' ? 'bg-amber-500/20 text-amber-400' : 'bg-green-500/20 text-green-400'
+                            selectedMarkup.status === 'open' ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'
                           }`}>
                             {selectedMarkup.status}
                           </span>
                         </div>
-                        <button onClick={() => setSelectedMarkup(null)} className="text-slate-500 hover:text-slate-300">
+                        <button onClick={() => setSelectedMarkup(null)} className="text-gray-400 hover:text-gray-600">
                           <X className="w-4 h-4" />
                         </button>
                       </div>
-                      <p className="text-sm text-slate-200 mt-2">{selectedMarkup.comment}</p>
-                      <p className="text-[10px] text-slate-500 mt-1">
-                        작성자: <span className="text-sky-400">{selectedMarkup.author_name}</span> | P.{selectedMarkup.page} | {new Date(selectedMarkup.created_at).toLocaleString()}
+                      <p className="text-sm text-gray-800 mt-2">{selectedMarkup.comment}</p>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        작성자: <span className="text-sky-600">{selectedMarkup.author_name}</span> | P.{selectedMarkup.page} | {new Date(selectedMarkup.created_at).toLocaleString()}
                       </p>
                       {selectedMarkup.request_id && (
-                        <p className="text-[10px] text-slate-600 mt-0.5">
-                          요청 연결: <span className="text-sky-400/70">{selectedMarkup.request_id}</span>
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          요청 연결: <span className="text-sky-600/70">{selectedMarkup.request_id}</span>
                         </p>
                       )}
                       <div className="flex gap-1.5 mt-2 flex-wrap">
                         {selectedMarkup.status === 'open' && (
                           <>
                             <button onClick={() => handleResolveMarkup(selectedMarkup.markup_id)}
-                                    className="flex items-center gap-1 px-2 py-1 bg-green-500/20 text-green-400 rounded text-[10px] hover:bg-green-500/30">
+                                    className="flex items-center gap-1 px-2 py-1 bg-green-50 text-green-600 rounded text-[10px] hover:bg-green-100">
                               <Check className="w-3 h-3" /> 해결
                             </button>
                             <button onClick={() => handleConfirmMarkup(selectedMarkup.markup_id)}
-                                    className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px] hover:bg-sky-500/30">
+                                    className="flex items-center gap-1 px-2 py-1 bg-sky-100 text-sky-600 rounded text-[10px] hover:bg-sky-100">
                               <CheckCircle2 className="w-3 h-3" /> 확정
                             </button>
                           </>
@@ -2005,17 +2005,17 @@ const PlantSync = () => {
                         {selectedMarkup.status === 'resolved' && (
                           <>
                             <button onClick={() => handleConfirmMarkup(selectedMarkup.markup_id)}
-                                    className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px] hover:bg-sky-500/30">
+                                    className="flex items-center gap-1 px-2 py-1 bg-sky-100 text-sky-600 rounded text-[10px] hover:bg-sky-100">
                               <CheckCircle2 className="w-3 h-3" /> 확정
                             </button>
                             <button onClick={() => handleReopenMarkup(selectedMarkup.markup_id)}
-                                    className="flex items-center gap-1 px-2 py-1 bg-amber-500/20 text-amber-400 rounded text-[10px] hover:bg-amber-500/30">
+                                    className="flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-600 rounded text-[10px] hover:bg-amber-100">
                               <RotateCcw className="w-3 h-3" /> 재오픈
                             </button>
                           </>
                         )}
                         {selectedMarkup.status === 'confirmed' && (
-                          <span className="flex items-center gap-1 px-2 py-1 bg-sky-500/20 text-sky-400 rounded text-[10px]">
+                          <span className="flex items-center gap-1 px-2 py-1 bg-sky-100 text-sky-600 rounded text-[10px]">
                             <CheckCircle2 className="w-3 h-3" /> 확정됨
                           </span>
                         )}
@@ -2025,22 +2025,22 @@ const PlantSync = () => {
                     {/* Replies */}
                     <div className="flex-1 overflow-auto p-3 space-y-2">
                       {(selectedMarkup.replies || []).map(r => (
-                        <div key={r.reply_id} className="bg-slate-800/50 rounded-lg p-2.5">
-                          <p className="text-xs text-slate-300">{r.content}</p>
-                          <p className="text-[10px] text-slate-500 mt-1"><span className="text-sky-400">{r.author_name}</span> | {new Date(r.created_at).toLocaleString()}</p>
+                        <div key={r.reply_id} className="bg-gray-50 rounded-lg p-2.5">
+                          <p className="text-xs text-gray-600">{r.content}</p>
+                          <p className="text-[10px] text-gray-400 mt-1"><span className="text-sky-600">{r.author_name}</span> | {new Date(r.created_at).toLocaleString()}</p>
                         </div>
                       ))}
                     </div>
 
                     {/* Reply Input */}
-                    <div className="p-3 border-t border-slate-700/50 flex-shrink-0">
+                    <div className="p-3 border-t border-gray-200 flex-shrink-0">
                       <div className="flex gap-2">
                         <input
                           value={replyText}
                           onChange={e => setReplyText(e.target.value)}
                           onKeyDown={e => e.key === 'Enter' && handleAddReply()}
                           placeholder="답글 입력..."
-                          className="flex-1 px-3 py-1.5 bg-slate-800/50 border border-slate-700/50 rounded-lg text-xs text-slate-300 placeholder-slate-500 focus:outline-none focus:border-sky-500/50"
+                          className="flex-1 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-600 placeholder-gray-400 focus:outline-none focus:border-sky-300"
                         />
                         <button onClick={handleAddReply} className="p-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded-lg">
                           <Send className="w-3.5 h-3.5" />
@@ -2052,8 +2052,8 @@ const PlantSync = () => {
                   /* New Pin Comment Input + AI Suggestion Chips (Feature 4) */
                   <div className="p-4 flex flex-col h-full overflow-auto">
                     <div className="flex items-center gap-2 mb-3">
-                      <MapPin className="w-4 h-4 text-sky-400" />
-                      <span className="text-sm font-medium text-slate-200">새 마크업</span>
+                      <MapPin className="w-4 h-4 text-sky-600" />
+                      <span className="text-sm font-medium text-gray-800">새 마크업</span>
                       <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: DISCIPLINES[selectedMarkup.discipline]?.color + '33', color: DISCIPLINES[selectedMarkup.discipline]?.color }}>
                         {DISCIPLINES[selectedMarkup.discipline]?.label}
                       </span>
@@ -2062,7 +2062,7 @@ const PlantSync = () => {
                       value={newComment}
                       onChange={e => setNewComment(e.target.value)}
                       placeholder="코멘트를 입력하세요..."
-                      className="w-full px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg text-xs text-slate-300 placeholder-slate-500 focus:outline-none focus:border-sky-500/50 resize-none"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-600 placeholder-gray-400 focus:outline-none focus:border-sky-300 resize-none"
                       rows={3}
                       autoFocus
                     />
@@ -2071,16 +2071,16 @@ const PlantSync = () => {
                     {(loadingNearby || nearbyWords.length > 0) && (
                       <div className="mt-2">
                         <div className="flex items-center gap-1.5 mb-1">
-                          <Sparkles className="w-3 h-3 text-amber-400" />
-                          <span className="text-[10px] text-amber-400 font-medium">AI 추천 텍스트</span>
-                          {loadingNearby && <Loader2 className="w-3 h-3 text-amber-400 animate-spin" />}
+                          <Sparkles className="w-3 h-3 text-amber-600" />
+                          <span className="text-[10px] text-amber-600 font-medium">AI 추천 텍스트</span>
+                          {loadingNearby && <Loader2 className="w-3 h-3 text-amber-600 animate-spin" />}
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {nearbyWords.map((w, i) => (
                             <button
                               key={i}
                               onClick={() => setNewComment(prev => prev + (prev ? ' ' : '') + w.content)}
-                              className="px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded text-[10px] hover:bg-amber-500/20 transition-colors"
+                              className="px-1.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-600 rounded text-[10px] hover:bg-amber-50 transition-colors"
                               title={`Confidence: ${Math.round(w.confidence * 100)}%`}
                             >
                               {w.content}
@@ -2093,13 +2093,13 @@ const PlantSync = () => {
                     {/* Nearby lines */}
                     {nearbyLines.length > 0 && (
                       <div className="mt-2">
-                        <span className="text-[10px] text-slate-500 mb-1 block">주변 텍스트 라인</span>
+                        <span className="text-[10px] text-gray-400 mb-1 block">주변 텍스트 라인</span>
                         <div className="space-y-0.5 max-h-24 overflow-auto">
                           {nearbyLines.map((l, i) => (
                             <button
                               key={i}
                               onClick={() => setNewComment(prev => prev + (prev ? '\n' : '') + l.content)}
-                              className="block w-full text-left px-2 py-0.5 bg-slate-800/50 text-[10px] text-slate-400 rounded hover:bg-slate-700/50 hover:text-slate-200 truncate transition-colors"
+                              className="block w-full text-left px-2 py-0.5 bg-gray-50 text-[10px] text-gray-500 rounded hover:bg-white hover:text-gray-800 truncate transition-colors"
                             >
                               {l.content}
                             </button>
@@ -2113,7 +2113,7 @@ const PlantSync = () => {
                       <button
                         onClick={() => handleRelatedSearch(newComment || nearbyWords.map(w => w.content).join(' '))}
                         disabled={loadingRelated || (!newComment.trim() && nearbyWords.length === 0)}
-                        className="flex items-center gap-1 px-2 py-1 bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded text-[10px] hover:bg-purple-500/20 disabled:opacity-40 transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 bg-purple-50 border border-purple-200 text-purple-600 rounded text-[10px] hover:bg-purple-50 disabled:opacity-40 transition-colors"
                       >
                         {loadingRelated ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
                         관련 이력 조회
@@ -2125,25 +2125,25 @@ const PlantSync = () => {
                       <div className="mt-2 space-y-1.5 max-h-40 overflow-auto">
                         {relatedResults.markups.length > 0 && (
                           <>
-                            <span className="text-[10px] text-purple-400 font-medium block">관련 마크업 ({relatedResults.markups.length}건)</span>
+                            <span className="text-[10px] text-purple-600 font-medium block">관련 마크업 ({relatedResults.markups.length}건)</span>
                             {relatedResults.markups.map((rm, i) => (
-                              <div key={i} className="px-2 py-1 bg-purple-500/5 border border-purple-500/10 rounded text-[10px]">
-                                <p className="text-slate-300 truncate">{rm.comment}</p>
-                                <p className="text-[9px] text-slate-500">{rm.discipline} · {rm.author_name} · {rm.status}</p>
+                              <div key={i} className="px-2 py-1 bg-purple-50 border border-purple-200 rounded text-[10px]">
+                                <p className="text-gray-600 truncate">{rm.comment}</p>
+                                <p className="text-[9px] text-gray-400">{rm.discipline} · {rm.author_name} · {rm.status}</p>
                               </div>
                             ))}
                           </>
                         )}
                         {relatedResults.documents.length > 0 && (
                           <>
-                            <span className="text-[10px] text-purple-400 font-medium block">관련 문서 ({relatedResults.documents.length}건)</span>
+                            <span className="text-[10px] text-purple-600 font-medium block">관련 문서 ({relatedResults.documents.length}건)</span>
                             {relatedResults.documents.map((doc, i) => (
-                              <div key={i} className="px-2 py-1 bg-purple-500/5 border border-purple-500/10 rounded text-[10px]">
+                              <div key={i} className="px-2 py-1 bg-purple-50 border border-purple-200 rounded text-[10px]">
                                 <div className="flex items-center gap-1">
-                                  <File className="w-3 h-3 text-purple-400 flex-shrink-0" />
-                                  <p className="text-slate-300 truncate">{doc.title || 'Document'}</p>
+                                  <File className="w-3 h-3 text-purple-600 flex-shrink-0" />
+                                  <p className="text-gray-600 truncate">{doc.title || 'Document'}</p>
                                 </div>
-                                <p className="text-[9px] text-slate-500 truncate">{doc.content_snippet}</p>
+                                <p className="text-[9px] text-gray-400 truncate">{doc.content_snippet}</p>
                               </div>
                             ))}
                           </>
@@ -2157,7 +2157,7 @@ const PlantSync = () => {
                         마크업 저장
                       </button>
                       <button onClick={() => { setSelectedMarkup(null); setIsPlacingPin(false); setNearbyWords([]); setNearbyLines([]); setRelatedResults({ markups: [], documents: [] }); }}
-                              className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs">
+                              className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-600 rounded-lg text-xs">
                         취소
                       </button>
                     </div>
@@ -2168,12 +2168,12 @@ const PlantSync = () => {
                     {selectedDrawing ? (
                       <>
                         <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs text-slate-500">마크업 {markups.length}건</p>
+                          <p className="text-xs text-gray-400">마크업 {markups.length}건</p>
                           {markups.length > 0 && (
                             <button
                               onClick={handleExportMarkupPdf}
                               disabled={exportingPdf}
-                              className="flex items-center gap-1 px-2 py-1 bg-purple-500/20 text-purple-400 rounded text-[10px] hover:bg-purple-500/30 disabled:opacity-40 transition-colors"
+                              className="flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-600 rounded text-[10px] hover:bg-purple-100 disabled:opacity-40 transition-colors"
                             >
                               {exportingPdf ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileDown className="w-3 h-3" />}
                               마크업 PDF
@@ -2184,17 +2184,17 @@ const PlantSync = () => {
                           <div
                             key={m.markup_id}
                             onClick={() => { setSelectedMarkup(m); setCurrentPage(m.page); }}
-                            className="flex items-start gap-2.5 p-2.5 bg-slate-800/50 rounded-lg cursor-pointer hover:bg-slate-700/50 transition-colors"
+                            className="flex items-start gap-2.5 p-2.5 bg-gray-50 rounded-lg cursor-pointer hover:bg-white transition-colors"
                           >
                             <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
                                  style={{ backgroundColor: DISCIPLINES[m.discipline]?.color || '#888', opacity: m.status === 'resolved' ? 0.5 : 1 }}>
                               {i + 1}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <p className={`text-xs ${m.status === 'resolved' ? 'text-slate-500 line-through' : 'text-slate-300'}`}>
+                              <p className={`text-xs ${m.status === 'resolved' ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
                                 {m.comment}
                               </p>
-                              <p className="text-[10px] text-slate-500 mt-0.5">
+                              <p className="text-[10px] text-gray-400 mt-0.5">
                                 P.{m.page} | {m.author_name} | 답글 {(m.replies || []).length}건
                               </p>
                             </div>
@@ -2202,7 +2202,7 @@ const PlantSync = () => {
                         ))}
                       </>
                     ) : (
-                      <p className="text-xs text-slate-500 text-center py-8">도면을 선택하면 마크업을 확인할 수 있습니다</p>
+                      <p className="text-xs text-gray-400 text-center py-8">도면을 선택하면 마크업을 확인할 수 있습니다</p>
                     )}
                   </div>
                 )}
@@ -2212,8 +2212,8 @@ const PlantSync = () => {
             {/* ── ④ 종합 (Consolidation) Tab ── */}
             {rightTab === 'consolidate' && (
               <div className="flex flex-col h-full">
-                <div className="p-3 border-b border-slate-700/50 flex-shrink-0">
-                  <p className="text-xs text-slate-400">의견 종합 (Lead 확정)</p>
+                <div className="p-3 border-b border-gray-200 flex-shrink-0">
+                  <p className="text-xs text-gray-500">의견 종합 (Lead 확정)</p>
                 </div>
                 <div className="flex-1 overflow-auto p-3 space-y-3">
                   {(() => {
@@ -2221,7 +2221,7 @@ const PlantSync = () => {
                       r.status === 'markup_done' || r.status === 'consolidation' || r.status === 'feedback'
                     );
                     if (consolidationRequests.length === 0) return (
-                      <div className="p-6 text-center text-slate-500 text-xs">의견 종합 대기중인 요청이 없습니다</div>
+                      <div className="p-6 text-center text-gray-400 text-xs">의견 종합 대기중인 요청이 없습니다</div>
                     );
                     return consolidationRequests.map(r => {
                       const linkedMarkups = markups.filter(m => m.request_id === r.request_id || m.drawing_id === r.drawing_id);
@@ -2229,32 +2229,32 @@ const PlantSync = () => {
                       const allDone = Object.values(reviewerStatuses).every(rs => rs.status === 'done');
                       const notDone = Object.entries(reviewerStatuses).filter(([, rs]) => rs.status !== 'done');
                       return (
-                        <div key={r.request_id} className="bg-slate-800/50 rounded-lg p-3 space-y-2">
+                        <div key={r.request_id} className="bg-gray-50 rounded-lg p-3 space-y-2">
                           <div className="flex items-center gap-1.5">
                             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
-                            <span className="text-xs font-medium text-slate-200 flex-1 truncate">{r.title}</span>
+                            <span className="text-xs font-medium text-gray-800 flex-1 truncate">{r.title}</span>
                             <span className={`text-[9px] px-1 py-0.5 rounded ${
-                              r.status === 'consolidation' ? 'bg-purple-500/20 text-purple-400' : 'bg-amber-500/20 text-amber-400'
+                              r.status === 'consolidation' ? 'bg-purple-50 text-purple-600' : 'bg-amber-50 text-amber-600'
                             }`}>{r.status === 'consolidation' ? '종합중' : '마크업완료'}</span>
                           </div>
 
                           {/* Reviewer completion status */}
                           {Object.keys(reviewerStatuses).length > 0 && (
                             <div>
-                              <p className="text-[9px] text-slate-500 mb-1">검토자 현황</p>
+                              <p className="text-[9px] text-gray-400 mb-1">검토자 현황</p>
                               <div className="flex flex-wrap gap-1">
                                 {Object.entries(reviewerStatuses).map(([name, rs]) => (
                                   <span key={name} className={`text-[9px] px-1.5 py-0.5 rounded ${
-                                    rs.status === 'done' ? 'bg-green-500/10 text-green-400' :
-                                    rs.status === 'in_progress' ? 'bg-blue-500/10 text-blue-400' :
-                                    'bg-slate-700/50 text-slate-500'
+                                    rs.status === 'done' ? 'bg-green-50 text-green-600' :
+                                    rs.status === 'in_progress' ? 'bg-blue-50 text-blue-600' :
+                                    'bg-white text-gray-400'
                                   }`}>
                                     {name} {rs.role === 'lead' ? '(L)' : ''} — {rs.status === 'done' ? '완료' : rs.status === 'in_progress' ? '진행중' : '대기'}
                                   </span>
                                 ))}
                               </div>
                               {notDone.length > 0 && (
-                                <p className="text-[9px] text-amber-400 mt-1">미완료: {notDone.map(([n]) => n).join(', ')}</p>
+                                <p className="text-[9px] text-amber-600 mt-1">미완료: {notDone.map(([n]) => n).join(', ')}</p>
                               )}
                             </div>
                           )}
@@ -2262,7 +2262,7 @@ const PlantSync = () => {
                           {/* Conflict detection button */}
                           <button
                             onClick={() => loadConflicts(r.request_id)}
-                            className="w-full flex items-center justify-center gap-1 px-2 py-1 bg-amber-500/10 text-amber-400 rounded text-[9px] hover:bg-amber-500/20"
+                            className="w-full flex items-center justify-center gap-1 px-2 py-1 bg-amber-50 text-amber-600 rounded text-[9px] hover:bg-amber-50"
                           >
                             <AlertTriangle className="w-3 h-3" /> 충돌 감지
                           </button>
@@ -2270,18 +2270,18 @@ const PlantSync = () => {
                           {/* Conflicts display */}
                           {conflicts.length > 0 && (
                             <div className="space-y-1">
-                              <p className="text-[9px] text-red-400 font-medium">충돌 마크업 ({conflicts.length}건)</p>
+                              <p className="text-[9px] text-red-600 font-medium">충돌 마크업 ({conflicts.length}건)</p>
                               {conflicts.map((c, i) => (
-                                <div key={i} className="bg-red-500/5 border border-red-500/20 rounded p-1.5 text-[9px]">
+                                <div key={i} className="bg-red-50 border border-red-200 rounded p-1.5 text-[9px]">
                                   <div className="flex items-center gap-1">
                                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[c.markup_a.discipline]?.color }} />
-                                    <span className="text-slate-300">{c.markup_a.comment?.substring(0, 30)}</span>
+                                    <span className="text-gray-600">{c.markup_a.comment?.substring(0, 30)}</span>
                                   </div>
                                   <div className="flex items-center gap-1 mt-0.5">
                                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[c.markup_b.discipline]?.color }} />
-                                    <span className="text-slate-300">{c.markup_b.comment?.substring(0, 30)}</span>
+                                    <span className="text-gray-600">{c.markup_b.comment?.substring(0, 30)}</span>
                                   </div>
-                                  <p className="text-slate-600 mt-0.5">페이지 {c.page} · 거리 {(c.distance * 100).toFixed(1)}%</p>
+                                  <p className="text-gray-400 mt-0.5">페이지 {c.page} · 거리 {(c.distance * 100).toFixed(1)}%</p>
                                 </div>
                               ))}
                             </div>
@@ -2290,15 +2290,15 @@ const PlantSync = () => {
                           {/* Markup list for adoption/exclusion */}
                           {linkedMarkups.length > 0 && (
                             <div>
-                              <p className="text-[9px] text-slate-500 mb-1">마크업 ({linkedMarkups.length}건) — 최종 채택/제외</p>
+                              <p className="text-[9px] text-gray-400 mb-1">마크업 ({linkedMarkups.length}건) — 최종 채택/제외</p>
                               <div className="space-y-1 max-h-40 overflow-auto">
                                 {linkedMarkups.map((m, i) => (
-                                  <div key={m.markup_id} className="flex items-center gap-1.5 p-1 bg-slate-800/80 rounded">
+                                  <div key={m.markup_id} className="flex items-center gap-1.5 p-1 bg-gray-100 rounded">
                                     <div className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[7px] font-bold flex-shrink-0"
                                          style={{ backgroundColor: DISCIPLINES[m.discipline]?.color || '#888' }}>{i + 1}</div>
-                                    <span className={`text-[9px] flex-1 truncate ${m.status === 'final' ? 'text-green-400' : 'text-slate-300'}`}>{m.comment}</span>
+                                    <span className={`text-[9px] flex-1 truncate ${m.status === 'final' ? 'text-green-600' : 'text-gray-600'}`}>{m.comment}</span>
                                     <span className={`text-[8px] px-1 py-0.5 rounded ${
-                                      m.status === 'final' ? 'bg-green-500/20 text-green-400' : 'bg-slate-700/50 text-slate-500'
+                                      m.status === 'final' ? 'bg-green-50 text-green-600' : 'bg-white text-gray-400'
                                     }`}>{m.status === 'final' ? '채택' : m.status}</span>
                                   </div>
                                 ))}
@@ -2315,8 +2315,8 @@ const PlantSync = () => {
                             disabled={!allDone}
                             className={`w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[10px] font-medium ${
                               allDone
-                                ? 'bg-purple-500/20 text-purple-400 hover:bg-purple-500/30'
-                                : 'bg-slate-700/30 text-slate-600 cursor-not-allowed'
+                                ? 'bg-purple-50 text-purple-600 hover:bg-purple-100'
+                                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                             }`}
                           >
                             <GitMerge className="w-3 h-3" /> 의견 종합 완료
@@ -2332,8 +2332,8 @@ const PlantSync = () => {
             {/* ── ⑤ 회신 (Return & Transmittal) Tab ── */}
             {rightTab === 'return' && (
               <div className="flex flex-col h-full">
-                <div className="p-3 border-b border-slate-700/50 flex-shrink-0">
-                  <p className="text-xs text-slate-400">코드 부여 / 회신</p>
+                <div className="p-3 border-b border-gray-200 flex-shrink-0">
+                  <p className="text-xs text-gray-500">코드 부여 / 회신</p>
                 </div>
                 <div className="flex-1 overflow-auto p-3 space-y-4">
                   {/* Return Code Cards */}
@@ -2354,16 +2354,16 @@ const PlantSync = () => {
                           <div key={r.request_id} className="space-y-2">
                             <div className="flex items-center gap-1.5 mb-2">
                               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
-                              <span className="text-xs font-medium text-slate-200 flex-1">{r.title}</span>
+                              <span className="text-xs font-medium text-gray-800 flex-1">{r.title}</span>
                             </div>
-                            <p className="text-[10px] text-slate-500 mb-1">Return Code 선택</p>
+                            <p className="text-[10px] text-gray-400 mb-1">Return Code 선택</p>
                             <div className="grid grid-cols-2 gap-1.5">
                               {codeCards.map(card => {
                                 const colorMap = {
-                                  green: { bg: 'bg-green-500/10 hover:bg-green-500/20 border-green-500/30', text: 'text-green-400', activeBg: 'bg-green-500/30' },
-                                  sky: { bg: 'bg-sky-500/10 hover:bg-sky-500/20 border-sky-500/30', text: 'text-sky-400', activeBg: 'bg-sky-500/30' },
-                                  red: { bg: 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30', text: 'text-red-400', activeBg: 'bg-red-500/30' },
-                                  slate: { bg: 'bg-slate-500/10 hover:bg-slate-500/20 border-slate-500/30', text: 'text-slate-400', activeBg: 'bg-slate-500/30' },
+                                  green: { bg: 'bg-green-50 hover:bg-green-50 border-green-200', text: 'text-green-600', activeBg: 'bg-green-100' },
+                                  sky: { bg: 'bg-sky-50 hover:bg-sky-100 border-sky-200', text: 'text-sky-600', activeBg: 'bg-sky-100' },
+                                  red: { bg: 'bg-red-50 hover:bg-red-50 border-red-200', text: 'text-red-600', activeBg: 'bg-red-100' },
+                                  slate: { bg: 'bg-gray-50 hover:bg-gray-100 border-gray-200', text: 'text-gray-500', activeBg: 'bg-gray-200' },
                                 };
                                 const cm = colorMap[card.color];
                                 const isSelected = returnCodeSelection === card.code;
@@ -2374,7 +2374,7 @@ const PlantSync = () => {
                                     className={`p-2 rounded-lg border text-left transition-all ${isSelected ? cm.activeBg + ' border-2' : cm.bg} border-${card.color}-500/30`}
                                   >
                                     <p className={`text-[10px] font-bold ${cm.text}`}>{card.label}</p>
-                                    <p className="text-[8px] text-slate-500 mt-0.5">{card.desc}</p>
+                                    <p className="text-[8px] text-gray-400 mt-0.5">{card.desc}</p>
                                   </button>
                                 );
                               })}
@@ -2382,7 +2382,7 @@ const PlantSync = () => {
                             {returnCodeSelection && (
                               <button
                                 onClick={() => { handleSetReturnCode(r.request_id, returnCodeSelection); setReturnCodeSelection(''); }}
-                                className="w-full flex items-center justify-center gap-1 px-2 py-1.5 bg-sky-500/20 text-sky-400 rounded text-[10px] font-medium hover:bg-sky-500/30"
+                                className="w-full flex items-center justify-center gap-1 px-2 py-1.5 bg-sky-100 text-sky-600 rounded text-[10px] font-medium hover:bg-sky-100"
                               >
                                 <Check className="w-3 h-3" /> 코드 확정
                               </button>
@@ -2393,13 +2393,13 @@ const PlantSync = () => {
                         {/* Return decided - ready for transmittal */}
                         {returnRequests.filter(r => r.status === 'return_decided').map(r => {
                           const codeInfo = codeCards.find(c => c.code === r.return_code);
-                          const colorMap = { code_1: 'text-green-400', code_2: 'text-sky-400', code_3: 'text-red-400', code_4: 'text-slate-400' };
+                          const colorMap = { code_1: 'text-green-600', code_2: 'text-sky-600', code_3: 'text-red-600', code_4: 'text-gray-500' };
                           return (
-                            <div key={r.request_id} className="bg-slate-800/50 rounded-lg p-3 space-y-2">
+                            <div key={r.request_id} className="bg-gray-50 rounded-lg p-3 space-y-2">
                               <div className="flex items-center gap-1.5">
                                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[r.discipline]?.color }} />
-                                <span className="text-xs text-slate-200 flex-1 truncate">{r.title}</span>
-                                <span className={`text-[10px] font-bold ${colorMap[r.return_code] || 'text-slate-400'}`}>
+                                <span className="text-xs text-gray-800 flex-1 truncate">{r.title}</span>
+                                <span className={`text-[10px] font-bold ${colorMap[r.return_code] || 'text-gray-500'}`}>
                                   {codeInfo?.label || r.return_code}
                                 </span>
                               </div>
@@ -2411,7 +2411,7 @@ const PlantSync = () => {
                                 const byDisc = {};
                                 linked.forEach(m => { byDisc[m.discipline] = (byDisc[m.discipline] || 0) + 1; });
                                 return (
-                                  <div className="text-[9px] text-slate-500">
+                                  <div className="text-[9px] text-gray-400">
                                     <span>마크업 {linked.length}건 (채택 {finalCount}건)</span>
                                     {Object.entries(byDisc).length > 0 && (
                                       <span className="ml-1">
@@ -2424,7 +2424,7 @@ const PlantSync = () => {
 
                               {/* Review Gate */}
                               {selectedDrawing && reviewGate && (
-                                <div className={`rounded p-2 text-[9px] ${reviewGate.all_completed ? 'bg-green-500/10 text-green-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                                <div className={`rounded p-2 text-[9px] ${reviewGate.all_completed ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'}`}>
                                   Review Gate: {reviewGate.completion_rate}% ({reviewGate.all_completed ? '통과' : '미통과'})
                                 </div>
                               )}
@@ -2440,7 +2440,7 @@ const PlantSync = () => {
                                   <button
                                     onClick={handleExportMarkupPdf}
                                     disabled={exportingPdf}
-                                    className="flex items-center gap-1 px-2 py-1.5 bg-purple-500/20 text-purple-400 rounded text-[10px] hover:bg-purple-500/30"
+                                    className="flex items-center gap-1 px-2 py-1.5 bg-purple-50 text-purple-600 rounded text-[10px] hover:bg-purple-100"
                                   >
                                     <FileDown className="w-3 h-3" /> {exportingPdf ? '...' : 'PDF'}
                                   </button>
@@ -2452,17 +2452,17 @@ const PlantSync = () => {
 
                         {/* Transmitted (history) */}
                         {returnRequests.filter(r => r.status === 'transmitted').length > 0 && (
-                          <div className="border-t border-slate-700/50 pt-3">
-                            <p className="text-[10px] font-medium text-slate-400 mb-2">Transmittal 이력</p>
+                          <div className="border-t border-gray-200 pt-3">
+                            <p className="text-[10px] font-medium text-gray-500 mb-2">Transmittal 이력</p>
                             <div className="space-y-1">
                               {returnRequests.filter(r => r.status === 'transmitted').map(r => {
                                 const codeLabel = codeCards.find(c => c.code === r.return_code)?.label || '-';
                                 return (
-                                  <div key={r.request_id} className="flex items-center gap-2 p-1.5 bg-slate-800/30 rounded text-[9px]">
-                                    <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
-                                    <span className="text-sky-400 font-medium">{r.transmittal_no || '-'}</span>
-                                    <span className="text-slate-400 flex-1 truncate">{r.title}</span>
-                                    <span className="text-slate-500">{codeLabel}</span>
+                                  <div key={r.request_id} className="flex items-center gap-2 p-1.5 bg-white/80 rounded text-[9px]">
+                                    <CheckCircle2 className="w-3 h-3 text-green-600 flex-shrink-0" />
+                                    <span className="text-sky-600 font-medium">{r.transmittal_no || '-'}</span>
+                                    <span className="text-gray-500 flex-1 truncate">{r.title}</span>
+                                    <span className="text-gray-400">{codeLabel}</span>
                                   </div>
                                 );
                               })}
@@ -2471,7 +2471,7 @@ const PlantSync = () => {
                         )}
 
                         {returnRequests.length === 0 && (
-                          <div className="p-6 text-center text-slate-500 text-xs">
+                          <div className="p-6 text-center text-gray-400 text-xs">
                             회신 대기중인 요청이 없습니다
                           </div>
                         )}
@@ -2479,7 +2479,7 @@ const PlantSync = () => {
                         {/* Excel Export */}
                         <button
                           onClick={handleExportExcel}
-                          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded-lg text-xs font-medium hover:bg-green-500/30 transition-colors"
+                          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-green-50 text-green-600 border border-green-200 rounded-lg text-xs font-medium hover:bg-green-100 transition-colors"
                         >
                           <Download className="w-3.5 h-3.5" /> 도면 대장 Excel 다운로드
                         </button>
@@ -2495,13 +2495,13 @@ const PlantSync = () => {
 
       {/* Activity Drawer */}
       {showActivityDrawer && (
-        <div className="fixed right-0 top-0 bottom-0 w-[320px] bg-slate-900 border-l border-slate-700/50 z-40 flex flex-col shadow-2xl">
-          <div className="p-3 border-b border-slate-700/50 flex items-center justify-between flex-shrink-0">
-            <p className="text-xs font-medium text-slate-300">활동 이력 {activities.length}건</p>
+        <div className="fixed right-0 top-0 bottom-0 w-[320px] bg-white border-l border-gray-200 z-40 flex flex-col shadow-2xl">
+          <div className="p-3 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
+            <p className="text-xs font-medium text-gray-600">활동 이력 {activities.length}건</p>
             <div className="flex items-center gap-2">
               <button onClick={() => selectedProject && loadActivities(selectedProject.project_id)}
-                      className="text-[10px] text-sky-400 hover:text-sky-300">새로고침</button>
-              <button onClick={() => setShowActivityDrawer(false)} className="text-slate-500 hover:text-slate-300">
+                      className="text-[10px] text-sky-600 hover:text-sky-500">새로고침</button>
+              <button onClick={() => setShowActivityDrawer(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -2509,24 +2509,24 @@ const PlantSync = () => {
           <div className="flex-1 overflow-auto">
             {activities.length > 0 ? (
               <div className="relative pl-6 p-3">
-                <div className="absolute left-[11px] top-0 bottom-0 w-px bg-slate-700/50" />
+                <div className="absolute left-[11px] top-0 bottom-0 w-px bg-white" />
                 {activities.map((ev, idx) => {
                   const actionConfig = {
-                    drawing_uploaded:    { icon: Upload,        color: 'text-sky-400',    bg: 'bg-sky-500/20',    label: '도면 업로드' },
-                    drawing_registered:  { icon: CheckCircle2,  color: 'text-green-400',  bg: 'bg-green-500/20',  label: '도면 등록' },
-                    markup_created:      { icon: MapPin,        color: 'text-amber-400',  bg: 'bg-amber-500/20',  label: '마크업 생성' },
-                    markup_resolved:     { icon: Check,         color: 'text-green-400',  bg: 'bg-green-500/20',  label: '마크업 해결' },
-                    review_updated:      { icon: Eye,           color: 'text-blue-400',   bg: 'bg-blue-500/20',   label: '검토 업데이트' },
-                    request_created:     { icon: ClipboardList, color: 'text-purple-400', bg: 'bg-purple-500/20', label: '요청 생성' },
-                    request_confirmed:   { icon: CheckCircle2,  color: 'text-green-400',  bg: 'bg-green-500/20',  label: '요청 확정' },
-                    approval_decided:    { icon: Shield,        color: 'text-amber-400',  bg: 'bg-amber-500/20',  label: 'EM 승인' },
-                    intake_decision:     { icon: Inbox,         color: 'text-sky-400',    bg: 'bg-sky-500/20',    label: '접수 결정' },
-                    reviewers_assigned:  { icon: UserCheck,     color: 'text-blue-400',   bg: 'bg-blue-500/20',   label: '검토자 할당' },
-                    review_consolidated: { icon: GitMerge,      color: 'text-purple-400', bg: 'bg-purple-500/20', label: '의견 종합' },
-                    return_code_set:     { icon: Reply,         color: 'text-amber-400',  bg: 'bg-amber-500/20',  label: 'Return Code' },
-                    transmittal_created: { icon: Send,          color: 'text-green-400',  bg: 'bg-green-500/20',  label: 'Transmittal' },
+                    drawing_uploaded:    { icon: Upload,        color: 'text-sky-600',    bg: 'bg-sky-100',    label: '도면 업로드' },
+                    drawing_registered:  { icon: CheckCircle2,  color: 'text-green-600',  bg: 'bg-green-50',  label: '도면 등록' },
+                    markup_created:      { icon: MapPin,        color: 'text-amber-600',  bg: 'bg-amber-50',  label: '마크업 생성' },
+                    markup_resolved:     { icon: Check,         color: 'text-green-600',  bg: 'bg-green-50',  label: '마크업 해결' },
+                    review_updated:      { icon: Eye,           color: 'text-blue-600',   bg: 'bg-blue-50',   label: '검토 업데이트' },
+                    request_created:     { icon: ClipboardList, color: 'text-purple-600', bg: 'bg-purple-50', label: '요청 생성' },
+                    request_confirmed:   { icon: CheckCircle2,  color: 'text-green-600',  bg: 'bg-green-50',  label: '요청 확정' },
+                    approval_decided:    { icon: Shield,        color: 'text-amber-600',  bg: 'bg-amber-50',  label: 'EM 승인' },
+                    intake_decision:     { icon: Inbox,         color: 'text-sky-600',    bg: 'bg-sky-100',    label: '접수 결정' },
+                    reviewers_assigned:  { icon: UserCheck,     color: 'text-blue-600',   bg: 'bg-blue-50',   label: '검토자 할당' },
+                    review_consolidated: { icon: GitMerge,      color: 'text-purple-600', bg: 'bg-purple-50', label: '의견 종합' },
+                    return_code_set:     { icon: Reply,         color: 'text-amber-600',  bg: 'bg-amber-50',  label: 'Return Code' },
+                    transmittal_created: { icon: Send,          color: 'text-green-600',  bg: 'bg-green-50',  label: 'Transmittal' },
                   };
-                  const cfg = actionConfig[ev.action] || { icon: History, color: 'text-slate-400', bg: 'bg-slate-500/20', label: ev.action };
+                  const cfg = actionConfig[ev.action] || { icon: History, color: 'text-gray-500', bg: 'bg-gray-100', label: ev.action };
                   const IconComp = cfg.icon;
                   const details = ev.details || {};
                   let detailText = '';
@@ -2547,17 +2547,17 @@ const PlantSync = () => {
                       <div className="pl-3 pt-0.5">
                         <div className="flex items-center gap-1.5">
                           <span className={`text-[10px] font-medium ${cfg.color}`}>{cfg.label}</span>
-                          <span className="text-[9px] text-slate-600">{ev.actor}</span>
+                          <span className="text-[9px] text-gray-400">{ev.actor}</span>
                         </div>
-                        {detailText && <p className="text-[10px] text-slate-400 mt-0.5 truncate">{detailText}</p>}
-                        <p className="text-[9px] text-slate-600 mt-0.5">{timeStr}</p>
+                        {detailText && <p className="text-[10px] text-gray-500 mt-0.5 truncate">{detailText}</p>}
+                        <p className="text-[9px] text-gray-400 mt-0.5">{timeStr}</p>
                       </div>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <div className="p-6 text-center text-slate-500 text-xs">
+              <div className="p-6 text-center text-gray-400 text-xs">
                 <History className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p>활동 이력이 없습니다</p>
               </div>
@@ -2569,18 +2569,18 @@ const PlantSync = () => {
       {/* Split-View Staging Modal (Feature 1 + 2) */}
       {showTitleBlockModal && titleBlockData && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl w-[90vw] max-w-[1100px] h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/50 flex-shrink-0">
-              <h3 className="text-lg font-bold text-slate-100">스테이징 - AI 추출 결과 확인</h3>
-              <button onClick={() => setShowTitleBlockModal(false)} className="text-slate-500 hover:text-slate-300">
+          <div className="bg-gray-100 border border-gray-200 rounded-2xl w-[90vw] max-w-[1100px] h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 flex-shrink-0">
+              <h3 className="text-lg font-bold text-gray-900">스테이징 - AI 추출 결과 확인</h3>
+              <button onClick={() => setShowTitleBlockModal(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="flex flex-1 overflow-hidden">
               {/* Left 60% - PDF preview + DI word overlay */}
-              <div className="w-[60%] border-r border-slate-700/50 bg-slate-900/50 flex flex-col">
-                <div className="px-3 py-1.5 border-b border-slate-700/50 text-[10px] text-slate-500">
+              <div className="w-[60%] border-r border-gray-200 bg-gray-100 flex flex-col">
+                <div className="px-3 py-1.5 border-b border-gray-200 text-[10px] text-gray-400">
                   1페이지 미리보기 · DI Words confidence 오버레이
                 </div>
                 <div className="flex-1 overflow-auto p-3 relative">
@@ -2599,7 +2599,7 @@ const PlantSync = () => {
                         const height = ((maxY - minY) / stagingLayout.height) * 100;
                         const conf = w.confidence;
                         const borderColor = conf >= 0.9 ? 'border-green-400' : conf >= 0.7 ? 'border-yellow-400' : 'border-red-400';
-                        const bgColor = conf >= 0.9 ? 'bg-green-500/5' : conf >= 0.7 ? 'bg-yellow-500/5' : 'bg-red-500/5';
+                        const bgColor = conf >= 0.9 ? 'bg-green-50' : conf >= 0.7 ? 'bg-yellow-50' : 'bg-red-50';
                         return (
                           <div
                             key={i}
@@ -2607,13 +2607,13 @@ const PlantSync = () => {
                             style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
                             title={`"${w.content}" (${Math.round(conf * 100)}%)`}
                           >
-                            <span className="absolute -top-3 left-0 text-[7px] text-slate-500 whitespace-nowrap">{w.content}</span>
+                            <span className="absolute -top-3 left-0 text-[7px] text-gray-400 whitespace-nowrap">{w.content}</span>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <div className="flex items-center justify-center h-full text-slate-500 text-xs">
+                    <div className="flex items-center justify-center h-full text-gray-400 text-xs">
                       DI 분석 데이터가 없습니다
                     </div>
                   )}
@@ -2622,32 +2622,32 @@ const PlantSync = () => {
 
               {/* Right 40% - Metadata form */}
               <div className="w-[40%] flex flex-col">
-                <div className="px-3 py-1.5 border-b border-slate-700/50 text-[10px] text-slate-500">
+                <div className="px-3 py-1.5 border-b border-gray-200 text-[10px] text-gray-400">
                   메타데이터 편집
                 </div>
                 <div className="flex-1 overflow-auto p-4 space-y-3">
                   {/* 기본 정보 */}
-                  <p className="text-[10px] font-bold text-sky-400 uppercase tracking-wider">기본 정보</p>
+                  <p className="text-[10px] font-bold text-sky-600 uppercase tracking-wider">기본 정보</p>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">도면번호</label>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">도면번호</label>
                     <input value={titleBlockData.drawing_number || ''} onChange={e => setTitleBlockData(p => ({ ...p, drawing_number: e.target.value }))}
-                           className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                           className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500" />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">타이틀</label>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">타이틀</label>
                     <input value={titleBlockData.title || ''} onChange={e => setTitleBlockData(p => ({ ...p, title: e.target.value }))}
-                           className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                           className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500" />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5">리비전</label>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">리비전</label>
                       <input value={titleBlockData.revision || ''} onChange={e => setTitleBlockData(p => ({ ...p, revision: e.target.value }))}
-                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                             className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500" />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5">디시플린</label>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">디시플린</label>
                       <select value={titleBlockData.discipline || ''} onChange={e => setTitleBlockData(p => ({ ...p, discipline: e.target.value }))}
-                              className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+                              className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500">
                         <option value="">선택...</option>
                         {Object.entries(DISCIPLINES).map(([k, v]) => (
                           <option key={k} value={k}>{v.label}</option>
@@ -2657,13 +2657,13 @@ const PlantSync = () => {
                   </div>
 
                   {/* EPC 관리 정보 */}
-                  <div className="border-t border-slate-700/50 pt-3 mt-2">
-                    <p className="text-[10px] font-bold text-sky-400 uppercase tracking-wider mb-2">EPC 관리 정보</p>
+                  <div className="border-t border-gray-200 pt-3 mt-2">
+                    <p className="text-[10px] font-bold text-sky-600 uppercase tracking-wider mb-2">EPC 관리 정보</p>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">발행 목적 (Issue Purpose)</label>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">발행 목적 (Issue Purpose)</label>
                     <select value={titleBlockData.issue_purpose || ''} onChange={e => setTitleBlockData(p => ({ ...p, issue_purpose: e.target.value }))}
-                            className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+                            className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500">
                       <option value="">선택...</option>
                       <option value="IFA">IFA (Issued for Approval)</option>
                       <option value="IFI">IFI (Issued for Information)</option>
@@ -2673,61 +2673,61 @@ const PlantSync = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5">발행일 (Issue Date)</label>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">발행일 (Issue Date)</label>
                       <input type="date" value={titleBlockData.issue_date || ''} onChange={e => setTitleBlockData(p => ({ ...p, issue_date: e.target.value }))}
-                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                             className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500" />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5">접수일 (Receive Date)</label>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">접수일 (Receive Date)</label>
                       <input type="date" value={titleBlockData.receive_date || ''} onChange={e => setTitleBlockData(p => ({ ...p, receive_date: e.target.value }))}
-                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                             className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">Vendor 도면번호</label>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">Vendor 도면번호</label>
                     <input value={titleBlockData.vendor_drawing_number || ''} onChange={e => setTitleBlockData(p => ({ ...p, vendor_drawing_number: e.target.value }))}
-                           className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                           className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500" />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5">Vendor 이름</label>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">Vendor 이름</label>
                       <input value={titleBlockData.vendor_name || ''} onChange={e => setTitleBlockData(p => ({ ...p, vendor_name: e.target.value }))}
-                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                             className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500" />
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5">검토자</label>
+                      <label className="block text-[10px] text-gray-500 mb-0.5">검토자</label>
                       <input value={titleBlockData.reviewer_name || ''} onChange={e => setTitleBlockData(p => ({ ...p, reviewer_name: e.target.value }))}
-                             className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500" />
+                             className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500" />
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <input type="checkbox" id="has_dwg" checked={titleBlockData.has_dwg || false}
                            onChange={e => setTitleBlockData(p => ({ ...p, has_dwg: e.target.checked }))}
-                           className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-700/50 text-sky-500 focus:ring-sky-500" />
-                    <label htmlFor="has_dwg" className="text-xs text-slate-300">DWG 파일 보유</label>
+                           className="w-3.5 h-3.5 rounded border-gray-300 bg-white text-sky-500 focus:ring-sky-500" />
+                    <label htmlFor="has_dwg" className="text-xs text-gray-600">DWG 파일 보유</label>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">변경 이력 (Change Log)</label>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">변경 이력 (Change Log)</label>
                     <textarea value={titleBlockData.change_log || ''} onChange={e => setTitleBlockData(p => ({ ...p, change_log: e.target.value }))}
-                              className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500 resize-none" rows={2} />
+                              className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500 resize-none" rows={2} />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">비고 (Remarks)</label>
+                    <label className="block text-[10px] text-gray-500 mb-0.5">비고 (Remarks)</label>
                     <textarea value={titleBlockData.remarks || ''} onChange={e => setTitleBlockData(p => ({ ...p, remarks: e.target.value }))}
-                              className="w-full px-2.5 py-1.5 bg-slate-700/50 border border-slate-600 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-sky-500 resize-none" rows={2} />
+                              className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs text-gray-800 focus:outline-none focus:border-sky-500 resize-none" rows={2} />
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Bottom actions */}
-            <div className="flex gap-3 px-5 py-3 border-t border-slate-700/50 flex-shrink-0">
+            <div className="flex gap-3 px-5 py-3 border-t border-gray-200 flex-shrink-0">
               <button onClick={handleConfirmTitleBlock}
                       className="flex-1 px-4 py-2.5 bg-sky-500 hover:bg-sky-400 text-white rounded-lg text-sm font-medium transition-colors">
                 승인 및 등록
               </button>
               <button onClick={() => setShowTitleBlockModal(false)}
-                      className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm transition-colors">
+                      className="px-4 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-600 rounded-lg text-sm transition-colors">
                 건너뛰기
               </button>
             </div>
