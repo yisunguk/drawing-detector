@@ -630,6 +630,30 @@ const PlantSync = () => {
     }
   };
 
+  const handleCancelUpload = async () => {
+    if (!selectedProject || !pendingDrawingId) {
+      setShowTitleBlockModal(false);
+      return;
+    }
+    if (!window.confirm('업로드한 도면을 삭제하시겠습니까?')) return;
+    try {
+      const token = await getToken();
+      await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${pendingDrawingId}`), {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      setShowTitleBlockModal(false);
+      setPendingDrawingId(null);
+      setTitleBlockData(null);
+      setStagingWords([]);
+      setStagingLayout({ width: 0, height: 0 });
+      await loadProjectDetail(selectedProject.project_id);
+    } catch (e) {
+      console.error('Cancel upload error:', e);
+      setShowTitleBlockModal(false);
+    }
+  };
+
   const handleConfirmTitleBlock = async () => {
     if (!selectedProject || !pendingDrawingId || !titleBlockData) return;
     try {
@@ -2846,6 +2870,10 @@ const PlantSync = () => {
 
             {/* Bottom actions */}
             <div className="flex gap-3 px-5 py-3 border-t border-gray-200 flex-shrink-0">
+              <button onClick={handleCancelUpload}
+                      className="px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-sm font-medium transition-colors">
+                취소 (삭제)
+              </button>
               <button onClick={handleConfirmTitleBlock}
                       className="flex-1 px-4 py-2.5 bg-sky-500 hover:bg-sky-400 text-white rounded-lg text-sm font-medium transition-colors">
                 승인 및 등록
