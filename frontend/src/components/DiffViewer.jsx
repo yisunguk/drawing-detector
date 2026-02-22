@@ -1,11 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Columns, SlidersHorizontal, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
 
-// Ensure worker is set
-if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
-}
+// Use the global pdfjsLib from CDN (loaded in index.html) to avoid version mismatch
+const pdfjsLib = window.pdfjsLib;
 
 const DiffViewer = ({ revisionA, revisionB, onClose }) => {
   const [mode, setMode] = useState('side'); // 'side' | 'slider'
