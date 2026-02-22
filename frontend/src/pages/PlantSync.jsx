@@ -601,18 +601,20 @@ const PlantSync = () => {
       const data = await res.json();
 
       // Show title block confirmation modal + staging data
+      // Merge: title_block (DI extracted) + drawing (has receive_date, defaults)
+      const d = data.drawing || {};
       setTitleBlockData({
         ...data.title_block,
-        vendor_drawing_number: '',
-        issue_purpose: '',
-        issue_date: '',
-        receive_date: '',
-        vendor_name: '',
-        reviewer_name: '',
-        has_dwg: false,
-        related_drawings: [],
-        change_log: '',
-        remarks: '',
+        vendor_drawing_number: data.title_block?.vendor_drawing_number || d.vendor_drawing_number || '',
+        issue_purpose: data.title_block?.issue_purpose || d.issue_purpose || '',
+        issue_date: data.title_block?.issue_date || d.issue_date || '',
+        receive_date: d.receive_date || '',
+        vendor_name: data.title_block?.vendor_name || d.vendor_name || '',
+        reviewer_name: d.reviewer_name || '',
+        has_dwg: d.has_dwg || false,
+        related_drawings: d.related_drawings || [],
+        change_log: d.change_log || '',
+        remarks: d.remarks || '',
       });
       setPendingDrawingId(data.drawing?.drawing_id);
       setStagingWords(data.title_block_words || []);
