@@ -358,6 +358,28 @@ def _extract_title_block(di_pages: list) -> dict:
 
 # ── API Endpoints ──
 
+@router.get("/users")
+async def list_users(authorization: Optional[str] = Header(None)):
+    """Return list of registered users from Firestore."""
+    _get_username(authorization)  # auth check
+    try:
+        from firebase_admin import firestore
+        db = firestore.client()
+        docs = db.collection('users').stream()
+        users = []
+        for doc in docs:
+            d = doc.to_dict()
+            name = d.get('name') or d.get('displayName') or ''
+            email = d.get('email') or ''
+            if name or email:
+                users.append({"uid": doc.id, "name": name, "email": email})
+        users.sort(key=lambda u: u['name'] or u['email'])
+        return {"users": users}
+    except Exception as e:
+        logger.error(f"list_users error: {e}")
+        return {"users": []}
+
+
 @router.post("/projects")
 async def create_project(
     req: CreateProjectRequest,

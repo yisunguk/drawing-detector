@@ -122,6 +122,7 @@ const PlantSync = () => {
   const [transmittals, setTransmittals] = useState([]);
   const [showActivityDrawer, setShowActivityDrawer] = useState(false);
   const [intakeComment, setIntakeComment] = useState('');
+  const [userList, setUserList] = useState([]);
 
   const fileInputRef = useRef(null);
 
@@ -144,6 +145,21 @@ const PlantSync = () => {
       setProjects(data.projects || []);
     } catch (e) {
       console.error('Load projects error:', e);
+    }
+  }, []);
+
+  const loadUsers = useCallback(async () => {
+    try {
+      const token = await getToken();
+      const res = await fetch(getUrl('users'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUserList(data.users || []);
+      }
+    } catch (e) {
+      console.error('Load users error:', e);
     }
   }, []);
 
@@ -366,7 +382,7 @@ const PlantSync = () => {
 
   // ── Effects ──
 
-  useEffect(() => { loadProjects(); }, [loadProjects]);
+  useEffect(() => { loadProjects(); loadUsers(); }, [loadProjects, loadUsers]);
 
   useEffect(() => {
     if (selectedProject) {
@@ -1595,12 +1611,16 @@ const PlantSync = () => {
                 {showNewRequest && selectedDrawing && (
                   <div className="p-3 border-b border-slate-700/50 space-y-2 bg-slate-800/30 flex-shrink-0">
                     <p className="text-xs font-medium text-slate-300">새 검토 요청</p>
-                    <input
+                    <select
                       value={requestForm.to_name}
                       onChange={e => setRequestForm(f => ({ ...f, to_name: e.target.value }))}
-                      placeholder="담당자 이름"
                       className="w-full px-2 py-1.5 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
-                    />
+                    >
+                      <option value="">담당자 선택</option>
+                      {userList.map(u => (
+                        <option key={u.uid} value={u.name || u.email}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
+                      ))}
+                    </select>
                     <div className="flex gap-1.5">
                       <select
                         value={requestForm.discipline}
@@ -1754,18 +1774,46 @@ const PlantSync = () => {
                                   <span className="text-xs text-slate-200 flex-1 truncate">{r.title}</span>
                                 </div>
                                 <div className="space-y-1.5">
-                                  <input
+                                  <select
                                     value={assignForm.lead_reviewer}
                                     onChange={e => setAssignForm(f => ({ ...f, lead_reviewer: e.target.value }))}
-                                    placeholder="주 담당자 (Lead)"
                                     className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none focus:border-sky-500"
-                                  />
-                                  <input
-                                    value={assignForm.squad_reviewers}
-                                    onChange={e => setAssignForm(f => ({ ...f, squad_reviewers: e.target.value }))}
-                                    placeholder="협조 검토자 (쉼표 구분)"
+                                  >
+                                    <option value="">주 담당자 (Lead) 선택</option>
+                                    {userList.map(u => (
+                                      <option key={u.uid} value={u.name || u.email}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
+                                    ))}
+                                  </select>
+                                  <select
+                                    value=""
+                                    onChange={e => {
+                                      const val = e.target.value;
+                                      if (!val) return;
+                                      const current = assignForm.squad_reviewers ? assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(Boolean) : [];
+                                      if (!current.includes(val)) {
+                                        setAssignForm(f => ({ ...f, squad_reviewers: [...current, val].join(', ') }));
+                                      }
+                                    }}
                                     className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none"
-                                  />
+                                  >
+                                    <option value="">협조 검토자 추가</option>
+                                    {userList.filter(u => (u.name || u.email) !== assignForm.lead_reviewer).map(u => (
+                                      <option key={u.uid} value={u.name || u.email}>{u.name}{u.email ? ` (${u.email})` : ''}</option>
+                                    ))}
+                                  </select>
+                                  {assignForm.squad_reviewers && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(Boolean).map(name => (
+                                        <span key={name} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-700 rounded text-[9px] text-slate-300">
+                                          {name}
+                                          <button onClick={() => {
+                                            const updated = assignForm.squad_reviewers.split(',').map(s => s.trim()).filter(s => s && s !== name).join(', ');
+                                            setAssignForm(f => ({ ...f, squad_reviewers: updated }));
+                                          }} className="text-slate-500 hover:text-red-400 ml-0.5">×</button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
                                   <input
                                     type="date"
                                     value={assignForm.due_date}
