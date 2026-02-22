@@ -2476,23 +2476,7 @@ const PlantSync = () => {
                         placeholder="예: PSV-0905A, PIPE-2001"
                         className="w-full px-2 py-1 bg-gray-50 border border-gray-200 rounded text-[10px] text-gray-600 placeholder-gray-400 focus:outline-none focus:border-sky-300 mb-1"
                       />
-                      {parsedTags.equipment.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {parsedTags.equipment.map((tag, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setMarkupForm(f => ({ ...f, related_tag_no: tag }))}
-                              className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
-                                markupForm.related_tag_no === tag
-                                  ? 'bg-sky-100 border-sky-400 text-sky-700 font-medium'
-                                  : 'bg-sky-50 border-sky-200 text-sky-600 hover:bg-sky-100'
-                              }`}
-                            >
-                              {tag}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                      {/* Equipment/Line chips rendered in AI 추천 데이터 section below */}
                     </div>
 
                     {/* Target Disciplines (multi-select checkboxes) */}
@@ -2553,98 +2537,94 @@ const PlantSync = () => {
                       />
                     </div>
 
-                    {/* AI Analyzed Tags — 3-category parsed display */}
+                    {/* AI 추천 데이터 — 3-group contextual display */}
                     {(loadingNearby || parsedTags.lines.length > 0 || parsedTags.specs.length > 0 || parsedTags.equipment.length > 0) && (
-                      <div className="mb-2">
+                      <div className="mb-2 p-2 bg-purple-50/50 rounded-lg border border-purple-100">
                         <div className="flex items-center gap-1.5 mb-1.5">
                           <Sparkles className="w-3 h-3 text-purple-600" />
-                          <span className="text-[10px] text-purple-600 font-medium">AI 분석 태그</span>
+                          <span className="text-[10px] text-purple-600 font-medium">AI 추천 데이터</span>
                           {loadingNearby && <Loader2 className="w-3 h-3 text-purple-600 animate-spin" />}
+                          <span className="text-[9px] text-purple-400 ml-auto">클릭 시 자동 입력</span>
                         </div>
 
-                        {/* Equipment tags */}
+                        {/* ⚙️ 대상 기기 → click fills related_tag_no */}
                         {parsedTags.equipment.length > 0 && (
-                          <div className="mb-1">
-                            <span className="text-[9px] text-sky-500 block mb-0.5">기기/계기</span>
+                          <div className="mb-1.5">
+                            <span className="text-[9px] text-sky-600 font-medium block mb-0.5">⚙️ 대상 기기</span>
                             <div className="flex flex-wrap gap-1">
-                              {parsedTags.equipment.map((tag, i) => {
-                                const isSelected = markupForm.extracted_tags.includes(tag);
-                                return (
-                                  <button
-                                    key={i}
-                                    onClick={() => setMarkupForm(f => ({
-                                      ...f,
-                                      extracted_tags: isSelected
-                                        ? f.extracted_tags.filter(t => t !== tag)
-                                        : [...f.extracted_tags, tag],
-                                    }))}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
-                                      isSelected
-                                        ? 'bg-sky-100 border-sky-400 text-sky-700 font-medium'
-                                        : 'bg-sky-50 border-sky-200 text-sky-600 hover:bg-sky-100'
-                                    }`}
-                                  >
-                                    {tag}
-                                  </button>
-                                );
-                              })}
+                              {parsedTags.equipment.map((tag, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => setMarkupForm(f => ({ ...f, related_tag_no: tag }))}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                    markupForm.related_tag_no === tag
+                                      ? 'bg-sky-100 border-sky-400 text-sky-700 font-medium'
+                                      : 'bg-white border-sky-200 text-sky-600 hover:bg-sky-50'
+                                  }`}
+                                  title="클릭: 관련 기기/태그번호에 입력"
+                                >
+                                  {tag}
+                                </button>
+                              ))}
                             </div>
                           </div>
                         )}
 
-                        {/* Line numbers */}
+                        {/* 🔀 관련 배관 → click appends to related_tag_no */}
                         {parsedTags.lines.length > 0 && (
-                          <div className="mb-1">
-                            <span className="text-[9px] text-emerald-500 block mb-0.5">배관 라인</span>
+                          <div className="mb-1.5">
+                            <span className="text-[9px] text-emerald-600 font-medium block mb-0.5">🔀 관련 배관</span>
                             <div className="flex flex-wrap gap-1">
-                              {parsedTags.lines.map((line, i) => {
-                                const isSelected = markupForm.extracted_tags.includes(line);
-                                return (
-                                  <button
-                                    key={i}
-                                    onClick={() => setMarkupForm(f => ({
-                                      ...f,
-                                      extracted_tags: isSelected
-                                        ? f.extracted_tags.filter(t => t !== line)
-                                        : [...f.extracted_tags, line],
-                                    }))}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
-                                      isSelected
-                                        ? 'bg-emerald-100 border-emerald-400 text-emerald-700 font-medium'
-                                        : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
-                                    }`}
-                                  >
-                                    {line}
-                                  </button>
-                                );
-                              })}
+                              {parsedTags.lines.map((line, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => setMarkupForm(f => ({
+                                    ...f,
+                                    related_tag_no: f.related_tag_no
+                                      ? (f.related_tag_no.includes(line) ? f.related_tag_no : `${f.related_tag_no}, ${line}`)
+                                      : line,
+                                  }))}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                    markupForm.related_tag_no?.includes(line)
+                                      ? 'bg-emerald-100 border-emerald-400 text-emerald-700 font-medium'
+                                      : 'bg-white border-emerald-200 text-emerald-600 hover:bg-emerald-50'
+                                  }`}
+                                  title="클릭: 관련 기기/태그번호에 추가"
+                                >
+                                  {line}
+                                </button>
+                              ))}
                             </div>
                           </div>
                         )}
 
-                        {/* Specs */}
+                        {/* 📊 주요 속성 → click adds to custom_tags */}
                         {parsedTags.specs.length > 0 && (
-                          <div className="mb-1">
-                            <span className="text-[9px] text-amber-500 block mb-0.5">주요 스펙</span>
+                          <div className="mb-0.5">
+                            <span className="text-[9px] text-amber-600 font-medium block mb-0.5">📊 주요 속성</span>
                             <div className="flex flex-wrap gap-1">
                               {parsedTags.specs.map((spec, i) => {
-                                const isSelected = markupForm.extracted_tags.includes(spec);
+                                const isAdded = markupForm.custom_tags.includes(spec.tag);
                                 return (
                                   <button
                                     key={i}
-                                    onClick={() => setMarkupForm(f => ({
-                                      ...f,
-                                      extracted_tags: isSelected
-                                        ? f.extracted_tags.filter(t => t !== spec)
-                                        : [...f.extracted_tags, spec],
-                                    }))}
+                                    onClick={() => {
+                                      if (isAdded) {
+                                        setMarkupForm(f => ({ ...f, custom_tags: f.custom_tags.filter(t => t !== spec.tag) }));
+                                      } else {
+                                        setMarkupForm(f => ({ ...f, custom_tags: [...f.custom_tags, spec.tag] }));
+                                      }
+                                    }}
                                     className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
-                                      isSelected
+                                      isAdded
                                         ? 'bg-amber-100 border-amber-400 text-amber-700 font-medium'
-                                        : 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
+                                        : 'bg-white border-amber-200 text-amber-600 hover:bg-amber-50'
                                     }`}
+                                    title={`클릭: 사용자 태그에 ${spec.tag} 추가`}
                                   >
-                                    {spec}
+                                    {spec.label && <span className="text-amber-400 mr-0.5">{spec.label}:</span>}
+                                    <span className="font-medium">{spec.value}</span>
+                                    {spec.unit && <span className="text-amber-400 ml-0.5">{spec.unit}</span>}
                                   </button>
                                 );
                               })}

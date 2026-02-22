@@ -1,72 +1,133 @@
 /**
- * P&ID OCR Tag Parser
+ * P&ID OCR Tag Parser v2 — Contextual Merging
  *
- * Azure Document Intelligence가 추출한 파편화된 텍스트 배열을
- * EPC 설계자의 검색 의도(Search Intent)에 맞게 3가지 카테고리로 분류합니다.
+ * Azure Document Intelligence 추출 텍스트를 EPC 설계자의
+ * 검색 의도(Search Intent)에 맞게 3카테고리로 분류하고,
+ * 주변 텍스트 컨텍스트를 활용해 Key-Value 스펙을 조립합니다.
  *
- * 알고리즘 (4-Pass, 순서 중요):
- *   Pass 1: 라인넘버 — 하이픈 2개 이상 + 숫자 포함 (가장 구별력 높음)
- *   Pass 2: 완성형 태그 — 단일 워드 내 PREFIX-NUMBER 패턴
- *   Pass 3: 인접 머지 — PREFIX + TAG_NUMBER를 2-word lookahead로 결합
- *   Pass 4: 스펙 — 스펙코드, 인치규격, 숫자+단위 결합
- *   나머지: 노이즈로 버림 (SET, NOTE, @, 단독 숫자 등)
+ * 알고리즘 (5-Pass):
+ *   Pass 1: 라인넘버 (하이픈 2+, 숫자 포함, 가장 구별력 높음)
+ *   Pass 2: 완성형 기기태그 (PREFIX-NUMBER 단일 워드)
+ *   Pass 3: 인접 머지 기기태그 (PREFIX + NUMBER, 2-word lookahead)
+ *   Pass 4: 컨텍스트 스펙 (Keyword ↔ Number ↔ Unit 양방향 조합)
+ *   Pass 5: 나머지 스펙 (스펙코드, 인치규격)
+ *   나머지: 노이즈 버림
  */
 
-export interface ParsedPidTags {
-  equipment: string[];  // 기기/계기 태그: PSV-0905A, TIC-101
-  lines: string[];      // 배관 라인 넘버: 4"-PL-21-009013-B2A1-H
-  specs: string[];      // 주요 스펙/수치: 39.9 kg/cm2g, 1.5F2
+// ── Output Types ──
+
+export interface SpecEntry {
+  label: string;    // EPC 속성명: "Set Pressure", "Design Temp"
+  value: string;    // 수치: "39.9"
+  unit: string;     // 단위: "kg/cm2g"
+  display: string;  // UI 표시: "Set Press: 39.9 kg/cm2g"
+  tag: string;      // 해시태그: "#SetPress_39.9"
 }
 
+export interface ParsedPidTags {
+  equipment: string[];   // 기기/계기: PSV0905A
+  lines: string[];       // 배관 라인: 4"-PL-21-009013-B2A1-H
+  specs: SpecEntry[];    // 주요 속성: Key-Value 스펙
+}
+
+// ── EPC Keyword → Spec Label 사전 ──
+// 2-word 복합 키워드 (우선 매칭)
+const COMPOUND_KEYWORDS: Record<string, string> = {
+  'SET PRESS': 'Set Pressure', 'SET PRESSURE': 'Set Pressure',
+  'DESIGN PRESS': 'Design Pressure', 'DESIGN PRESSURE': 'Design Pressure',
+  'DESIGN TEMP': 'Design Temp.', 'DESIGN TEMPERATURE': 'Design Temp.',
+  'OPER PRESS': 'Oper. Pressure', 'OPERATING PRESS': 'Oper. Pressure',
+  'OPER TEMP': 'Oper. Temp.', 'OPERATING TEMP': 'Oper. Temp.',
+  'OPERATING PRESSURE': 'Oper. Pressure', 'OPERATING TEMPERATURE': 'Oper. Temp.',
+  'BACK PRESS': 'Back Pressure', 'BACK PRESSURE': 'Back Pressure',
+  'DIFF PRESS': 'Diff. Pressure', 'DIFF PRESSURE': 'Diff. Pressure',
+  'TEST PRESS': 'Test Pressure', 'TEST PRESSURE': 'Test Pressure',
+  'HYDRO TEST': 'Hydro Test',
+  'INLET SIZE': 'Inlet Size', 'OUTLET SIZE': 'Outlet Size',
+  'NORMAL FLOW': 'Normal Flow', 'MAX FLOW': 'Max Flow', 'MIN FLOW': 'Min Flow',
+  'MAX TEMP': 'Max Temp.', 'MIN TEMP': 'Min Temp.',
+  'COLD DIFF': 'CDTP', 'FULL OPEN': 'Full Open',
+  'RELIEF PRESS': 'Relief Pressure', 'RELIEF TEMP': 'Relief Temp.',
+  'SP GR': 'Sp. Gravity', 'MOL WT': 'Mol. Weight',
+  'PIPE SIZE': 'Pipe Size', 'LINE SIZE': 'Line Size',
+  'ORIFICE SIZE': 'Orifice', 'ORIFICE AREA': 'Orifice Area',
+  'SET POINT': 'Set Point',
+};
+
+// 1-word 단일 키워드
+const SINGLE_KEYWORDS: Record<string, string> = {
+  'SET': 'Set Pressure', 'DESIGN': 'Design', 'OPERATING': 'Operating', 'OPER': 'Operating',
+  'TEST': 'Test', 'MAX': 'Max', 'MIN': 'Min', 'NORMAL': 'Normal', 'RATED': 'Rated',
+  'RELIEF': 'Relief', 'BACK': 'Back Pressure', 'INLET': 'Inlet', 'OUTLET': 'Outlet',
+  'FLOW': 'Flow Rate', 'CAPACITY': 'Capacity', 'SIZE': 'Size',
+  'TEMP': 'Temperature', 'PRESS': 'Pressure', 'PRESSURE': 'Pressure', 'TEMPERATURE': 'Temperature',
+  'WEIGHT': 'Weight', 'WT': 'Weight', 'DIA': 'Diameter', 'BORE': 'Bore',
+  'LENGTH': 'Length', 'AREA': 'Area', 'VELOCITY': 'Velocity',
+  'DENSITY': 'Density', 'VISCOSITY': 'Viscosity', 'MW': 'Mol. Weight',
+  'SG': 'Sp. Gravity', 'MAWP': 'MAWP', 'MDMT': 'MDMT',
+};
+
+// 키워드 전체 Set (노이즈 스킵 판별용)
+const ALL_KEYWORDS = new Set([
+  ...Object.keys(SINGLE_KEYWORDS),
+  // compound의 개별 단어는 포함하지 않음 — compound 매칭으로 처리
+]);
+
 // ── Known EPC Instrument/Equipment Prefixes (90+) ──
-// 화이트리스트 기반으로 오탐(false positive) 최소화
 const KNOWN_PREFIXES = new Set([
-  // Pressure
   'PT', 'PI', 'PIC', 'PIT', 'PDI', 'PDIC', 'PAH', 'PAL', 'PAHH', 'PALL',
   'PSV', 'PRV', 'PSE', 'PSH', 'PSL', 'PSHH', 'PSLL', 'PG', 'PB',
-  // Temperature
   'TI', 'TIC', 'TIT', 'TE', 'TT', 'TAH', 'TAL', 'TAHH', 'TALL',
   'TSH', 'TSL', 'TSHH', 'TSLL', 'TW', 'TG',
-  // Flow
   'FI', 'FIC', 'FIT', 'FE', 'FT', 'FAH', 'FAL', 'FSH', 'FSL', 'FQ', 'FO',
-  // Level
   'LI', 'LIC', 'LIT', 'LE', 'LT', 'LAH', 'LAL', 'LAHH', 'LALL',
   'LSH', 'LSL', 'LSHH', 'LSLL', 'LG', 'LB',
-  // Analytical
   'AI', 'AIC', 'AIT', 'AE', 'AT',
-  // Valves
   'XV', 'HV', 'PCV', 'TCV', 'FCV', 'LCV',
   'SDV', 'BDV', 'MOV', 'SOV', 'AOV',
   'CV', 'RV', 'BV', 'SV', 'NRV', 'GOV',
-  // Position / Switch
-  'ZSO', 'ZSC', 'ZI', 'ZT', 'ZA',
-  'HS', 'HC', 'HIC',
-  // Equipment (2+ char)
+  'ZSO', 'ZSC', 'ZI', 'ZT', 'ZA', 'HS', 'HC', 'HIC',
   'HX', 'EX', 'ST', 'TK', 'VV', 'DR', 'PP',
   'AG', 'BL', 'CL', 'CR', 'EJ', 'FL',
-  // Piping — line service codes often used as tag prefix
   'PL', 'CW', 'SW', 'FW', 'IA', 'PA', 'NG', 'FG', 'LP', 'HP', 'MP',
 ]);
 
 // ── EPC 표준 단위 패턴 ──
-// 숫자 뒤에 오면 스펙으로 인식
 const UNIT_RE = /^(kg\/cm2g?|barg?|bara|bar|mmHg|mmH2O|mmWC|mbar|MPa|kPa|Pa|psi[ag]?|atm|mm|cm|m|in|ft|°[CF]|℃|℉|kg|ton|lb|g|m3\/h|m3\/hr|l\/min|LPM|GPM|SCFM|ACFM|Nm3\/h|Nm3\/hr|Hz|RPM|kW|HP|MW|kVA|NPS|DN|SCH|Sch|BWG|NB|m\/s|m\/sec|ft\/s|cP|cSt|API|ANSI|PN)$/i;
 
 // ── Regex Helpers ──
 const PREFIX_RE = /^[A-Z]{2,5}$/;
-const TAG_NUM_RE = /^\d+[A-Z0-9]*$/;                    // 0905A, 101, 2001B
-const COMPLETE_TAG_RE = /^[A-Z]{2,5}-?\d+[A-Z0-9]*$/;    // PSV0905A or PSV-0905A (single word)
-const NUMERIC_RE = /^\d+\.?\d*$/;                         // 39.9, 150
-const SPEC_CODE_RE = /^\d+\.?\d*[A-Z][A-Z0-9]*$/;       // 1.5F2, 3R12
-const INCH_SPEC_RE = /^\d+[""\u2033\u201C\u201D]/;       // 44", 4"PYLO (various quote chars)
-const TRAILING_JUNK_RE = /[\/\\%,;:)]+$/;                 // 트레일링 특수문자 정리
+const TAG_NUM_RE = /^\d+[A-Z0-9]*$/;
+const COMPLETE_TAG_RE = /^[A-Z]{2,5}-?\d+[A-Z0-9]*$/;
+const NUMERIC_RE = /^\d+\.?\d*$/;
+const SPEC_CODE_RE = /^\d+\.?\d*[A-Z][A-Z0-9]*$/;
+const INCH_SPEC_RE = /^\d+[""\u2033\u201C\u201D]/;
+const TRAILING_JUNK_RE = /[\/\\%,;:)]+$/;
+
+// 노이즈 판별: 1글자 or 특수문자만
+function isNoise(w: string): boolean {
+  return w.length <= 1 || /^[^A-Za-z0-9]+$/.test(w);
+}
+
+// SpecEntry 생성 헬퍼
+function makeSpec(label: string, value: string, unit: string): SpecEntry {
+  const displayParts: string[] = [];
+  if (label) displayParts.push(`${label}:`);
+  displayParts.push(value);
+  if (unit) displayParts.push(unit);
+  const display = displayParts.join(' ');
+
+  // 해시태그: #SetPress_39.9 형식 (공백/특수문자 제거)
+  const tagLabel = label.replace(/[.\s]/g, '').replace(/[^A-Za-z0-9]/g, '_');
+  const tagValue = value.replace(/[^A-Za-z0-9.]/g, '');
+  const tag = label ? `#${tagLabel}_${tagValue}` : `#${tagValue}${unit ? '_' + unit.replace(/[^A-Za-z0-9]/g, '') : ''}`;
+
+  return { label, value, unit, display, tag };
+}
 
 /**
  * Raw OCR 워드 배열을 3가지 EPC 카테고리로 분류합니다.
- *
- * @example
- * parsePidTags(["PSV", "0905A/", "39.9", "kg/cm2g", "4\"-PL-21-009013-B2A1-H"])
- * // → { equipment: ["PSV0905A"], lines: ["4\"-PL-21-009013-B2A1-H"], specs: ["39.9 kg/cm2g"] }
+ * 주변 텍스트 컨텍스트를 활용해 Key-Value 스펙을 조립합니다.
  */
 export function parsePidTags(words: string[]): ParsedPidTags {
   if (!words || words.length === 0) {
@@ -75,11 +136,10 @@ export function parsePidTags(words: string[]): ParsedPidTags {
 
   const equipment: string[] = [];
   const lines: string[] = [];
-  const specs: string[] = [];
+  const specs: SpecEntry[] = [];
   const used = new Set<number>();
 
   // ━━ Pass 1: Line Numbers (하이픈 2개 이상 + 숫자 포함) ━━
-  // 가장 구별력이 높으므로 먼저 추출하여 오분류 방지
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
     const hyphenCount = (w.match(/-/g) || []).length;
@@ -89,26 +149,21 @@ export function parsePidTags(words: string[]): ParsedPidTags {
     }
   }
 
-  // ━━ Pass 2: Complete Equipment Tags (단일 워드 PREFIX-NUMBER) ━━
+  // ━━ Pass 2: Complete Equipment Tags (PREFIX-NUMBER 단일 워드) ━━
   for (let i = 0; i < words.length; i++) {
     if (used.has(i)) continue;
     if (COMPLETE_TAG_RE.test(words[i])) {
-      // 하이픈 제거: PSV-0905A → PSV0905A
       equipment.push(words[i].replace(/-/, ''));
       used.add(i);
     }
   }
 
   // ━━ Pass 3: Adjacent Merge (PREFIX + TAG_NUMBER, 2-word lookahead) ━━
-  // OCR 노이즈(@, / 등)가 사이에 끼어도 2칸 내에서 결합
   for (let i = 0; i < words.length; i++) {
     if (used.has(i)) continue;
     const w = words[i];
-
-    // 접두사 조건: 2~5자 대문자 + Known Prefix
     if (!PREFIX_RE.test(w) || !KNOWN_PREFIXES.has(w)) continue;
 
-    // 1~2칸 뒤에서 태그번호 탐색
     for (let j = i + 1; j <= Math.min(i + 2, words.length - 1); j++) {
       if (used.has(j)) continue;
       const cleaned = words[j].replace(TRAILING_JUNK_RE, '');
@@ -116,65 +171,132 @@ export function parsePidTags(words: string[]): ParsedPidTags {
         equipment.push(`${w}${cleaned}`);
         used.add(i);
         used.add(j);
-        // 사이에 있는 노이즈도 consumed 처리
         for (let k = i + 1; k < j; k++) used.add(k);
         break;
       }
-      // 노이즈(1글자, 특수문자)만 건너뛰고 그 외는 탐색 중단
       if (words[j].length > 1 && /[A-Za-z0-9]{2,}/.test(words[j])) break;
     }
   }
 
-  // ━━ Pass 4: Specs (스펙코드, 인치규격, 숫자+단위) ━━
+  // ━━ Pass 4: Contextual Specs (Keyword ↔ Number ↔ Unit 양방향 스캔) ━━
+  // 각 숫자를 중심으로 ±3칸 내 키워드, +3칸 내 단위를 탐색
+  for (let i = 0; i < words.length; i++) {
+    if (used.has(i)) continue;
+    const w = words[i];
+    if (!NUMERIC_RE.test(w)) continue;
+
+    let label = '';
+    const keywordIndices: number[] = [];
+    let unit = '';
+    let unitIdx = -1;
+
+    // ── 양방향 키워드 탐색 (±3칸, 노이즈 스킵) ──
+    // 뒤쪽(behind) 먼저 탐색
+    for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
+      if (used.has(j)) continue;
+      const upper = words[j].toUpperCase();
+
+      // 2-word compound 체크 (j-1 + j)
+      if (j > 0 && !used.has(j - 1)) {
+        const compound = words[j - 1].toUpperCase() + ' ' + upper;
+        if (COMPOUND_KEYWORDS[compound]) {
+          label = COMPOUND_KEYWORDS[compound];
+          keywordIndices.push(j - 1, j);
+          break;
+        }
+      }
+      // 1-word 키워드 체크
+      if (SINGLE_KEYWORDS[upper]) {
+        label = SINGLE_KEYWORDS[upper];
+        keywordIndices.push(j);
+        break;
+      }
+      if (!isNoise(words[j])) break; // 의미있는 비키워드 → 탐색 중단
+    }
+
+    // 앞쪽(ahead) 키워드 탐색 — 뒤쪽에서 못 찾았을 때만
+    if (!label) {
+      for (let j = i + 1; j <= Math.min(i + 3, words.length - 1); j++) {
+        if (used.has(j)) continue;
+        const upper = words[j].toUpperCase();
+
+        // 2-word compound (j + j+1)
+        if (j + 1 < words.length && !used.has(j + 1)) {
+          const compound = upper + ' ' + words[j + 1].toUpperCase();
+          if (COMPOUND_KEYWORDS[compound]) {
+            label = COMPOUND_KEYWORDS[compound];
+            keywordIndices.push(j, j + 1);
+            break;
+          }
+        }
+        if (SINGLE_KEYWORDS[upper]) {
+          label = SINGLE_KEYWORDS[upper];
+          keywordIndices.push(j);
+          break;
+        }
+        // 단위가 아니고 노이즈도 아닌 단어 → 탐색 중단
+        if (!isNoise(words[j]) && !UNIT_RE.test(words[j])) break;
+      }
+    }
+
+    // ── 앞쪽 단위 탐색 (+3칸, 노이즈/키워드 스킵) ──
+    for (let j = i + 1; j <= Math.min(i + 3, words.length - 1); j++) {
+      if (used.has(j) || keywordIndices.includes(j)) continue;
+      if (UNIT_RE.test(words[j])) {
+        unit = words[j];
+        unitIdx = j;
+        break;
+      }
+      // 키워드나 노이즈는 건너뛰기
+      if (isNoise(words[j]) || ALL_KEYWORDS.has(words[j].toUpperCase())) continue;
+      break;
+    }
+
+    // 키워드도 단위도 없는 단독 숫자 → 노이즈
+    if (!label && !unit) continue;
+
+    specs.push(makeSpec(label, w, unit));
+    used.add(i);
+    keywordIndices.forEach(idx => used.add(idx));
+    if (unitIdx >= 0) used.add(unitIdx);
+  }
+
+  // ━━ Pass 5: 나머지 스펙 (스펙코드, 인치규격) ━━
   for (let i = 0; i < words.length; i++) {
     if (used.has(i)) continue;
     const w = words[i];
 
-    // 4a: 스펙코드 — 숫자+영문자+숫자 (예: 1.5F2, 3R12, 150NB)
-    if (SPEC_CODE_RE.test(w)) {
-      specs.push(w);
-      used.add(i);
-      continue;
-    }
-
-    // 4b: 인치규격 — 숫자+인치마크(+서비스코드) (예: 44"PYLO, 6"CW)
+    // 인치규격 + 서비스코드 (예: 44"PYLO → Pipe: 44"PYLO)
     if (INCH_SPEC_RE.test(w)) {
-      specs.push(w);
+      const sizeMatch = w.match(/^(\d+)[""\u2033\u201C\u201D](.*)$/);
+      if (sizeMatch) {
+        const size = sizeMatch[1];
+        const service = sizeMatch[2] || '';
+        const lbl = service ? 'Pipe' : 'Size';
+        specs.push(makeSpec(lbl, `${size}"${service}`, ''));
+      } else {
+        specs.push(makeSpec('Size', w, ''));
+      }
       used.add(i);
       continue;
     }
 
-    // 4c: 숫자 + 인접 단위 결합 (예: 39.9 + kg/cm2g → "39.9 kg/cm2g")
-    if (NUMERIC_RE.test(w)) {
-      let merged = false;
-      // 바로 다음 인덱스만 확인 (1-position lookahead)
-      // 단위가 멀리 떨어져 있으면 다른 값의 단위일 가능성이 높으므로 보수적으로 처리
-      if (i + 1 < words.length && !used.has(i + 1) && UNIT_RE.test(words[i + 1])) {
-        specs.push(`${w} ${words[i + 1]}`);
-        used.add(i);
-        used.add(i + 1);
-        merged = true;
-      }
-      if (merged) continue;
-      // 단독 숫자 → 노이즈로 버림
-      continue;
-    }
-
-    // 4d: 임베디드 숫자+단위 (예: "39.9kg/cm2g" 한 단어에 붙어있는 경우)
-    const embedded = w.match(
-      /^(\d+\.?\d*)(kg\/cm2g?|barg?|bara|bar|mmHg|mmH2O|MPa|kPa|psi[ag]?|mm|cm|°[CF]|℃)$/i
-    );
-    if (embedded) {
-      specs.push(`${embedded[1]} ${embedded[2]}`);
+    // 스펙코드 (예: 1.5F2 → Spec: 1.5F2)
+    if (SPEC_CODE_RE.test(w)) {
+      specs.push(makeSpec('Spec', w, ''));
       used.add(i);
       continue;
     }
   }
 
-  // 중복 제거 후 반환
+  // 중복 제거
+  const seenEquip = new Set<string>();
+  const seenLines = new Set<string>();
+  const seenSpecs = new Set<string>();
+
   return {
-    equipment: [...new Set(equipment)],
-    lines: [...new Set(lines)],
-    specs: [...new Set(specs)],
+    equipment: equipment.filter(e => { if (seenEquip.has(e)) return false; seenEquip.add(e); return true; }),
+    lines: lines.filter(l => { if (seenLines.has(l)) return false; seenLines.add(l); return true; }),
+    specs: specs.filter(s => { if (seenSpecs.has(s.display)) return false; seenSpecs.add(s.display); return true; }),
   };
 }
