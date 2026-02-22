@@ -110,11 +110,17 @@ class FinalApprovalRequest(BaseModel):
 
 class CreateReviewRequestModel(BaseModel):
     drawing_id: str
-    to_name: str  # assignee name
+    to_name: str  # backward compat - maps to lead_reviewer
     discipline: str
     title: str
     message: str = ""
-    priority: Optional[str] = "normal"  # "normal" | "urgent" | "low"
+    priority: Optional[str] = "normal"
+    # New EPC workflow fields
+    due_date: Optional[str] = None
+    lead_reviewer: Optional[str] = None
+    squad_reviewers: Optional[List[str]] = None
+    return_code: Optional[str] = None  # code_1 | code_2 | code_3 | code_4
+    transmittal_no: Optional[str] = None
 
 
 class ReplyReviewRequestModel(BaseModel):
@@ -123,7 +129,34 @@ class ReplyReviewRequestModel(BaseModel):
 
 
 class UpdateReviewRequestStatusModel(BaseModel):
-    status: str  # "requested" | "markup_in_progress" | "markup_done" | "feedback" | "confirmed" | "rejected"
+    status: str  # intake | assigned | markup_in_progress | markup_done | consolidation | return_decided | transmitted | rejected
+
+
+class IntakeDecisionRequest(BaseModel):
+    drawing_id: str
+    decision: str  # "accepted" | "rejected_intake"
+    vdrl_match: Optional[bool] = None
+    comment: Optional[str] = ""
+
+
+class AssignReviewersRequest(BaseModel):
+    lead_reviewer: str
+    squad_reviewers: Optional[List[str]] = None
+    due_date: Optional[str] = None
+
+
+class ConsolidateRequest(BaseModel):
+    confirmed_markup_ids: Optional[List[str]] = None
+    comment: Optional[str] = ""
+
+
+class ReturnCodeRequest(BaseModel):
+    return_code: str  # code_1 | code_2 | code_3 | code_4
+    comment: Optional[str] = ""
+
+
+class TransmittalRequest(BaseModel):
+    comment: Optional[str] = ""
 
 
 # ── Auth Helper ──
@@ -1024,7 +1057,7 @@ async def get_dashboard(
     requests_bp = _requests_path(username, project_id)
     requests = _load_json(container, requests_bp) or []
     total_requests = len(requests)
-    pending_requests = sum(1 for r in requests if r.get("status") in ("requested", "markup_in_progress", "markup_done", "feedback"))
+    pending_requests = sum(1 for r in requests if r.get("status") in ("intake", "assigned", "markup_in_progress", "markup_done", "consolidation", "requested", "feedback"))
 
     return {
         "status": "success",
@@ -1075,11 +1108,17 @@ async def create_review_request(
         "drawing_number": drawing.get("drawing_number", ""),
         "from_name": username,
         "to_name": req.to_name,
+        "lead_reviewer": req.lead_reviewer or req.to_name,
+        "squad_reviewers": req.squad_reviewers or [],
         "discipline": req.discipline,
         "title": req.title,
         "message": req.message,
         "priority": req.priority or "normal",
-        "status": "requested",  # requested → markup_in_progress → markup_done → feedback → confirmed
+        "status": "intake",  # New initial status
+        "due_date": req.due_date or "",
+        "return_code": req.return_code or "",
+        "transmittal_no": req.transmittal_no or "",
+        "reviewer_statuses": {},
         "created_at": now,
         "updated_at": now,
         "replies": [],
@@ -1126,6 +1165,16 @@ async def list_review_requests(
         r["markup_count"] = len(linked)
         r["open_markup_count"] = sum(1 for m in linked if m.get("status") == "open")
         r["confirmed_markup_count"] = sum(1 for m in linked if m.get("status") == "confirmed")
+
+    # Also count by new statuses
+    for r in requests:
+        # Backward compat: ensure new fields exist
+        r.setdefault("lead_reviewer", r.get("to_name", ""))
+        r.setdefault("squad_reviewers", [])
+        r.setdefault("due_date", "")
+        r.setdefault("return_code", "")
+        r.setdefault("transmittal_no", "")
+        r.setdefault("reviewer_statuses", {})
 
     return {"status": "success", "requests": requests}
 
@@ -1209,6 +1258,386 @@ async def delete_review_request(
     _save_json(container, requests_bp, requests)
 
     return {"status": "success", "deleted": request_id}
+
+
+# ── EPC Workflow: Intake Decision ──
+
+@router.post("/projects/{project_id}/requests/{request_id}/intake-decision")
+async def intake_decision(
+    project_id: str,
+    request_id: str,
+    req: IntakeDecisionRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Accept or reject a drawing at intake stage."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Update drawing intake_status
+    drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == req.drawing_id), None)
+    if drawing:
+        drawing["intake_status"] = req.decision
+        drawing["vdrl_match"] = req.vdrl_match if req.vdrl_match is not None else False
+        drawing["intake_comment"] = req.comment or ""
+        drawing["updated_at"] = datetime.now(timezone.utc).isoformat()
+        meta["updated_at"] = drawing["updated_at"]
+        _save_json(container, _meta_path(username, project_id), meta)
+
+    # Update request status
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+    review_req = next((r for r in requests if r["request_id"] == request_id), None)
+    if not review_req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    if req.decision == "accepted":
+        review_req["status"] = "intake"
+    else:
+        review_req["status"] = "rejected"
+    review_req["updated_at"] = now
+
+    _save_json(container, requests_bp, requests)
+
+    _log_activity(container, username, project_id, "intake_decision", {
+        "request_id": request_id,
+        "drawing_id": req.drawing_id,
+        "decision": req.decision,
+    })
+
+    return {"status": "success", "request": review_req}
+
+
+# ── EPC Workflow: Assign Reviewers ──
+
+@router.post("/projects/{project_id}/requests/{request_id}/assign")
+async def assign_reviewers(
+    project_id: str,
+    request_id: str,
+    req: AssignReviewersRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Assign lead + squad reviewers and set due date."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    review_req = next((r for r in requests if r["request_id"] == request_id), None)
+    if not review_req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    review_req["lead_reviewer"] = req.lead_reviewer
+    review_req["squad_reviewers"] = req.squad_reviewers or []
+    review_req["to_name"] = req.lead_reviewer  # backward compat
+
+    # Build reviewer_statuses
+    reviewer_statuses = {
+        req.lead_reviewer: {"role": "lead", "status": "pending", "completed_at": None}
+    }
+    for sr in (req.squad_reviewers or []):
+        reviewer_statuses[sr] = {"role": "squad", "status": "pending", "completed_at": None}
+    review_req["reviewer_statuses"] = reviewer_statuses
+
+    # Due date: use provided or default to 14 days from now
+    if req.due_date:
+        review_req["due_date"] = req.due_date
+    elif not review_req.get("due_date"):
+        from datetime import timedelta
+        due = datetime.now(timezone.utc) + timedelta(days=14)
+        review_req["due_date"] = due.strftime("%Y-%m-%d")
+
+    review_req["status"] = "assigned"
+    review_req["updated_at"] = now
+
+    _save_json(container, requests_bp, requests)
+
+    _log_activity(container, username, project_id, "reviewers_assigned", {
+        "request_id": request_id,
+        "lead_reviewer": req.lead_reviewer,
+        "squad_reviewers": req.squad_reviewers or [],
+    })
+
+    return {"status": "success", "request": review_req}
+
+
+# ── EPC Workflow: Update Reviewer Status ──
+
+@router.patch("/projects/{project_id}/requests/{request_id}/reviewer-status")
+async def update_reviewer_status(
+    project_id: str,
+    request_id: str,
+    reviewer_name: str = Query(...),
+    new_status: str = Query(...),  # "in_progress" | "done"
+    authorization: Optional[str] = Header(None)
+):
+    """Update individual reviewer's status within a request."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    review_req = next((r for r in requests if r["request_id"] == request_id), None)
+    if not review_req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    reviewer_statuses = review_req.setdefault("reviewer_statuses", {})
+
+    if reviewer_name in reviewer_statuses:
+        reviewer_statuses[reviewer_name]["status"] = new_status
+        if new_status == "done":
+            reviewer_statuses[reviewer_name]["completed_at"] = now
+    else:
+        reviewer_statuses[reviewer_name] = {"role": "squad", "status": new_status, "completed_at": now if new_status == "done" else None}
+
+    # Check if all reviewers are done -> auto-update request status
+    all_done = all(rs.get("status") == "done" for rs in reviewer_statuses.values())
+    if all_done and reviewer_statuses:
+        review_req["status"] = "markup_done"
+
+    review_req["updated_at"] = now
+    _save_json(container, requests_bp, requests)
+
+    return {"status": "success", "request": review_req}
+
+
+# ── EPC Workflow: Consolidate ──
+
+@router.post("/projects/{project_id}/requests/{request_id}/consolidate")
+async def consolidate_review(
+    project_id: str,
+    request_id: str,
+    req: ConsolidateRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Lead consolidates all markups. Moves to consolidation status."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    review_req = next((r for r in requests if r["request_id"] == request_id), None)
+    if not review_req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    # Verify all reviewers are done
+    reviewer_statuses = review_req.get("reviewer_statuses", {})
+    not_done = [name for name, rs in reviewer_statuses.items() if rs.get("status") != "done"]
+    if not_done:
+        raise HTTPException(status_code=400, detail=f"Reviewers not done: {', '.join(not_done)}")
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Mark selected markups as final
+    if req.confirmed_markup_ids:
+        markups_bp = _markups_path(username, project_id)
+        markups = _load_json(container, markups_bp) or []
+        for m in markups:
+            if m["markup_id"] in req.confirmed_markup_ids:
+                m["status"] = "final"
+                m["updated_at"] = now
+        _save_json(container, markups_bp, markups)
+
+    review_req["status"] = "consolidation"
+    review_req["updated_at"] = now
+    _save_json(container, requests_bp, requests)
+
+    _log_activity(container, username, project_id, "review_consolidated", {
+        "request_id": request_id,
+        "confirmed_markups": len(req.confirmed_markup_ids or []),
+    })
+
+    return {"status": "success", "request": review_req}
+
+
+# ── EPC Workflow: Conflicts Detection ──
+
+@router.get("/projects/{project_id}/requests/{request_id}/conflicts")
+async def get_conflicts(
+    project_id: str,
+    request_id: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Detect markup conflicts (different disciplines marking same area)."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    requests_bp = _requests_path(username, project_id)
+    requests_data = _load_json(container, requests_bp) or []
+
+    review_req = next((r for r in requests_data if r["request_id"] == request_id), None)
+    if not review_req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    markups_bp = _markups_path(username, project_id)
+    all_markups = _load_json(container, markups_bp) or []
+
+    # Filter markups linked to this request's drawing
+    drawing_id = review_req.get("drawing_id", "")
+    drawing_markups = [m for m in all_markups if m.get("drawing_id") == drawing_id]
+
+    # Detect conflicts: markups on same page, different disciplines, within proximity
+    conflicts = []
+    proximity = 0.05  # 5% of page dimension
+    for i, m1 in enumerate(drawing_markups):
+        for m2 in drawing_markups[i+1:]:
+            if m1.get("page") != m2.get("page"):
+                continue
+            if m1.get("discipline") == m2.get("discipline"):
+                continue
+            dx = abs(m1.get("x", 0) - m2.get("x", 0))
+            dy = abs(m1.get("y", 0) - m2.get("y", 0))
+            dist = math.sqrt(dx*dx + dy*dy)
+            if dist <= proximity:
+                conflicts.append({
+                    "markup_a": {"markup_id": m1["markup_id"], "discipline": m1.get("discipline"), "comment": m1.get("comment", ""), "author_name": m1.get("author_name", "")},
+                    "markup_b": {"markup_id": m2["markup_id"], "discipline": m2.get("discipline"), "comment": m2.get("comment", ""), "author_name": m2.get("author_name", "")},
+                    "page": m1.get("page"),
+                    "distance": round(dist, 4),
+                })
+
+    return {"status": "success", "conflicts": conflicts, "count": len(conflicts)}
+
+
+# ── EPC Workflow: Return Code ──
+
+@router.post("/projects/{project_id}/requests/{request_id}/return-code")
+async def set_return_code(
+    project_id: str,
+    request_id: str,
+    req: ReturnCodeRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Set return code and update related statuses."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    valid_codes = ["code_1", "code_2", "code_3", "code_4"]
+    if req.return_code not in valid_codes:
+        raise HTTPException(status_code=400, detail=f"Invalid return code. Must be one of: {valid_codes}")
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    review_req = next((r for r in requests if r["request_id"] == request_id), None)
+    if not review_req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    review_req["return_code"] = req.return_code
+    review_req["status"] = "return_decided"
+    review_req["updated_at"] = now
+    _save_json(container, requests_bp, requests)
+
+    # Update drawing em_approval based on return code
+    meta = _load_json(container, _meta_path(username, project_id))
+    if meta:
+        drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == review_req.get("drawing_id")), None)
+        if drawing:
+            code_to_approval = {
+                "code_1": "approved",
+                "code_2": "conditionally_approved",
+                "code_3": "rejected",
+                "code_4": "info_only",
+            }
+            drawing["em_approval"] = {
+                "status": code_to_approval.get(req.return_code, "pending"),
+                "approver_name": username,
+                "comment": req.comment or "",
+                "approved_at": now,
+            }
+            if req.return_code == "code_3":
+                drawing["staging_status"] = "resubmit_required"
+
+            # Update review_status for all disciplines
+            code_to_review = {
+                "code_1": "completed",
+                "code_2": "completed",
+                "code_3": "rejected",
+                "code_4": "completed",
+            }
+            review_status = drawing.get("review_status", {})
+            for disc in review_status:
+                review_status[disc]["status"] = code_to_review.get(req.return_code, review_status[disc].get("status"))
+                review_status[disc]["updated_at"] = now
+
+            drawing["updated_at"] = now
+            meta["updated_at"] = now
+            _save_json(container, _meta_path(username, project_id), meta)
+
+    _log_activity(container, username, project_id, "return_code_set", {
+        "request_id": request_id,
+        "return_code": req.return_code,
+        "drawing_id": review_req.get("drawing_id", ""),
+    })
+
+    return {"status": "success", "request": review_req}
+
+
+# ── EPC Workflow: Transmittal ──
+
+@router.post("/projects/{project_id}/requests/{request_id}/transmittal")
+async def create_transmittal(
+    project_id: str,
+    request_id: str,
+    req: TransmittalRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Generate transmittal number, update status to transmitted."""
+    username = _get_username(authorization)
+    container = _get_container()
+
+    meta = _load_json(container, _meta_path(username, project_id))
+    if not meta:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    requests_bp = _requests_path(username, project_id)
+    requests = _load_json(container, requests_bp) or []
+
+    review_req = next((r for r in requests if r["request_id"] == request_id), None)
+    if not review_req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Generate transmittal number
+    project_code = meta.get("project_code", "PROJ") or "PROJ"
+    existing_transmittals = sum(1 for r in requests if r.get("transmittal_no"))
+    tr_number = f"{project_code}-TR-{existing_transmittals + 1:03d}"
+
+    review_req["transmittal_no"] = tr_number
+    review_req["status"] = "transmitted"
+    review_req["transmitted_at"] = now
+    review_req["updated_at"] = now
+
+    _save_json(container, requests_bp, requests)
+
+    # Update drawing revision status
+    drawing = next((d for d in meta.get("drawings", []) if d["drawing_id"] == review_req.get("drawing_id")), None)
+    if drawing:
+        drawing["updated_at"] = now
+        meta["updated_at"] = now
+        _save_json(container, _meta_path(username, project_id), meta)
+
+    _log_activity(container, username, project_id, "transmittal_created", {
+        "request_id": request_id,
+        "transmittal_no": tr_number,
+        "drawing_id": review_req.get("drawing_id", ""),
+        "return_code": review_req.get("return_code", ""),
+    })
+
+    print(f"[PlantSync] Transmittal created: {tr_number} for request {request_id}", flush=True)
+    return {"status": "success", "request": review_req, "transmittal_no": tr_number}
 
 
 # ── Feature 2: Staging Area ──
