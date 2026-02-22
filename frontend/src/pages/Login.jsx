@@ -68,7 +68,7 @@ const Login = () => {
         <div className="min-h-screen bg-[#f0f4f9] flex items-center justify-center p-4 font-sans">
             <div className="max-w-md w-full bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
                 <div className="text-center mb-8">
-                    <h2 className="text-3xl font-medium text-[#444746]">EPC Insight AI</h2>
+                    <h2 className="text-3xl font-medium text-[#444746]">P&ID 설계지원 AI</h2>
                     <p className="text-gray-500 mt-2">Sign in to continue</p>
                 </div>
 

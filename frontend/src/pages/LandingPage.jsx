@@ -43,10 +43,12 @@ const LandingPage = () => {
             <div className="z-10 w-full max-w-7xl">
                 <div className="text-center mb-16">
                     <h1 className="text-5xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500 mb-6 tracking-tight">
-                        EPC 인사이트 <span className="text-slate-100">AI</span>
+                        P&ID 설계지원 <span className="text-slate-100">AI</span>
                     </h1>
                     <p className="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto font-light leading-relaxed">
-                        작업 공간을 선택하여 시작하세요. 엔지니어링 문서를 분석하거나 지식 자산을 관리할 수 있습니다.
+                        P&ID 도면을 기반으로 설계 정보의 추출, 분석, 검증 및
+                        <br className="hidden md:inline" />
+                        지식 자산화를 통합 지원하는 엔지니어링 전문 AI 플랫폼입니다.
                     </p>
                 </div>
 
@@ -277,7 +279,7 @@ const LandingPage = () => {
 
             {/* Footer */}
             <div className="absolute bottom-6 text-slate-600 text-sm">
-                &copy; {new Date().getFullYear()} EPC Insight AI System. All rights reserved.
+                &copy; {new Date().getFullYear()} P&ID Design Support AI. All rights reserved.
             </div>
         </div>
     );
