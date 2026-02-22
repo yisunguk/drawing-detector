@@ -972,6 +972,8 @@ const PlantSync = () => {
     setActiveRequestId(request.request_id);
     setPinDiscipline(request.discipline);
     setIsPlacingPin(true);
+    setSelectedMarkup(null);
+    setMarkupForm({ comment: '', extracted_tags: [], target_disciplines: [], issue_category: '', impact_level: 'normal' });
     const dwg = (projectDetail?.drawings || []).find(d => d.drawing_id === request.drawing_id);
     if (dwg && selectedDrawing?.drawing_id !== dwg.drawing_id) {
       setSelectedDrawing(dwg);
@@ -2582,6 +2584,12 @@ const PlantSync = () => {
                 ) : (
                   /* All Markups List */
                   <div className="p-3 space-y-2">
+                    {isPlacingPin && (
+                      <div className="flex items-center gap-2 p-2.5 bg-sky-50 border border-sky-200 rounded-lg mb-2">
+                        <MapPin className="w-4 h-4 text-sky-600 animate-bounce" />
+                        <span className="text-xs text-sky-700">도면에서 마크업 위치를 클릭하세요</span>
+                      </div>
+                    )}
                     {selectedDrawing ? (
                       <>
                         <div className="flex items-center justify-between mb-2">
