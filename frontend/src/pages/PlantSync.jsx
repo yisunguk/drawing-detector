@@ -38,6 +38,30 @@ const REVIEW_STATUSES = {
   rejected:    { label: '반려',     icon: XCircle,         color: 'text-red-600' },
 };
 
+const ISSUE_CATEGORIES = {
+  design_error:     { label: '설계 오류',   color: '#ef4444', bg: 'bg-red-50',    text: 'text-red-600' },
+  spec_mismatch:    { label: '스펙 불일치', color: '#f97316', bg: 'bg-orange-50', text: 'text-orange-600' },
+  clash:            { label: '간섭',         color: '#eab308', bg: 'bg-yellow-50', text: 'text-yellow-600' },
+  constructability: { label: '시공성',       color: '#3b82f6', bg: 'bg-blue-50',   text: 'text-blue-600' },
+  clarification:    { label: '확인 요청',   color: '#8b5cf6', bg: 'bg-purple-50', text: 'text-purple-600' },
+};
+
+const IMPACT_LEVELS = {
+  normal:   { label: '일반', bg: 'bg-gray-100',  text: 'text-gray-600' },
+  cost:     { label: '원가', bg: 'bg-red-50',    text: 'text-red-600' },
+  schedule: { label: '공정', bg: 'bg-orange-50', text: 'text-orange-600' },
+  safety:   { label: '안전', bg: 'bg-red-100',   text: 'text-red-700' },
+};
+
+const ROOT_CAUSES = {
+  vendor_error:           { label: '업체 오류' },
+  spec_change:            { label: '스펙 변경' },
+  prior_drawing_mismatch: { label: '이전 도면 불일치' },
+  design_omission:        { label: '설계 누락' },
+  coordination_gap:       { label: '협의 누락' },
+  other:                  { label: '기타' },
+};
+
 const PlantSync = () => {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
@@ -69,7 +93,14 @@ const PlantSync = () => {
   const [titleBlockData, setTitleBlockData] = useState(null);
   const [pendingDrawingId, setPendingDrawingId] = useState(null);
   const [replyText, setReplyText] = useState('');
-  const [newComment, setNewComment] = useState('');
+  const [markupForm, setMarkupForm] = useState({
+    comment: '', extracted_tags: [], target_disciplines: [],
+    issue_category: '', impact_level: 'normal',
+  });
+  const [resolveForm, setResolveForm] = useState({
+    resolution_comment: '', root_cause: '', linked_rfi_id: '',
+  });
+  const [showResolveForm, setShowResolveForm] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [editingDrawing, setEditingDrawing] = useState(null);
   const [editForm, setEditForm] = useState({ drawing_number: '', title: '', revision: '', discipline: '', vendor_name: '', issue_purpose: '' });
@@ -696,7 +727,7 @@ const PlantSync = () => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
-    setNewComment('');
+    setMarkupForm({ comment: '', extracted_tags: [], target_disciplines: [], issue_category: '', impact_level: 'normal' });
     setNearbyWords([]);
     setNearbyLines([]);
     setRelatedResults({ markups: [], documents: [] });
@@ -726,7 +757,7 @@ const PlantSync = () => {
   };
 
   const handleSaveNewMarkup = async () => {
-    if (!selectedMarkup?._pending || !newComment.trim() || !selectedProject || !selectedDrawing) return;
+    if (!selectedMarkup?._pending || !markupForm.comment.trim() || !selectedProject || !selectedDrawing) return;
     try {
       const token = await getToken();
       const res = await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${selectedDrawing.drawing_id}/markups`), {
@@ -737,34 +768,46 @@ const PlantSync = () => {
           x: selectedMarkup.x,
           y: selectedMarkup.y,
           discipline: selectedMarkup.discipline,
-          comment: newComment.trim(),
+          comment: markupForm.comment.trim(),
           request_id: activeRequestId || undefined,
+          extracted_tags: markupForm.extracted_tags,
+          target_disciplines: markupForm.target_disciplines,
+          issue_category: markupForm.issue_category || undefined,
+          impact_level: markupForm.impact_level || undefined,
         }),
       });
       if (!res.ok) throw new Error('Failed');
       const data = await res.json();
       setSelectedMarkup(data.markup);
       setIsPlacingPin(false);
-      setNewComment('');
+      setMarkupForm({ comment: '', extracted_tags: [], target_disciplines: [], issue_category: '', impact_level: 'normal' });
       await loadMarkups(selectedProject.project_id, selectedDrawing.drawing_id);
     } catch (e) {
       console.error('Save markup error:', e);
     }
   };
 
-  const handleResolveMarkup = async (markupId) => {
+  const handleResolveMarkup = async (markupId, resolveData = {}) => {
     if (!selectedProject || !selectedDrawing) return;
     try {
       const token = await getToken();
+      const payload = {
+        status: 'resolved',
+        ...( resolveData.resolution_comment ? { resolution_comment: resolveData.resolution_comment } : {}),
+        ...( resolveData.root_cause ? { root_cause: resolveData.root_cause } : {}),
+        ...( resolveData.linked_rfi_id ? { linked_rfi_id: resolveData.linked_rfi_id } : {}),
+      };
       await fetch(getUrl(`projects/${selectedProject.project_id}/drawings/${selectedDrawing.drawing_id}/markups/${markupId}`), {
         method: 'PATCH',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'resolved' }),
+        body: JSON.stringify(payload),
       });
       await loadMarkups(selectedProject.project_id, selectedDrawing.drawing_id);
       if (selectedMarkup?.markup_id === markupId) {
-        setSelectedMarkup(prev => prev ? { ...prev, status: 'resolved' } : null);
+        setSelectedMarkup(prev => prev ? { ...prev, status: 'resolved', ...payload } : null);
       }
+      setShowResolveForm(null);
+      setResolveForm({ resolution_comment: '', root_cause: '', linked_rfi_id: '' });
     } catch (e) {
       console.error('Resolve error:', e);
     }
@@ -2182,10 +2225,60 @@ const PlantSync = () => {
                           요청 연결: <span className="text-sky-600/70">{selectedMarkup.request_id}</span>
                         </p>
                       )}
+
+                      {/* Structured fields display */}
+                      {(selectedMarkup.issue_category || selectedMarkup.impact_level) && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {selectedMarkup.issue_category && ISSUE_CATEGORIES[selectedMarkup.issue_category] && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${ISSUE_CATEGORIES[selectedMarkup.issue_category].bg} ${ISSUE_CATEGORIES[selectedMarkup.issue_category].text}`}>
+                              {ISSUE_CATEGORIES[selectedMarkup.issue_category].label}
+                            </span>
+                          )}
+                          {selectedMarkup.impact_level && selectedMarkup.impact_level !== 'normal' && IMPACT_LEVELS[selectedMarkup.impact_level] && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${IMPACT_LEVELS[selectedMarkup.impact_level].bg} ${IMPACT_LEVELS[selectedMarkup.impact_level].text}`}>
+                              {IMPACT_LEVELS[selectedMarkup.impact_level].label}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {selectedMarkup.target_disciplines?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          <span className="text-[9px] text-gray-400">대상:</span>
+                          {selectedMarkup.target_disciplines.map(d => (
+                            <span key={d} className="text-[9px] px-1 py-0.5 bg-gray-100 text-gray-600 rounded">
+                              {DISCIPLINES[d]?.label || d}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {selectedMarkup.extracted_tags?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {selectedMarkup.extracted_tags.map((tag, i) => (
+                            <span key={i} className="text-[9px] px-1 py-0.5 bg-amber-50 text-amber-600 rounded">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Resolution info (if resolved) */}
+                      {selectedMarkup.resolution_comment && (
+                        <div className="mt-2 p-2 bg-green-50 rounded border border-green-100">
+                          <span className="text-[10px] text-green-700 font-medium block">해결 내용</span>
+                          <p className="text-[10px] text-green-600 mt-0.5">{selectedMarkup.resolution_comment}</p>
+                          {selectedMarkup.root_cause && ROOT_CAUSES[selectedMarkup.root_cause] && (
+                            <p className="text-[9px] text-green-500 mt-0.5">근본 원인: {ROOT_CAUSES[selectedMarkup.root_cause].label}</p>
+                          )}
+                          {selectedMarkup.linked_rfi_id && (
+                            <p className="text-[9px] text-green-500 mt-0.5">RFI: {selectedMarkup.linked_rfi_id}</p>
+                          )}
+                        </div>
+                      )}
+
                       <div className="flex gap-1.5 mt-2 flex-wrap">
                         {selectedMarkup.status === 'open' && (
                           <>
-                            <button onClick={() => handleResolveMarkup(selectedMarkup.markup_id)}
+                            <button onClick={() => { setShowResolveForm(selectedMarkup.markup_id); setResolveForm({ resolution_comment: '', root_cause: '', linked_rfi_id: '' }); }}
                                     className="flex items-center gap-1 px-2 py-1 bg-green-50 text-green-600 rounded text-[10px] hover:bg-green-100">
                               <Check className="w-3 h-3" /> 해결
                             </button>
@@ -2213,6 +2306,58 @@ const PlantSync = () => {
                           </span>
                         )}
                       </div>
+
+                      {/* Inline Resolve Form */}
+                      {showResolveForm === selectedMarkup.markup_id && (
+                        <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200 space-y-2">
+                          <textarea
+                            value={resolveForm.resolution_comment}
+                            onChange={e => setResolveForm(f => ({ ...f, resolution_comment: e.target.value }))}
+                            placeholder="해결 내용을 입력하세요..."
+                            className="w-full px-2 py-1.5 bg-white border border-green-200 rounded text-xs text-gray-600 placeholder-gray-400 focus:outline-none focus:border-green-400 resize-none"
+                            rows={2}
+                            autoFocus
+                          />
+                          <div>
+                            <span className="text-[10px] text-gray-500 block mb-1">근본 원인</span>
+                            <div className="flex flex-wrap gap-1">
+                              {Object.entries(ROOT_CAUSES).map(([key, rc]) => (
+                                <button
+                                  key={key}
+                                  onClick={() => setResolveForm(f => ({ ...f, root_cause: f.root_cause === key ? '' : key }))}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                    resolveForm.root_cause === key
+                                      ? 'bg-green-100 border-green-400 text-green-700 font-medium'
+                                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {rc.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <input
+                            value={resolveForm.linked_rfi_id}
+                            onChange={e => setResolveForm(f => ({ ...f, linked_rfi_id: e.target.value }))}
+                            placeholder="RFI 번호 (선택)"
+                            className="w-full px-2 py-1 bg-white border border-green-200 rounded text-[10px] text-gray-600 placeholder-gray-400 focus:outline-none focus:border-green-400"
+                          />
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => handleResolveMarkup(selectedMarkup.markup_id, resolveForm)}
+                              className="flex-1 px-2 py-1 bg-green-500 hover:bg-green-400 text-white rounded text-[10px] font-medium"
+                            >
+                              해결 확인
+                            </button>
+                            <button
+                              onClick={() => setShowResolveForm(null)}
+                              className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-600 rounded text-[10px]"
+                            >
+                              취소
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Replies */}
@@ -2242,8 +2387,9 @@ const PlantSync = () => {
                     </div>
                   </div>
                 ) : selectedMarkup?._pending ? (
-                  /* New Pin Comment Input + AI Suggestion Chips (Feature 4) */
+                  /* New Pin – Structured Markup Form */
                   <div className="p-4 flex flex-col h-full overflow-auto">
+                    {/* Header */}
                     <div className="flex items-center gap-2 mb-3">
                       <MapPin className="w-4 h-4 text-sky-600" />
                       <span className="text-sm font-medium text-gray-800">새 마크업</span>
@@ -2251,47 +2397,115 @@ const PlantSync = () => {
                         {DISCIPLINES[selectedMarkup.discipline]?.label}
                       </span>
                     </div>
-                    <textarea
-                      value={newComment}
-                      onChange={e => setNewComment(e.target.value)}
-                      placeholder="코멘트를 입력하세요..."
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-600 placeholder-gray-400 focus:outline-none focus:border-sky-300 resize-none"
-                      rows={3}
-                      autoFocus
-                    />
 
-                    {/* AI Suggestion Chips - nearby words */}
+                    {/* Issue Category */}
+                    <div className="mb-2">
+                      <span className="text-[10px] text-gray-500 font-medium block mb-1">이슈 유형</span>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(ISSUE_CATEGORIES).map(([key, cat]) => (
+                          <button
+                            key={key}
+                            onClick={() => setMarkupForm(f => ({ ...f, issue_category: f.issue_category === key ? '' : key }))}
+                            className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
+                              markupForm.issue_category === key
+                                ? `${cat.bg} ${cat.text} border-current font-medium`
+                                : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                            }`}
+                          >
+                            {cat.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Impact Level */}
+                    <div className="mb-2">
+                      <span className="text-[10px] text-gray-500 font-medium block mb-1">영향도</span>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(IMPACT_LEVELS).map(([key, lvl]) => (
+                          <button
+                            key={key}
+                            onClick={() => setMarkupForm(f => ({ ...f, impact_level: key }))}
+                            className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
+                              markupForm.impact_level === key
+                                ? `${lvl.bg} ${lvl.text} border-current font-medium`
+                                : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                            }`}
+                          >
+                            {lvl.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Target Disciplines (multi-select checkboxes) */}
+                    <div className="mb-2">
+                      <span className="text-[10px] text-gray-500 font-medium block mb-1">대상 공종</span>
+                      <div className="grid grid-cols-3 gap-1">
+                        {Object.entries(DISCIPLINES).map(([key, disc]) => (
+                          <label key={key} className="flex items-center gap-1 cursor-pointer text-[10px] text-gray-600">
+                            <input
+                              type="checkbox"
+                              checked={markupForm.target_disciplines.includes(key)}
+                              onChange={() => setMarkupForm(f => ({
+                                ...f,
+                                target_disciplines: f.target_disciplines.includes(key)
+                                  ? f.target_disciplines.filter(d => d !== key)
+                                  : [...f.target_disciplines, key],
+                              }))}
+                              className="w-3 h-3 rounded border-gray-300"
+                            />
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: disc.color }} />
+                            {disc.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* AI Extracted Tags (toggle chips) */}
                     {(loadingNearby || nearbyWords.length > 0) && (
-                      <div className="mt-2">
+                      <div className="mb-2">
                         <div className="flex items-center gap-1.5 mb-1">
                           <Sparkles className="w-3 h-3 text-amber-600" />
-                          <span className="text-[10px] text-amber-600 font-medium">AI 추천 텍스트</span>
+                          <span className="text-[10px] text-amber-600 font-medium">AI 추출 태그</span>
                           {loadingNearby && <Loader2 className="w-3 h-3 text-amber-600 animate-spin" />}
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          {nearbyWords.map((w, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setNewComment(prev => prev + (prev ? ' ' : '') + w.content)}
-                              className="px-1.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-600 rounded text-[10px] hover:bg-amber-50 transition-colors"
-                              title={`Confidence: ${Math.round(w.confidence * 100)}%`}
-                            >
-                              {w.content}
-                            </button>
-                          ))}
+                          {nearbyWords.map((w, i) => {
+                            const isSelected = markupForm.extracted_tags.includes(w.content);
+                            return (
+                              <button
+                                key={i}
+                                onClick={() => setMarkupForm(f => ({
+                                  ...f,
+                                  extracted_tags: isSelected
+                                    ? f.extracted_tags.filter(t => t !== w.content)
+                                    : [...f.extracted_tags, w.content],
+                                }))}
+                                className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                                  isSelected
+                                    ? 'bg-amber-100 border-amber-400 text-amber-700 font-medium'
+                                    : 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
+                                }`}
+                                title={`Confidence: ${Math.round(w.confidence * 100)}%`}
+                              >
+                                {w.content}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
 
-                    {/* Nearby lines */}
+                    {/* Nearby lines (click to append to comment) */}
                     {nearbyLines.length > 0 && (
-                      <div className="mt-2">
+                      <div className="mb-2">
                         <span className="text-[10px] text-gray-400 mb-1 block">주변 텍스트 라인</span>
                         <div className="space-y-0.5 max-h-24 overflow-auto">
                           {nearbyLines.map((l, i) => (
                             <button
                               key={i}
-                              onClick={() => setNewComment(prev => prev + (prev ? '\n' : '') + l.content)}
+                              onClick={() => setMarkupForm(f => ({ ...f, comment: f.comment + (f.comment ? '\n' : '') + l.content }))}
                               className="block w-full text-left px-2 py-0.5 bg-gray-50 text-[10px] text-gray-500 rounded hover:bg-white hover:text-gray-800 truncate transition-colors"
                             >
                               {l.content}
@@ -2301,12 +2515,22 @@ const PlantSync = () => {
                       </div>
                     )}
 
+                    {/* Comment textarea (compact) */}
+                    <textarea
+                      value={markupForm.comment}
+                      onChange={e => setMarkupForm(f => ({ ...f, comment: e.target.value }))}
+                      placeholder="코멘트를 입력하세요..."
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-600 placeholder-gray-400 focus:outline-none focus:border-sky-300 resize-none mb-2"
+                      rows={2}
+                      autoFocus
+                    />
+
                     {/* Related search button */}
-                    <div className="mt-2">
+                    <div className="mb-2">
                       <button
-                        onClick={() => handleRelatedSearch(newComment || nearbyWords.map(w => w.content).join(' '))}
-                        disabled={loadingRelated || (!newComment.trim() && nearbyWords.length === 0)}
-                        className="flex items-center gap-1 px-2 py-1 bg-purple-50 border border-purple-200 text-purple-600 rounded text-[10px] hover:bg-purple-50 disabled:opacity-40 transition-colors"
+                        onClick={() => handleRelatedSearch(markupForm.comment || nearbyWords.map(w => w.content).join(' '))}
+                        disabled={loadingRelated || (!markupForm.comment.trim() && nearbyWords.length === 0)}
+                        className="flex items-center gap-1 px-2 py-1 bg-purple-50 border border-purple-200 text-purple-600 rounded text-[10px] hover:bg-purple-100 disabled:opacity-40 transition-colors"
                       >
                         {loadingRelated ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
                         관련 이력 조회
@@ -2315,7 +2539,7 @@ const PlantSync = () => {
 
                     {/* Related results */}
                     {(relatedResults.markups.length > 0 || relatedResults.documents.length > 0) && (
-                      <div className="mt-2 space-y-1.5 max-h-40 overflow-auto">
+                      <div className="mb-2 space-y-1.5 max-h-40 overflow-auto">
                         {relatedResults.markups.length > 0 && (
                           <>
                             <span className="text-[10px] text-purple-600 font-medium block">관련 마크업 ({relatedResults.markups.length}건)</span>
@@ -2344,7 +2568,7 @@ const PlantSync = () => {
                       </div>
                     )}
 
-                    <div className="flex gap-2 mt-3">
+                    <div className="flex gap-2 mt-auto pt-2">
                       <button onClick={handleSaveNewMarkup}
                               className="flex-1 px-3 py-1.5 bg-sky-500 hover:bg-sky-400 text-white rounded-lg text-xs font-medium">
                         마크업 저장
@@ -2387,6 +2611,25 @@ const PlantSync = () => {
                               <p className={`text-xs ${m.status === 'resolved' ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
                                 {m.comment}
                               </p>
+                              {(m.issue_category || (m.impact_level && m.impact_level !== 'normal') || m.target_disciplines?.length > 0) && (
+                                <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                                  {m.issue_category && ISSUE_CATEGORIES[m.issue_category] && (
+                                    <span className={`text-[9px] px-1 py-0.5 rounded ${ISSUE_CATEGORIES[m.issue_category].bg} ${ISSUE_CATEGORIES[m.issue_category].text}`}>
+                                      {ISSUE_CATEGORIES[m.issue_category].label}
+                                    </span>
+                                  )}
+                                  {m.impact_level && m.impact_level !== 'normal' && IMPACT_LEVELS[m.impact_level] && (
+                                    <span className={`text-[9px] px-1 py-0.5 rounded ${IMPACT_LEVELS[m.impact_level].bg} ${IMPACT_LEVELS[m.impact_level].text}`}>
+                                      {IMPACT_LEVELS[m.impact_level].label}
+                                    </span>
+                                  )}
+                                  {m.target_disciplines?.length > 0 && (
+                                    <span className="text-[9px] text-gray-400">
+                                      {m.target_disciplines.map(d => DISCIPLINES[d]?.label || d).join(', ')}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                               <p className="text-[10px] text-gray-400 mt-0.5">
                                 P.{m.page} | {m.author_name} | 답글 {(m.replies || []).length}건
                               </p>

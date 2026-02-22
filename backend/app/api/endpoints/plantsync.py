@@ -130,11 +130,21 @@ class CreateMarkupRequest(BaseModel):
     severity: Optional[str] = "normal"
     author_name: Optional[str] = None
     request_id: Optional[str] = None  # link to review request
+    extracted_tags: Optional[List[str]] = None
+    target_disciplines: Optional[List[str]] = None
+    issue_category: Optional[str] = None
+    impact_level: Optional[str] = None
 
 
 class UpdateMarkupRequest(BaseModel):
     status: Optional[str] = None
     comment: Optional[str] = None
+    resolution_comment: Optional[str] = None
+    root_cause: Optional[str] = None
+    linked_rfi_id: Optional[str] = None
+    target_disciplines: Optional[List[str]] = None
+    issue_category: Optional[str] = None
+    impact_level: Optional[str] = None
 
 
 class AddMarkupReplyRequest(BaseModel):
@@ -1120,6 +1130,13 @@ async def create_markup(
         "created_at": now,
         "updated_at": now,
         "replies": [],
+        "extracted_tags": req.extracted_tags or [],
+        "target_disciplines": req.target_disciplines or [],
+        "issue_category": req.issue_category or "",
+        "impact_level": req.impact_level or "normal",
+        "resolution_comment": "",
+        "root_cause": "",
+        "linked_rfi_id": "",
     }
 
     fs_add_markup(project_id, markup_id, markup)
@@ -1169,6 +1186,18 @@ async def update_markup_endpoint(
         updates["status"] = req.status
     if req.comment is not None:
         updates["comment"] = req.comment
+    if req.resolution_comment is not None:
+        updates["resolution_comment"] = req.resolution_comment
+    if req.root_cause is not None:
+        updates["root_cause"] = req.root_cause
+    if req.linked_rfi_id is not None:
+        updates["linked_rfi_id"] = req.linked_rfi_id
+    if req.target_disciplines is not None:
+        updates["target_disciplines"] = req.target_disciplines
+    if req.issue_category is not None:
+        updates["issue_category"] = req.issue_category
+    if req.impact_level is not None:
+        updates["impact_level"] = req.impact_level
 
     fs_update_markup(project_id, markup_id, updates)
 
