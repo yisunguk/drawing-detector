@@ -254,18 +254,26 @@ def _empty_review_status():
 # ── Title Block Extraction ──
 
 def _extract_title_block(di_pages: list) -> dict:
-    """Extract drawing number, title, revision from DI result (first page)."""
+    """Extract drawing metadata from DI result (all pages, title block focus on first page)."""
     result = {
         "drawing_number": "",
         "title": "",
         "revision": "",
         "discipline": "",
+        # EPC fields — auto-extracted
+        "issue_purpose": "",
+        "issue_date": "",
+        "vendor_drawing_number": "",
+        "vendor_name": "",
     }
     if not di_pages:
         return result
 
     page = di_pages[0]
     content = page.get("content", "")
+
+    # Combine all pages content for broader search
+    all_content = "\n".join(p.get("content", "") for p in di_pages)
 
     # Try DI metadata fields first
     if page.get("도면번호(DWG. NO.)"):
@@ -275,6 +283,8 @@ def _extract_title_block(di_pages: list) -> dict:
 
     # Pattern matching from content
     lines = content.split('\n')
+    all_lines = all_content.split('\n')
+
     for line in lines:
         line_upper = line.strip().upper()
 
@@ -287,7 +297,7 @@ def _extract_title_block(di_pages: list) -> dict:
             if dwg_match:
                 result["drawing_number"] = dwg_match.group(1).strip()
 
-            # Generic drawing number pattern (e.g. 10-24000-OM-171-200)
+            # Generic drawing number pattern (e.g. 147600-012-SZ-0002, 10-24000-OM-171-200)
             if not result["drawing_number"]:
                 generic = re.search(r'(\d{2,}-\d{3,}-[A-Z]{2,}-[\d\-]+)', line_upper)
                 if generic:
@@ -313,28 +323,146 @@ def _extract_title_block(di_pages: list) -> dict:
 
     # If no title found from patterns, use the DI page content snippet
     if not result["title"] and len(lines) > 2:
-        # Use longest line as a heuristic for the title
         longest = max(lines[:20], key=len).strip() if lines else ""
         if len(longest) > 5:
             result["title"] = longest[:200]
 
-    # Try to guess discipline from drawing number or content
-    content_lower = content.lower()
+    # ── Discipline: drawing number code → discipline mapping ──
     dwg_lower = result["drawing_number"].lower()
+    content_lower = content.lower()
+
+    # Discipline code map (common EPC 2-letter codes in drawing numbers)
+    DISC_CODE_MAP = {
+        "process":     ['-pf-', '-pd-', '-ph-', '-sz-'],
+        "mechanical":  ['-me-', '-mc-', '-om-', '-mh-', '-mv-', '-ma-'],
+        "piping":      ['-pp-', '-pi-', '-pl-', '-pa-', '-pb-', '-ps-'],
+        "electrical":  ['-el-', '-ee-', '-ea-', '-ec-', '-ed-'],
+        "instrument":  ['-in-', '-ic-', '-ia-', '-id-'],
+        "civil":       ['-cv-', '-cs-', '-ci-', '-ca-', '-st-'],
+    }
+
     if any(k in dwg_lower or k in content_lower for k in ['pid', 'p&id', 'process']):
         result["discipline"] = "process"
-    elif any(k in dwg_lower for k in ['-me-', '-mc-', '-om-']):
-        result["discipline"] = "mechanical"
-    elif any(k in dwg_lower for k in ['-pp-', '-pi-', '-pl-']):
-        result["discipline"] = "piping"
-    elif any(k in dwg_lower for k in ['-el-', '-ee-']):
-        result["discipline"] = "electrical"
-    elif any(k in dwg_lower for k in ['-in-', '-ic-']):
-        result["discipline"] = "instrument"
-    elif any(k in dwg_lower for k in ['-cv-', '-cs-', '-ci-']):
-        result["discipline"] = "civil"
+    else:
+        for disc, codes in DISC_CODE_MAP.items():
+            if any(c in dwg_lower for c in codes):
+                result["discipline"] = disc
+                break
+
+    # ── Issue Purpose extraction ──
+    # Look for IFA / IFI / IFC / IFD / IFR / As-Built / AFC / AFD patterns
+    PURPOSE_PATTERNS = [
+        (r'\bIFA\b', "IFA"),
+        (r'\bIFI\b', "IFI"),
+        (r'\bIFC\b', "IFC"),
+        (r'\bIFD\b', "IFD"),
+        (r'\bIFR\b', "IFR"),
+        (r'\bAFC\b', "AFC"),
+        (r'\bAFD\b', "AFD"),
+        (r'\bAS[\s\-]?BUILT\b', "As-Built"),
+        (r'ISSUED?\s+FOR\s+APPROVAL', "IFA"),
+        (r'ISSUED?\s+FOR\s+INFORMATION', "IFI"),
+        (r'ISSUED?\s+FOR\s+CONSTRUCTION', "IFC"),
+        (r'ISSUED?\s+FOR\s+DESIGN', "IFD"),
+        (r'ISSUED?\s+FOR\s+REVIEW', "IFR"),
+        (r'APPROVED?\s+FOR\s+CONSTRUCTION', "AFC"),
+        (r'APPROVED?\s+FOR\s+DESIGN', "AFD"),
+        (r'FOR\s+APPROVAL', "IFA"),
+        (r'FOR\s+CONSTRUCTION', "IFC"),
+        (r'FOR\s+INFORMATION', "IFI"),
+    ]
+    all_upper = all_content.upper()
+    for pattern, purpose in PURPOSE_PATTERNS:
+        if re.search(pattern, all_upper):
+            result["issue_purpose"] = purpose
+            break
+
+    # ── Issue Date extraction ──
+    # Search near keywords like "DATE", "ISSUE DATE", "ISSUED"
+    DATE_PATTERN = r'(\d{4}[\.\-/]\d{1,2}[\.\-/]\d{1,2}|\d{1,2}[\.\-/]\d{1,2}[\.\-/]\d{4}|\d{1,2}\s+(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?\s+\d{4}|\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일)'
+    for line in all_lines:
+        line_upper = line.strip().upper()
+        # Prioritize lines containing date-related keywords
+        if any(k in line_upper for k in ['ISSUE DATE', 'ISSUED', 'DATE OF ISSUE', '발행일']):
+            date_match = re.search(DATE_PATTERN, line, re.IGNORECASE)
+            if date_match:
+                result["issue_date"] = _normalize_date(date_match.group(0))
+                break
+    # Fallback: search for DATE keyword + date on same line
+    if not result["issue_date"]:
+        for line in all_lines:
+            line_upper = line.strip().upper()
+            if 'DATE' in line_upper and not any(k in line_upper for k in ['RECEIVE', 'RETURN', 'DUE', 'EXPIR']):
+                date_match = re.search(DATE_PATTERN, line, re.IGNORECASE)
+                if date_match:
+                    result["issue_date"] = _normalize_date(date_match.group(0))
+                    break
+
+    # ── Vendor Drawing Number ──
+    VDN_RE = re.compile(
+        r'(?:VENDOR|SUPPLIER)\s+(?:DWG|DRAWING|DOC)\s*(?:NO\.?|NUMBER|#)?\s*[:\-]?\s*([A-Z0-9][\w\-\.]{3,})'
+    )
+    for line in all_lines:
+        vdn_match = VDN_RE.search(line.strip().upper())
+        if vdn_match:
+            result["vendor_drawing_number"] = vdn_match.group(1).strip()
+            break
+
+    # ── Vendor Name ──
+    VENDOR_KEYWORDS = ['VENDOR', 'SUPPLIER', 'MANUFACTURER', 'PREPARED BY', 'MADE BY', 'DESIGNED BY', 'CONTRACTOR']
+    for line in all_lines:
+        line_upper = line.strip().upper()
+        for kw in VENDOR_KEYWORDS:
+            if kw in line_upper and 'DWG' not in line_upper and 'DRAWING' not in line_upper and 'DOC' not in line_upper:
+                # Extract value after the keyword
+                vn_match = re.search(
+                    rf'{kw}\s*[:\-]?\s*(.{{2,50}})',
+                    line_upper
+                )
+                if vn_match:
+                    name = vn_match.group(1).strip().strip(':- ')
+                    # Filter out noise — should look like a company name
+                    if name and len(name) >= 2 and not name.startswith(('NO', 'NUMBER', '#', 'DATE')):
+                        result["vendor_name"] = line.strip()[line.upper().strip().index(name):line.upper().strip().index(name)+len(name)]
+                        break
+        if result["vendor_name"]:
+            break
 
     return result
+
+
+def _normalize_date(raw: str) -> str:
+    """Normalize various date formats to YYYY-MM-DD."""
+    raw = raw.strip()
+
+    # 2024.05.15 / 2024-05-15 / 2024/05/15
+    m = re.match(r'(\d{4})[\.\-/](\d{1,2})[\.\-/](\d{1,2})', raw)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+
+    # 15.05.2024 / 15-05-2024 / 15/05/2024
+    m = re.match(r'(\d{1,2})[\.\-/](\d{1,2})[\.\-/](\d{4})', raw)
+    if m:
+        day, month, year = int(m.group(1)), int(m.group(2)), m.group(3)
+        if day > 12:  # clearly DD/MM/YYYY
+            return f"{year}-{month:02d}-{day:02d}"
+        return f"{year}-{m.group(2).zfill(2)}-{m.group(1).zfill(2)}"
+
+    # 15 MAY 2024 / 15 May 2024
+    MONTHS = {'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04', 'MAY': '05', 'JUN': '06',
+              'JUL': '07', 'AUG': '08', 'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'}
+    m = re.match(r'(\d{1,2})\s+([A-Za-z]+)\.?\s+(\d{4})', raw)
+    if m:
+        month_str = m.group(2).upper()[:3]
+        if month_str in MONTHS:
+            return f"{m.group(3)}-{MONTHS[month_str]}-{int(m.group(1)):02d}"
+
+    # 2024년 5월 15일
+    m = re.match(r'(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일', raw)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+
+    return raw
 
 
 # ── API Endpoints ──
@@ -616,7 +744,8 @@ async def upload_drawing(
 
     # Run Document Intelligence (all pages, single call)
     di_result = []
-    title_block = {"drawing_number": "", "title": "", "revision": "", "discipline": ""}
+    title_block = {"drawing_number": "", "title": "", "revision": "", "discipline": "",
+                    "issue_purpose": "", "issue_date": "", "vendor_drawing_number": "", "vendor_name": ""}
     try:
         from app.services.azure_di import azure_di_service
         di_result = azure_di_service.analyze_document_from_url(pdf_url)
@@ -677,7 +806,8 @@ async def upload_drawing(
         is_new_revision = True
         print(f"[PlantSync] New revision added to {existing_drawing['drawing_number']}", flush=True)
     else:
-        # Create new drawing entry
+        # Create new drawing entry — auto-fill from DI extraction
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         drawing_data = {
             "drawing_id": drawing_id,
             "drawing_number": title_block.get("drawing_number", ""),
@@ -695,12 +825,12 @@ async def upload_drawing(
             "review_status": _empty_review_status(),
             "em_approval": {"status": "pending"},
             "staging_status": "staged",
-            # EPC 관리 필드
-            "vendor_drawing_number": "",
-            "issue_purpose": "",
-            "issue_date": "",
-            "receive_date": "",
-            "vendor_name": "",
+            # EPC 관리 필드 — auto-filled from DI extraction
+            "vendor_drawing_number": title_block.get("vendor_drawing_number", ""),
+            "issue_purpose": title_block.get("issue_purpose", ""),
+            "issue_date": title_block.get("issue_date", ""),
+            "receive_date": today_str,  # 접수일 = 업로드 일자
+            "vendor_name": title_block.get("vendor_name", ""),
             "reviewer_name": "",
             "has_dwg": False,
             "related_drawings": [],
@@ -2129,7 +2259,8 @@ async def bulk_upload_drawings(
 
             # Run Document Intelligence
             di_result = []
-            title_block = {"drawing_number": "", "title": "", "revision": "", "discipline": ""}
+            title_block = {"drawing_number": "", "title": "", "revision": "", "discipline": "",
+                            "issue_purpose": "", "issue_date": "", "vendor_drawing_number": "", "vendor_name": ""}
             try:
                 from app.services.azure_di import azure_di_service
                 di_result = azure_di_service.analyze_document_from_url(pdf_url)
@@ -2176,6 +2307,7 @@ async def bulk_upload_drawings(
                     "updated_at": now,
                 })
             else:
+                today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
                 drawing_data = {
                     "drawing_id": drawing_id,
                     "drawing_number": title_block.get("drawing_number", ""),
@@ -2193,11 +2325,11 @@ async def bulk_upload_drawings(
                     "review_status": _empty_review_status(),
                     "em_approval": {"status": "pending"},
                     "staging_status": "staged",
-                    "vendor_drawing_number": "",
-                    "issue_purpose": "",
-                    "issue_date": "",
-                    "receive_date": "",
-                    "vendor_name": "",
+                    "vendor_drawing_number": title_block.get("vendor_drawing_number", ""),
+                    "issue_purpose": title_block.get("issue_purpose", ""),
+                    "issue_date": title_block.get("issue_date", ""),
+                    "receive_date": today_str,
+                    "vendor_name": title_block.get("vendor_name", ""),
                     "reviewer_name": "",
                     "has_dwg": False,
                     "related_drawings": [],
