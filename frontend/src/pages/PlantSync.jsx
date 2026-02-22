@@ -72,7 +72,7 @@ const PlantSync = () => {
   const [newComment, setNewComment] = useState('');
   const [dashboard, setDashboard] = useState(null);
   const [editingDrawing, setEditingDrawing] = useState(null);
-  const [editForm, setEditForm] = useState({ drawing_number: '', title: '', revision: '', discipline: '' });
+  const [editForm, setEditForm] = useState({ drawing_number: '', title: '', revision: '', discipline: '', vendor_name: '', issue_purpose: '' });
 
   // Collaboration
   const [reviewRequests, setReviewRequests] = useState([]);
@@ -124,6 +124,12 @@ const PlantSync = () => {
   const [intakeComment, setIntakeComment] = useState('');
 
   const fileInputRef = useRef(null);
+
+  // Sidebar resize
+  const [leftWidth, setLeftWidth] = useState(280);
+  const [rightWidth, setRightWidth] = useState(360);
+  const isResizingLeft = useRef(false);
+  const isResizingRight = useRef(false);
 
   // ── API Calls ──
 
@@ -379,6 +385,32 @@ const PlantSync = () => {
       loadReviewGate(selectedProject.project_id, selectedDrawing.drawing_id);
     }
   }, [selectedProject, selectedDrawing, loadPdfUrl, loadMarkups, loadReviewRequests, loadReviewGate]);
+
+  // ── Sidebar resize ──
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (isResizingLeft.current) {
+        const newW = Math.min(500, Math.max(200, e.clientX));
+        setLeftWidth(newW);
+      }
+      if (isResizingRight.current) {
+        const newW = Math.min(600, Math.max(280, window.innerWidth - e.clientX));
+        setRightWidth(newW);
+      }
+    };
+    const onMouseUp = () => {
+      isResizingLeft.current = false;
+      isResizingRight.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
 
   // ── Handlers ──
 
@@ -894,6 +926,8 @@ const PlantSync = () => {
       title: d.title || '',
       revision: d.current_revision || '',
       discipline: d.discipline || '',
+      vendor_name: d.vendor_name || '',
+      issue_purpose: d.issue_purpose || '',
     });
   };
 
@@ -1084,7 +1118,7 @@ const PlantSync = () => {
       {/* Main Layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Panel - Drawing List (KnowhowDB style) */}
-        <div className="w-[280px] border-r border-slate-700/50 flex flex-col flex-shrink-0 bg-slate-900/60">
+        <div className="border-r border-slate-700/50 flex flex-col flex-shrink-0 bg-slate-900/60 relative" style={{ width: leftWidth, minWidth: 200, maxWidth: 500 }}>
           {/* Header - Project Info */}
           <div className="p-4 border-b border-slate-700/50">
             <div className="flex items-center gap-3">
@@ -1224,36 +1258,59 @@ const PlantSync = () => {
                 {editingDrawing === d.drawing_id ? (
                   /* Inline Edit Mode */
                   <div className="space-y-1.5" onClick={e => e.stopPropagation()}>
-                    <input
-                      value={editForm.drawing_number}
-                      onChange={e => setEditForm(f => ({ ...f, drawing_number: e.target.value }))}
-                      placeholder="도면번호"
-                      className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
-                    />
-                    <input
-                      value={editForm.title}
-                      onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
-                      placeholder="도면 타이틀"
-                      className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
-                    />
+                    {/* Row 1: Discipline + Title + Revision */}
                     <div className="flex gap-1.5">
-                      <input
-                        value={editForm.revision}
-                        onChange={e => setEditForm(f => ({ ...f, revision: e.target.value }))}
-                        placeholder="리비전"
-                        className="w-16 px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
-                      />
                       <select
                         value={editForm.discipline}
                         onChange={e => setEditForm(f => ({ ...f, discipline: e.target.value }))}
-                        className="flex-1 px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                        className="w-16 px-1 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none focus:border-sky-500"
                       >
-                        <option value="">디시플린</option>
+                        <option value="">분야</option>
                         {Object.entries(DISCIPLINES).map(([k, v]) => (
                           <option key={k} value={k}>{v.label}</option>
                         ))}
                       </select>
+                      <input
+                        value={editForm.title}
+                        onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))}
+                        placeholder="도면 타이틀"
+                        className="flex-1 px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                      />
+                      <input
+                        value={editForm.revision}
+                        onChange={e => setEditForm(f => ({ ...f, revision: e.target.value }))}
+                        placeholder="Rev"
+                        className="w-14 px-1.5 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500 text-center"
+                      />
                     </div>
+                    {/* Row 2: Drawing Number */}
+                    <input
+                      value={editForm.drawing_number}
+                      onChange={e => setEditForm(f => ({ ...f, drawing_number: e.target.value }))}
+                      placeholder="도면번호 (DWG No.)"
+                      className="w-full px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                    />
+                    {/* Row 3: Vendor + Issue Purpose */}
+                    <div className="flex gap-1.5">
+                      <input
+                        value={editForm.vendor_name}
+                        onChange={e => setEditForm(f => ({ ...f, vendor_name: e.target.value }))}
+                        placeholder="Vendor명"
+                        className="flex-1 px-2 py-1 bg-slate-700/50 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none focus:border-sky-500"
+                      />
+                      <select
+                        value={editForm.issue_purpose}
+                        onChange={e => setEditForm(f => ({ ...f, issue_purpose: e.target.value }))}
+                        className="w-20 px-1 py-1 bg-slate-700/50 border border-slate-600 rounded text-[10px] text-slate-200 focus:outline-none focus:border-sky-500"
+                      >
+                        <option value="">발행목적</option>
+                        <option value="IFA">IFA</option>
+                        <option value="IFI">IFI</option>
+                        <option value="IFC">IFC</option>
+                        <option value="As-Built">As-Built</option>
+                      </select>
+                    </div>
+                    {/* Save / Cancel */}
                     <div className="flex gap-1.5 pt-0.5">
                       <button onClick={e => handleSaveDrawingEdit(d.drawing_id, e)}
                               className="flex-1 flex items-center justify-center gap-1 px-2 py-1 bg-sky-500 hover:bg-sky-400 text-white rounded text-[10px] font-medium">
@@ -1268,12 +1325,17 @@ const PlantSync = () => {
                 ) : (
                   /* Normal Display Mode */
                   <>
-                    <div className="flex items-start justify-between">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-medium text-slate-200 truncate">{d.drawing_number || 'No Number'}</p>
-                        <p className="text-[11px] text-slate-500 truncate mt-0.5">{d.title || 'Untitled'}</p>
+                    {/* Row 1: Discipline badge + Title + Rev badge + edit/delete */}
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="min-w-0 flex-1 flex items-start gap-1.5">
+                        {d.discipline && DISCIPLINES[d.discipline] && (
+                          <span className={`text-[9px] px-1 py-0.5 rounded font-bold flex-shrink-0 ${DISCIPLINES[d.discipline].bg} ${DISCIPLINES[d.discipline].text}`}>
+                            {DISCIPLINES[d.discipline].label}
+                          </span>
+                        )}
+                        <p className="text-xs font-semibold text-slate-200 truncate leading-tight">{d.title || 'Untitled'}</p>
                       </div>
-                      <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                      <div className="flex items-center gap-1 ml-1 flex-shrink-0">
                         <button onClick={e => handleEditDrawing(d, e)} title="Edit"
                                 className="p-0.5 text-slate-600 hover:text-sky-400 opacity-0 group-hover/item:opacity-100 transition-all">
                           <Pencil className="w-3 h-3" />
@@ -1282,14 +1344,19 @@ const PlantSync = () => {
                                 className="p-0.5 text-slate-600 hover:text-red-400 opacity-0 group-hover/item:opacity-100 transition-all">
                           <Trash2 className="w-3 h-3" />
                         </button>
-                        {d.discipline && DISCIPLINES[d.discipline] && (
-                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: DISCIPLINES[d.discipline]?.color }} />
-                        )}
-                        <span className="text-[10px] text-slate-500">Rev.{d.current_revision || '-'}</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-400 font-medium">Rev.{d.current_revision || '-'}</span>
                       </div>
                     </div>
-                    {/* Badges row: issue purpose + DWG + review dots */}
-                    <div className="flex items-center gap-1 mt-1.5">
+                    {/* Row 2: DWG No. label + drawing number */}
+                    <p className="text-[11px] text-slate-500 truncate mt-1">
+                      <span className="text-slate-600 font-medium">DWG No.</span> {d.drawing_number || 'No Number'}
+                    </p>
+                    {/* Row 3: Vendor + Issue Purpose + DWG badge */}
+                    <div className="flex items-center gap-1.5 mt-1">
+                      {d.vendor_name && (
+                        <span className="text-[9px] text-slate-500 truncate max-w-[80px]">{d.vendor_name}</span>
+                      )}
+                      {d.vendor_name && (d.issue_purpose || d.has_dwg) && <span className="text-slate-700">│</span>}
                       {d.issue_purpose && (
                         <span className={`text-[8px] px-1 py-0.5 rounded font-bold ${
                           d.issue_purpose === 'IFC' ? 'bg-green-500/20 text-green-400' :
@@ -1302,18 +1369,30 @@ const PlantSync = () => {
                       {d.has_dwg && (
                         <span className="text-[8px] px-1 py-0.5 rounded bg-cyan-500/20 text-cyan-400 font-medium" title="DWG 파일 있음">DWG</span>
                       )}
-                      {Object.entries(d.review_status || {}).map(([disc, rs]) => (
-                        <span
-                          key={disc}
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            rs.status === 'completed' ? 'bg-green-400' :
-                            rs.status === 'in_progress' ? 'bg-blue-400' :
-                            rs.status === 'rejected' ? 'bg-red-400' : 'bg-slate-600'
-                          }`}
-                          title={`${DISCIPLINES[disc]?.label}: ${rs.status}`}
-                        />
-                      ))}
-                      {d.em_approval?.status === 'approved' && <CheckCircle2 className="w-3 h-3 text-green-400 ml-1" />}
+                    </div>
+                    {/* Row 4: Discipline review status with abbreviations + EM approval */}
+                    <div className="flex items-center justify-between mt-1.5">
+                      <div className="flex items-center gap-1">
+                        {Object.entries(d.review_status || {}).map(([disc, rs]) => (
+                          <span key={disc} className="flex items-center gap-0.5" title={`${DISCIPLINES[disc]?.label}: ${REVIEW_STATUSES[rs.status]?.label || rs.status}`}>
+                            <span className={`w-2 h-2 rounded-full ${
+                              rs.status === 'completed' ? 'bg-green-400' :
+                              rs.status === 'in_progress' ? 'bg-blue-400' :
+                              rs.status === 'rejected' ? 'bg-red-400' : 'bg-slate-600'
+                            }`} />
+                            <span className={`text-[9px] ${
+                              rs.status === 'completed' ? 'text-green-400' :
+                              rs.status === 'in_progress' ? 'text-blue-400' :
+                              rs.status === 'rejected' ? 'text-red-400' : 'text-slate-600'
+                            }`}>{DISCIPLINES[disc]?.label?.[0] || disc[0]}</span>
+                          </span>
+                        ))}
+                      </div>
+                      {d.em_approval?.status === 'approved' && (
+                        <span className="flex items-center gap-0.5 text-[9px] text-green-400">
+                          <CheckCircle2 className="w-3 h-3" /> 승인
+                        </span>
+                      )}
                     </div>
                   </>
                 )}
@@ -1347,6 +1426,11 @@ const PlantSync = () => {
               </button>
             </div>
           </div>
+          {/* Left resize handle */}
+          <div
+            className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-sky-500/50 transition-colors z-10"
+            onMouseDown={(e) => { e.preventDefault(); isResizingLeft.current = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; }}
+          />
         </div>
 
         {/* Center Panel - PDF Viewer */}
@@ -1452,7 +1536,12 @@ const PlantSync = () => {
         </div>
 
         {/* Right Panel - Comments / Review */}
-        <div className="w-[360px] border-l border-slate-700/50 flex flex-col flex-shrink-0 bg-slate-900/40">
+        <div className="border-l border-slate-700/50 flex flex-col flex-shrink-0 bg-slate-900/40 relative" style={{ width: rightWidth, minWidth: 280, maxWidth: 600 }}>
+          {/* Right resize handle */}
+          <div
+            className="absolute top-0 left-0 w-1 h-full cursor-col-resize hover:bg-sky-500/50 transition-colors z-10"
+            onMouseDown={(e) => { e.preventDefault(); isResizingRight.current = true; document.body.style.cursor = 'col-resize'; document.body.style.userSelect = 'none'; }}
+          />
           {/* Tabs - EPC 5-Step Workflow */}
           <div className="flex border-b border-slate-700/50 flex-shrink-0">
             {[
