@@ -1,8 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
-    ArrowLeft, Upload, FileText, Loader2, Download,
-    Plus, Trash2, Search, ListChecks, Play, FolderOpen, RefreshCcw
+    Upload, FileText, Loader2, Download,
+    Plus, Trash2, Search, ListChecks, Play, FolderOpen, RefreshCcw, LogOut
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { loadPdfJs, uploadToAzure } from '../services/analysisService';
@@ -34,7 +34,7 @@ const EMPTY_ROW = COLUMNS.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {});
 
 const LineList = () => {
     const navigate = useNavigate();
-    const { currentUser } = useAuth();
+    const { currentUser, logout } = useAuth();
     const username = currentUser?.displayName || currentUser?.email?.split('@')[0];
 
     // PDF state
@@ -387,18 +387,9 @@ const LineList = () => {
         <div className="h-screen flex flex-col bg-slate-900 text-slate-100">
             {/* Header */}
             <header className="flex-shrink-0 bg-slate-800/80 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={() => navigate('/')}
-                        className="p-2 rounded-lg hover:bg-slate-700 transition-colors"
-                        title="Home"
-                    >
-                        <ArrowLeft className="w-5 h-5 text-slate-300" />
-                    </button>
-                    <div className="flex items-center gap-2">
-                        <ListChecks className="w-6 h-6 text-amber-400" />
-                        <h1 className="text-xl font-bold text-slate-100">P&ID Line List Extractor</h1>
-                    </div>
+                <div className="flex items-center gap-2">
+                    <ListChecks className="w-6 h-6 text-amber-400" />
+                    <h1 className="text-xl font-bold text-slate-100">P&ID Line List Extractor</h1>
                 </div>
                 <div className="flex items-center gap-3">
                     {lines.length > 0 && (
@@ -410,7 +401,6 @@ const LineList = () => {
                             Excel (CSV) 다운로드
                         </button>
                     )}
-                    <span className="text-sm text-slate-400">{currentUser?.email}</span>
                 </div>
             </header>
 
@@ -543,6 +533,28 @@ const LineList = () => {
                             />
                         </>
                     )}
+
+                    {/* User Profile Footer */}
+                    <div className="flex-shrink-0 p-3 border-t border-slate-700 bg-slate-800/80">
+                        <div className="flex items-center justify-between gap-2">
+                            <Link to="/" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-slate-700 p-1.5 -ml-1.5 rounded-lg transition-colors group">
+                                <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
+                                    {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-sm font-medium text-slate-200 truncate">{currentUser?.displayName || username || 'User'}</span>
+                                    <span className="text-[10px] text-slate-400 truncate">{currentUser?.email}</span>
+                                </div>
+                            </Link>
+                            <button
+                                onClick={async () => { try { await logout(); navigate('/login'); } catch {} }}
+                                className="p-2 hover:bg-slate-700 text-slate-400 hover:text-red-400 rounded-md transition-colors"
+                                title="로그아웃"
+                            >
+                                <LogOut size={18} />
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 {/* 리사이즈 핸들 */}
