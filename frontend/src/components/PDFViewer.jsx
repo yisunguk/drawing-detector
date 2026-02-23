@@ -222,6 +222,7 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
         if (!result || !result.polygon) return null;
         let p = result.polygon;
         if (Array.isArray(p[0])) p = p.flat();
+        if (p.length < 2) return null; // guard against empty polygon
 
         const lw = result.layoutWidth;
         const lh = result.layoutHeight;
@@ -244,18 +245,18 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
 
     const selectedCenter = useMemo(() => getSelectedCenter(bestMatch), [bestMatch, getSelectedCenter]);
 
-    // Auto-scroll to highlight
+    // Auto-scroll to highlight (account for CSS scale — canvas coords ≠ visual coords)
     useEffect(() => {
         if (selectedCenter && containerRef.current) {
             const container = containerRef.current;
-            // Immediate centering
+            const scale = zoom / BASE_RENDER_SCALE;
             container.scrollTo({
-                left: selectedCenter.cx - container.clientWidth / 2,
-                top: selectedCenter.cy - container.clientHeight / 2,
+                left: selectedCenter.cx * scale - container.clientWidth / 2,
+                top: selectedCenter.cy * scale - container.clientHeight / 2,
                 behavior: 'smooth'
             });
         }
-    }, [selectedCenter]);
+    }, [selectedCenter, zoom]);
 
     // stable ref for onCanvasSizeChange callback
     const onCanvasSizeChangeRef = useRef(onCanvasSizeChange);
