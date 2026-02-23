@@ -94,7 +94,11 @@ const LineList = () => {
 
     // Save lines to Firestore
     const saveToFirestore = useCallback(async (linesToSave, blob, isInitial = false) => {
-        if (!currentUser?.uid || !blob || !linesToSave || linesToSave.length === 0) return;
+        console.log('[LineList] saveToFirestore called:', { uid: currentUser?.uid, blob, linesCount: linesToSave?.length, isInitial });
+        if (!currentUser?.uid || !blob || !linesToSave || linesToSave.length === 0) {
+            console.warn('[LineList] saveToFirestore skipped — guard failed:', { uid: !!currentUser?.uid, blob: !!blob, lines: !!linesToSave, len: linesToSave?.length });
+            return;
+        }
         setSaveStatus('saving');
         try {
             const docId = toDocId(blob);
@@ -110,12 +114,14 @@ const LineList = () => {
             if (isInitial) {
                 payload.created_at = serverTimestamp();
             }
+            console.log('[LineList] Firestore setDoc path:', `users/${currentUser.uid}/linelists/${docId}`);
             await setDoc(docRef, payload, { merge: true });
+            console.log('[LineList] Firestore save success');
             setSaveStatus('saved');
             setLastSavedAt(new Date());
             setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 2500);
         } catch (err) {
-            console.error('Firestore save error:', err);
+            console.error('[LineList] Firestore save error:', err);
             setSaveStatus('error');
             setTimeout(() => setSaveStatus(prev => prev === 'error' ? 'idle' : prev), 4000);
         }
