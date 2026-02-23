@@ -1672,7 +1672,7 @@ const KnowhowDB = () => {
                             <div className="flex items-center justify-between mb-2 px-1">
                                 <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Files</div>
                                 <div className="flex items-center gap-1">
-                                    {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && files.some(f => { const s = indexStatus[f.name]; return !s || (!s.json_exists && !(s.indexed_pages > 0)); }) && (
+                                    {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && activeFolder !== 'line' && files.some(f => { const s = indexStatus[f.name]; return !s || (!s.json_exists && !(s.indexed_pages > 0)); }) && (
                                         <button
                                             onClick={handleAnalyzeAll}
                                             disabled={isAnalyzingAll || isUploading}
@@ -1683,7 +1683,7 @@ const KnowhowDB = () => {
                                             {isAnalyzingAll ? 'Analyzing...' : 'Analyze All'}
                                         </button>
                                     )}
-                                    {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && files.some(f => indexStatus[f.name]?.json_exists && !indexStatus[f.name]?.indexed_pages) && (
+                                    {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && activeFolder !== 'line' && files.some(f => indexStatus[f.name]?.json_exists && !indexStatus[f.name]?.indexed_pages) && (
                                         <button
                                             onClick={handleIndexAll}
                                             disabled={isIndexingAll || isReindexing}
@@ -1736,7 +1736,7 @@ const KnowhowDB = () => {
                                                     {/* Index status indicator (admin only) */}
                                                     {isAdmin && (
                                                         fStatus?.indexed_pages > 0 ? (
-                                                            <span className="flex-shrink-0 text-green-600 font-bold text-[10px]" title={`Indexed: ${fStatus.indexed_pages} pages`}>●{fStatus.indexed_pages}p</span>
+                                                            <span className="flex-shrink-0 text-green-600 font-bold text-[10px]" title={`Indexed: ${fStatus.indexed_pages} ${activeFolder === 'line' ? 'lines' : 'pages'}`}>●{fStatus.indexed_pages}{activeFolder === 'line' ? 'L' : 'p'}</span>
                                                         ) : fStatus?.json_exists ? (
                                                             <span className="flex-shrink-0 bg-amber-100 text-amber-700 font-medium text-[9px] px-1 rounded" title="JSON exists, not indexed">미인덱싱</span>
                                                         ) : (
@@ -1745,7 +1745,7 @@ const KnowhowDB = () => {
                                                     )}
                                                 </div>
                                                 {/* Admin reindex button - for un-indexed files with JSON (not for revision/lessons) */}
-                                                {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && fStatus?.json_exists && !fStatus?.indexed_pages && (
+                                                {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && activeFolder !== 'line' && fStatus?.json_exists && !fStatus?.indexed_pages && (
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -1760,7 +1760,7 @@ const KnowhowDB = () => {
                                                     </button>
                                                 )}
                                                 {/* Admin analyze button - for files without JSON and not indexed (not for revision/lessons) */}
-                                                {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && !fStatus?.json_exists && !(fStatus?.indexed_pages > 0) && (
+                                                {isAdmin && activeFolder !== 'revision' && activeFolder !== 'lessons' && activeFolder !== 'line' && !fStatus?.json_exists && !(fStatus?.indexed_pages > 0) && (
                                                     <button
                                                         onClick={async (e) => {
                                                             e.stopPropagation();

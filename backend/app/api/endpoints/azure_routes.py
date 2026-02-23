@@ -8,6 +8,7 @@ from app.services.blob_storage import get_container_client
 from app.services.azure_search import azure_search_service
 from app.services.lessons_search import lessons_search_service
 from app.services.revision_search import revision_search_service
+from app.services.linelist_search import linelist_search_service
 import io
 import json
 
@@ -205,6 +206,14 @@ def get_index_status(username: str, folder: str = ""):
         if folder == "revision":
             indexed = revision_search_service.get_indexed_facets(username)
             print(f"[index-status] Found {len(indexed)} indexed files in revision-master-index", flush=True)
+            files = {}
+            for fname, count in indexed.items():
+                files[fname] = {"indexed_pages": count, "json_exists": True}
+            return {"files": files}
+
+        if folder == "line":
+            indexed = linelist_search_service.get_indexed_facets(username)
+            print(f"[index-status] Found {len(indexed)} indexed files in linelist-index", flush=True)
             files = {}
             for fname, count in indexed.items():
                 files[fname] = {"indexed_pages": count, "json_exists": True}
