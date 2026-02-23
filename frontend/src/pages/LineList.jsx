@@ -79,6 +79,7 @@ const LineList = () => {
     // Highlight state
     const [ocrData, setOcrData] = useState(null);
     const [highlightTerm, setHighlightTerm] = useState(null);
+    const [highlightCoords, setHighlightCoords] = useState(null);
     const [ocrFetchTrigger, setOcrFetchTrigger] = useState(0);
 
     // Firestore save state
@@ -285,6 +286,7 @@ const LineList = () => {
         setEditingCell(null);
         setOcrData(null);
         setHighlightTerm(null);
+        setHighlightCoords(null);
         setActiveView('manage');
     }, []);
 
@@ -518,21 +520,76 @@ const LineList = () => {
         }
     }, [pdfFile, pdfPages, username, selectedBlobFile, blobPath, saveToFirestore]);
 
+    // OCR에서 라인 번호의 정확한 polygon 좌표를 찾는 함수
+    const findLineCoords = useCallback((lineNumber, pageNum) => {
+        if (!ocrData || !lineNumber) return null;
+
+        const page = ocrData.find(p => p.page_number === pageNum);
+        if (!page) return null;
+
+        const searchText = lineNumber.toLowerCase().trim();
+        const words = page.layout?.words || [];
+        const lines = page.layout?.lines || [];
+
+        // 1순위: OCR words에서 시퀀스 번호(가장 고유한 부분)로 검색
+        const seqMatch = lineNumber.match(/\d{4,}/);
+        const seqNum = seqMatch ? seqMatch[0] : null;
+        if (seqNum) {
+            for (const word of words) {
+                const wc = (word.content || '').trim();
+                if (wc.includes(seqNum) && word.polygon) {
+                    return word.polygon;
+                }
+            }
+        }
+
+        // 2순위: OCR lines에서 전체 라인 번호 substring 매칭
+        let bestLine = null;
+        let bestRatio = 0;
+        for (const line of lines) {
+            const lc = (line.content || '').toLowerCase();
+            if (lc.includes(searchText) && line.polygon) {
+                const ratio = searchText.length / lc.length;
+                if (ratio > bestRatio) {
+                    bestRatio = ratio;
+                    bestLine = line;
+                }
+            }
+        }
+        if (bestLine) return bestLine.polygon;
+
+        // 3순위: words에서 라인 번호 주요 부분 매칭
+        for (const word of words) {
+            const wc = (word.content || '').toLowerCase();
+            if (searchText.includes(wc) && wc.length >= 4 && word.polygon) {
+                return word.polygon;
+            }
+        }
+
+        return null;
+    }, [ocrData]);
+
     // 테이블 행 클릭 → PDF 페이지 이동 + 하이라이트 토글
     const handleRowClick = useCallback((line, actualIdx) => {
         if (selectedRowIdx === actualIdx) {
             // 같은 행 재클릭 → 하이라이트 해제
             setSelectedRowIdx(null);
             setHighlightTerm(null);
+            setHighlightCoords(null);
             return;
         }
         setSelectedRowIdx(actualIdx);
         const sourcePage = parseInt(line.source_page);
+        const targetPage = (sourcePage && sourcePage >= 1 && sourcePage <= pdfPages) ? sourcePage : currentPage;
         if (sourcePage && sourcePage >= 1 && sourcePage <= pdfPages) {
             setCurrentPage(sourcePage);
         }
+
+        // OCR 데이터에서 정확한 좌표 찾기
+        const coords = findLineCoords(line.line_number, targetPage);
         setHighlightTerm(line.line_number || null);
-    }, [pdfPages, selectedRowIdx]);
+        setHighlightCoords(coords);
+    }, [pdfPages, selectedRowIdx, currentPage, findLineCoords]);
 
     // Table editing
     const handleCellClick = (rowIdx, colKey) => {
@@ -904,7 +961,7 @@ const LineList = () => {
 
                     {/* PDF Viewer */}
                     <PDFViewer
-                        doc={{ page: currentPage, docId: pdfUrl || 'local', term: highlightTerm || undefined }}
+                        doc={{ page: currentPage, docId: pdfUrl || 'local', term: highlightTerm || undefined, coords: highlightCoords || undefined }}
                         documents={[{
                             id: pdfUrl || 'local',
                             name: pdfFile?.name || selectedBlobFile?.name || 'PDF',
