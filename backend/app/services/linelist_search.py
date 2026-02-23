@@ -251,7 +251,8 @@ class LinelistSearchService:
         search_docs = []
         for i, line in enumerate(lines):
             line_number = line.get("line_number", "")
-            safe_id = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{username}_{source_file}_{line_number}")
+            raw_id = re.sub(r'[^a-zA-Z0-9_-]', '_', f"{username}_{source_file}_{line_number}")
+            safe_id = raw_id.lstrip('_') or f"doc_{raw_id}"
 
             # Synthesize content for keyword search
             content = (

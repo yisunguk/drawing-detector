@@ -304,46 +304,9 @@ def debug_linelist_index(username: str = "", source_file: str = ""):
                 lines = data.get("lines", [])
                 blob_path = f"{username}/line/{source_file}"
                 if lines:
-                    try:
-                        linelist_search_service.delete_by_source_file(source_file, username)
-                    except Exception as de:
-                        info["delete_error"] = str(de)
-                    # Try single doc upload to get detailed error
-                    try:
-                        linelist_search_service.ensure_index()
-                        line = lines[0]
-                        import re as _re
-                        safe_id = _re.sub(r'[^a-zA-Z0-9_-]', '_', f"{username}_{source_file}_{line.get('line_number','')}")
-                        test_doc = {
-                            "id": safe_id,
-                            "line_number": line.get("line_number", ""),
-                            "nb": line.get("nb", ""),
-                            "fluid_code": line.get("fluid_code", ""),
-                            "area": line.get("area", ""),
-                            "seq_no": line.get("seq_no", ""),
-                            "pipe_spec": line.get("pipe_spec", ""),
-                            "insulation": line.get("insulation", ""),
-                            "from_equip": line.get("from_equip", ""),
-                            "to_equip": line.get("to_equip", ""),
-                            "pid_no": line.get("pid_no", ""),
-                            "operating_temp": line.get("operating_temp", ""),
-                            "operating_press": line.get("operating_press", ""),
-                            "design_temp": line.get("design_temp", ""),
-                            "design_press": line.get("design_press", ""),
-                            "remarks": line.get("remarks", ""),
-                            "source_page": 0,
-                            "content": f"Test: {line.get('line_number','')}",
-                            "content_embedding": linelist_search_service._ZERO_VECTOR,
-                            "username": username,
-                            "source_file": source_file,
-                            "blob_path": blob_path,
-                        }
-                        result = linelist_search_service.client.upload_documents(documents=[test_doc])
-                        upload_results = [{"key": r.key, "succeeded": r.succeeded, "error": str(r.error_message) if r.error_message else None} for r in result]
-                        info["reindex_result"] = {"lines_found": len(lines), "single_upload_test": upload_results}
-                    except Exception as ie:
-                        import traceback
-                        info["reindex_result"] = {"lines_found": len(lines), "index_error": str(ie), "traceback": traceback.format_exc()}
+                    linelist_search_service.delete_by_source_file(source_file, username)
+                    indexed = linelist_search_service.index_lines(lines, username, source_file, blob_path)
+                    info["reindex_result"] = {"lines_found": len(lines), "lines_indexed": indexed}
                 else:
                     info["reindex_result"] = {"error": "no lines in JSON", "json_path": json_blob_name}
             except Exception as e:
