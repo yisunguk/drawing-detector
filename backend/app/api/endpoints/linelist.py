@@ -132,6 +132,12 @@ For each line found in the P&ID:
 14. **design_press**: Design pressure if found
 15. **remarks**: Any additional notes or remarks
 
+## OCR Fraction Fix
+The OCR engine often misreads fraction characters (¾, ½, ¼, ⅜, ⅝, etc.) as "%%" or similar garbled text.
+When you see "%%"" or "%%" in a pipe size context, interpret it as a fraction based on standard pipe sizes:
+  - Common fractional pipe sizes: 1/4", 3/8", 1/2", 3/4", 1-1/2", 2-1/2"
+  - Use the correct fraction in the output (e.g., nb: "3/4\"", line_number: "3/4\"-PYL-21-...")
+
 ## Rules
 - Extract ALL lines visible in the document, not just a few examples.
 - If a field cannot be determined, use empty string "".
