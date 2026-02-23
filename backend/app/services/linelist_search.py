@@ -143,7 +143,7 @@ class LinelistSearchService:
                 vector_search_dimensions=3072,
                 vector_search_profile_name="default-profile",
             ),
-            SimpleField(name="username", type=SearchFieldDataType.String, filterable=True),
+            SimpleField(name="username", type=SearchFieldDataType.String, filterable=True, facetable=True),
             SimpleField(name="source_file", type=SearchFieldDataType.String, filterable=True, facetable=True),
             SimpleField(name="blob_path", type=SearchFieldDataType.String),
         ]

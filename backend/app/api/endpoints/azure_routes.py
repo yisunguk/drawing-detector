@@ -274,16 +274,20 @@ def debug_linelist_index():
             return {"error": "linelist search client not initialized"}
         results = client.search(
             search_text="*",
-            facets=["username,count:100", "source_file,count:100"],
-            top=0,
+            facets=["source_file,count:100"],
+            top=3,
             include_total_count=True,
         )
         count = results.get_count()
         facets = results.get_facets()
+        # Get sample docs
+        samples = []
+        for r in results:
+            samples.append({"username": r.get("username"), "source_file": r.get("source_file"), "line_number": r.get("line_number")})
         return {
             "total_documents": count,
-            "username_facets": {f["value"]: f["count"] for f in facets.get("username", [])},
             "source_file_facets": {f["value"]: f["count"] for f in facets.get("source_file", [])},
+            "sample_docs": samples,
         }
     except Exception as e:
         return {"error": str(e)}
