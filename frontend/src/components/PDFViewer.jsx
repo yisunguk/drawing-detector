@@ -205,11 +205,18 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
 
         const points = [];
         for (let i = 0; i < p.length; i += 2) {
-            const [px, py] = transformPoint(p[i], p[i + 1], lw, lh);
-            points.push(`${px},${py}`);
+            if (result.isDirectMatch && lw && lh) {
+                // Direct DI coords: simple linear mapping (both DI and canvas share displayed orientation)
+                const px = p[i] * (canvasSize.width / lw);
+                const py = p[i + 1] * (canvasSize.height / lh);
+                points.push(`${px},${py}`);
+            } else {
+                const [px, py] = transformPoint(p[i], p[i + 1], lw, lh);
+                points.push(`${px},${py}`);
+            }
         }
         return points.join(' ');
-    }, [transformPoint]);
+    }, [transformPoint, canvasSize]);
 
     const getSelectedCenter = useCallback((result) => {
         if (!result || !result.polygon) return null;
@@ -222,13 +229,18 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
         let sumX = 0, sumY = 0;
         const count = p.length / 2;
         for (let i = 0; i < p.length; i += 2) {
-            const [px, py] = transformPoint(p[i], p[i + 1], lw, lh);
-            sumX += px;
-            sumY += py;
+            if (result.isDirectMatch && lw && lh) {
+                sumX += p[i] * (canvasSize.width / lw);
+                sumY += p[i + 1] * (canvasSize.height / lh);
+            } else {
+                const [px, py] = transformPoint(p[i], p[i + 1], lw, lh);
+                sumX += px;
+                sumY += py;
+            }
         }
 
         return { cx: sumX / count, cy: sumY / count };
-    }, [transformPoint]);
+    }, [transformPoint, canvasSize]);
 
     const selectedCenter = useMemo(() => getSelectedCenter(bestMatch), [bestMatch, getSelectedCenter]);
 
