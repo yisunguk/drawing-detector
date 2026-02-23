@@ -332,6 +332,24 @@ def _call_gpt_for_linelist(page_texts: list[dict]) -> list[dict]:
         return []
 
 
+def _populate_source_pages(lines: list[dict], di_pages: list[dict]) -> list[dict]:
+    """
+    Match each line's line_number against DI page content to set source_page.
+    """
+    for line in lines:
+        line_num = (line.get("line_number") or "").strip()
+        if not line_num:
+            continue
+        search_text = line_num.lower()
+        for page_data in di_pages:
+            page_num = page_data.get("page_number", 0)
+            content = (page_data.get("content") or "").lower()
+            if search_text in content:
+                line["source_page"] = str(page_num)
+                break
+    return lines
+
+
 @router.post("/extract")
 async def extract_linelist(
     blob_path: str = Body(...),
@@ -388,6 +406,7 @@ async def extract_linelist(
 
         # Send to GPT for structured extraction
         lines = _call_gpt_for_linelist(di_pages)
+        lines = _populate_source_pages(lines, di_pages)
 
         print(f"[LineList] Extracted {len(lines)} lines from {len(di_pages)} pages", flush=True)
 
@@ -474,6 +493,7 @@ async def extract_linelist_pages(
                 pid_numbers.add(pid)
 
         lines = _call_gpt_for_linelist(di_pages)
+        lines = _populate_source_pages(lines, di_pages)
 
         print(f"[LineList] Pages {pages}: {len(lines)} lines extracted", flush=True)
 
@@ -489,3 +509,17 @@ async def extract_linelist_pages(
         print(f"[LineList] Error: {e}", flush=True)
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/di-ocr")
+async def get_di_ocr(blob_path: str = Query(...), username: str = Query(...)):
+    """
+    Return cached Document Intelligence OCR data (with coordinates) for highlighting.
+    """
+    container_client = get_container_client()
+    pdf_filename = blob_path.split('/')[-1]
+    base_name = os.path.splitext(pdf_filename)[0]
+    di_pages = _try_load_existing_di_json(container_client, username, base_name)
+    if not di_pages:
+        raise HTTPException(status_code=404, detail="No cached OCR data")
+    return {"pages": di_pages}

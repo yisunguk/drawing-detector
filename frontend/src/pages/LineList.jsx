@@ -76,6 +76,10 @@ const LineList = () => {
     const [editingCell, setEditingCell] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
 
+    // Highlight state
+    const [ocrData, setOcrData] = useState(null);
+    const [highlightTerm, setHighlightTerm] = useState(null);
+
     // Firestore save state
     const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
     const [lastSavedAt, setLastSavedAt] = useState(null);
@@ -146,6 +150,28 @@ const LineList = () => {
     useEffect(() => {
         return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
     }, []);
+
+    // Fetch OCR data for highlighting when in editor view with a blob
+    useEffect(() => {
+        if (activeView !== 'editor' || !blobPath || !username) {
+            setOcrData(null);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(
+                    `${API_BASE}/api/v1/linelist/di-ocr?blob_path=${encodeURIComponent(blobPath)}&username=${encodeURIComponent(username)}`
+                );
+                if (!res.ok || cancelled) return;
+                const data = await res.json();
+                if (!cancelled) setOcrData(data.pages || null);
+            } catch (err) {
+                console.warn('[LineList] OCR fetch failed (highlight disabled):', err.message);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [activeView, blobPath, username]);
 
     const buildBlobUrl = (blobPath) => {
         const encodedPath = blobPath.split('/').map(s => encodeURIComponent(s)).join('/');
@@ -256,6 +282,8 @@ const LineList = () => {
         setSelectedRowIdx(null);
         setSearchTerm('');
         setEditingCell(null);
+        setOcrData(null);
+        setHighlightTerm(null);
         setActiveView('manage');
     }, []);
 
@@ -486,14 +514,21 @@ const LineList = () => {
         }
     }, [pdfFile, pdfPages, username, selectedBlobFile, blobPath, saveToFirestore]);
 
-    // 테이블 행 클릭 → PDF 페이지 이동
+    // 테이블 행 클릭 → PDF 페이지 이동 + 하이라이트 토글
     const handleRowClick = useCallback((line, actualIdx) => {
+        if (selectedRowIdx === actualIdx) {
+            // 같은 행 재클릭 → 하이라이트 해제
+            setSelectedRowIdx(null);
+            setHighlightTerm(null);
+            return;
+        }
         setSelectedRowIdx(actualIdx);
         const sourcePage = parseInt(line.source_page);
         if (sourcePage && sourcePage >= 1 && sourcePage <= pdfPages) {
             setCurrentPage(sourcePage);
         }
-    }, [pdfPages]);
+        setHighlightTerm(line.line_number || null);
+    }, [pdfPages, selectedRowIdx]);
 
     // Table editing
     const handleCellClick = (rowIdx, colKey) => {
@@ -865,8 +900,13 @@ const LineList = () => {
 
                     {/* PDF Viewer */}
                     <PDFViewer
-                        doc={{ page: currentPage, docId: pdfUrl || 'local' }}
-                        documents={[{ id: pdfUrl || 'local', name: pdfFile?.name || selectedBlobFile?.name || 'PDF', pdfUrl: pdfUrl }]}
+                        doc={{ page: currentPage, docId: pdfUrl || 'local', term: highlightTerm || undefined }}
+                        documents={[{
+                            id: pdfUrl || 'local',
+                            name: pdfFile?.name || selectedBlobFile?.name || 'PDF',
+                            pdfUrl: pdfUrl,
+                            ocrData: ocrData,
+                        }]}
                         onClose={handleBackToManage}
                     />
 
