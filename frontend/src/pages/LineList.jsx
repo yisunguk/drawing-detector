@@ -950,6 +950,7 @@ const LineList = () => {
                             >
                                 <Plus className="w-3 h-3" /> 행 추가
                             </button>
+                            <span className="text-xs text-slate-400 ml-2">번호를 클릭하면 도면에 하이라이트 됩니다.</span>
                         </div>
                         <div className="flex items-center gap-3">
                             {/* Save status indicator */}
