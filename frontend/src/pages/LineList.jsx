@@ -2,11 +2,14 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
     Upload, FileText, Loader2, Download,
-    Plus, Trash2, Search, ListChecks, Play, FolderOpen, RefreshCcw, LogOut
+    Plus, Trash2, Search, ListChecks, Play, FolderOpen, RefreshCcw, LogOut,
+    Check, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { loadPdfJs, uploadToAzure } from '../services/analysisService';
 import PDFViewer from '../components/PDFViewer';
+import { db } from '../firebase';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
 
@@ -31,6 +34,9 @@ const COLUMNS = [
 ];
 
 const EMPTY_ROW = COLUMNS.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {});
+
+// Deterministic Firestore document ID from blob path
+const toDocId = (blobPath) => blobPath.replace(/\//g, '_').replace(/\./g, '-');
 
 const LineList = () => {
     const navigate = useNavigate();
@@ -65,17 +71,70 @@ const LineList = () => {
     const [editingCell, setEditingCell] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
 
+    // Firestore save state
+    const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
+    const [lastSavedAt, setLastSavedAt] = useState(null);
+
     // Refs
     const pdfDocRef = useRef(null);
     const fileInputRef = useRef(null);
     const editInputRef = useRef(null);
     const resizingRef = useRef(false);
+    const saveTimerRef = useRef(null);
+    const linesRef = useRef(lines);
 
     // Azure Blob config for preview
     const AZURE_STORAGE_ACCOUNT_NAME = import.meta.env.VITE_AZURE_STORAGE_ACCOUNT_NAME;
     const AZURE_CONTAINER_NAME = import.meta.env.VITE_AZURE_CONTAINER_NAME;
     const rawSasToken = import.meta.env.VITE_AZURE_SAS_TOKEN || '';
     const AZURE_SAS_TOKEN = rawSasToken.replace(/^"|"$/g, '');
+
+    // Keep linesRef in sync for debounce callback
+    useEffect(() => { linesRef.current = lines; }, [lines]);
+
+    // Save lines to Firestore
+    const saveToFirestore = useCallback(async (linesToSave, blob, isInitial = false) => {
+        if (!currentUser?.uid || !blob || !linesToSave || linesToSave.length === 0) return;
+        setSaveStatus('saving');
+        try {
+            const docId = toDocId(blob);
+            const docRef = doc(db, 'users', currentUser.uid, 'linelists', docId);
+            const fileName = blob.split('/').pop();
+            const payload = {
+                blob_path: blob,
+                file_name: fileName,
+                lines: linesToSave,
+                line_count: linesToSave.length,
+                updated_at: serverTimestamp(),
+            };
+            if (isInitial) {
+                payload.created_at = serverTimestamp();
+            }
+            await setDoc(docRef, payload, { merge: true });
+            setSaveStatus('saved');
+            setLastSavedAt(new Date());
+            setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 2500);
+        } catch (err) {
+            console.error('Firestore save error:', err);
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus(prev => prev === 'error' ? 'idle' : prev), 4000);
+        }
+    }, [currentUser?.uid]);
+
+    // Debounced auto-save when lines change
+    useEffect(() => {
+        if (!blobPath || lines.length === 0) return;
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+            saveToFirestore(linesRef.current, blobPath);
+        }, 1500);
+        return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+    }, [lines, blobPath, saveToFirestore]);
+
+    // Cleanup timer on unmount
+    useEffect(() => {
+        return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+    }, []);
 
     const buildBlobUrl = (blobPath) => {
         const encodedPath = blobPath.split('/').map(s => encodeURIComponent(s)).join('/');
@@ -106,11 +165,16 @@ const LineList = () => {
 
     // Select an existing blob file for preview + extraction
     const handleBlobFileSelect = useCallback(async (file) => {
+        // Clear previous save timer
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
         setSelectedBlobFile(file);
         setPdfFile(null); // clear local file
         setLines([]);
         setBlobPath(file.path);
         setExtractionStatus('');
+        setSaveStatus('idle');
+        setLastSavedAt(null);
 
         const url = buildBlobUrl(file.path);
         setPdfUrl(url);
@@ -125,7 +189,26 @@ const LineList = () => {
             console.error('PDF load error (blob):', err);
             setPdfPages(0);
         }
-    }, [username]);
+
+        // Load saved line list from Firestore
+        if (currentUser?.uid && file.path) {
+            try {
+                const docId = toDocId(file.path);
+                const docRef = doc(db, 'users', currentUser.uid, 'linelists', docId);
+                const snap = await getDoc(docRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    if (data.lines && data.lines.length > 0) {
+                        setLines(data.lines);
+                        setExtractionStatus(`저장된 데이터 ${data.lines.length}건 로드됨`);
+                        setLastSavedAt(data.updated_at?.toDate?.() || null);
+                    }
+                }
+            } catch (err) {
+                console.error('Firestore load error:', err);
+            }
+        }
+    }, [username, currentUser?.uid]);
 
     // Load PDF file
     const handleFileSelect = useCallback(async (file) => {
@@ -270,13 +353,18 @@ const LineList = () => {
             setExtractionProgress(100);
             setExtractionStatus(`완료! ${deduped.length}개 라인 추출됨`);
 
+            // Save to Firestore immediately after extraction
+            if (deduped.length > 0 && blob_name) {
+                saveToFirestore(deduped, blob_name, true);
+            }
+
         } catch (err) {
             console.error('Extraction error:', err);
             setExtractionStatus(`오류: ${err.message}`);
         } finally {
             setIsExtracting(false);
         }
-    }, [pdfFile, pdfPages, username, selectedBlobFile, blobPath]);
+    }, [pdfFile, pdfPages, username, selectedBlobFile, blobPath, saveToFirestore]);
 
     // 테이블 행 클릭 → PDF 페이지 이동
     const handleRowClick = useCallback((line, actualIdx) => {
@@ -526,9 +614,11 @@ const LineList = () => {
                                 doc={{ page: currentPage, docId: pdfUrl || 'local' }}
                                 documents={[{ id: pdfUrl || 'local', name: pdfFile?.name || selectedBlobFile?.name || 'PDF', pdfUrl: pdfUrl }]}
                                 onClose={() => {
+                                    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
                                     setPdfFile(null); setPdfUrl(null); setPdfPages(0);
                                     pdfDocRef.current = null; setBlobPath(null);
                                     setSelectedBlobFile(null); setExtractionStatus('');
+                                    setSaveStatus('idle'); setLastSavedAt(null);
                                 }}
                             />
                         </>
@@ -584,18 +674,48 @@ const LineList = () => {
                                 <Plus className="w-3 h-3" /> 행 추가
                             </button>
                         </div>
-                        {lines.length > 0 && (
-                            <div className="relative">
-                                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                                <input
-                                    type="text"
-                                    placeholder="검색..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="pl-9 pr-3 py-1.5 bg-slate-700 border border-slate-600 rounded text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500 w-48"
-                                />
-                            </div>
-                        )}
+                        <div className="flex items-center gap-3">
+                            {/* Save status indicator */}
+                            {lines.length > 0 && blobPath && (
+                                <span className="flex items-center gap-1.5 text-xs">
+                                    {saveStatus === 'saving' && (
+                                        <>
+                                            <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                                            <span className="text-amber-400">저장 중...</span>
+                                        </>
+                                    )}
+                                    {saveStatus === 'saved' && (
+                                        <>
+                                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                            <span className="text-emerald-400">저장됨</span>
+                                        </>
+                                    )}
+                                    {saveStatus === 'error' && (
+                                        <>
+                                            <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                                            <span className="text-red-400">저장 실패</span>
+                                        </>
+                                    )}
+                                    {saveStatus === 'idle' && lastSavedAt && (
+                                        <span className="text-slate-500">
+                                            마지막 저장: {lastSavedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    )}
+                                </span>
+                            )}
+                            {lines.length > 0 && (
+                                <div className="relative">
+                                    <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                                    <input
+                                        type="text"
+                                        placeholder="검색..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="pl-9 pr-3 py-1.5 bg-slate-700 border border-slate-600 rounded text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500 w-48"
+                                    />
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {/* Table */}
