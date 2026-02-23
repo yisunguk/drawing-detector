@@ -1514,7 +1514,7 @@ const KnowhowDB = () => {
                 <div className="p-4 border-b border-gray-200">
                     <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                         <Database className="w-5 h-5 text-[#d97757]" />
-                        Knowhow DB
+                        Know-how DB
                     </h1>
                 </div>
 
