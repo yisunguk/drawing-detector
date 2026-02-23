@@ -265,6 +265,30 @@ def get_index_status(username: str, folder: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/debug-linelist-index")
+def debug_linelist_index():
+    """Temporary debug: check all data in linelist-index (no username filter)."""
+    try:
+        client = linelist_search_service.client
+        if not client:
+            return {"error": "linelist search client not initialized"}
+        results = client.search(
+            search_text="*",
+            facets=["username,count:100", "source_file,count:100"],
+            top=0,
+            include_total_count=True,
+        )
+        count = results.get_count()
+        facets = results.get_facets()
+        return {
+            "total_documents": count,
+            "username_facets": {f["value"]: f["count"] for f in facets.get("username", [])},
+            "source_file_facets": {f["value"]: f["count"] for f in facets.get("source_file", [])},
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.post("/reindex-from-json")
 def reindex_from_json(req: ReindexRequest):
     """Re-index a file from its existing JSON analysis results."""
