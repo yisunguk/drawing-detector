@@ -79,6 +79,7 @@ const LineList = () => {
     // Highlight state
     const [ocrData, setOcrData] = useState(null);
     const [highlightTerm, setHighlightTerm] = useState(null);
+    const [ocrFetchTrigger, setOcrFetchTrigger] = useState(0);
 
     // Firestore save state
     const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
@@ -171,7 +172,7 @@ const LineList = () => {
             }
         })();
         return () => { cancelled = true; };
-    }, [activeView, blobPath, username]);
+    }, [activeView, blobPath, username, ocrFetchTrigger]);
 
     const buildBlobUrl = (blobPath) => {
         const encodedPath = blobPath.split('/').map(s => encodeURIComponent(s)).join('/');
@@ -480,6 +481,9 @@ const LineList = () => {
             setLines(deduped);
             setExtractionProgress(100);
             setExtractionStatus(`완료! ${deduped.length}개 라인 추출됨`);
+
+            // Re-trigger OCR fetch so highlighting works after extraction
+            setOcrFetchTrigger(t => t + 1);
 
             // Save to Firestore immediately after extraction
             if (deduped.length > 0 && blob_name) {

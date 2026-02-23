@@ -515,11 +515,37 @@ async def extract_linelist_pages(
 async def get_di_ocr(blob_path: str = Query(...), username: str = Query(...)):
     """
     Return cached Document Intelligence OCR data (with coordinates) for highlighting.
+    Tries: full JSON → split format → per-range page JSONs.
     """
     container_client = get_container_client()
     pdf_filename = blob_path.split('/')[-1]
     base_name = os.path.splitext(pdf_filename)[0]
+
+    # Try full / split DI JSON first
     di_pages = _try_load_existing_di_json(container_client, username, base_name)
+
+    # Fallback: merge per-range page JSONs (from chunked extraction)
+    if not di_pages:
+        prefix = f"{username}/json/{base_name}_pages_"
+        try:
+            all_pages = []
+            seen_page_nums = set()
+            for blob in container_client.list_blobs(name_starts_with=prefix):
+                if blob.name.endswith(".json"):
+                    data = json.loads(container_client.get_blob_client(blob.name).download_blob().readall())
+                    if isinstance(data, list):
+                        for p in data:
+                            pn = p.get("page_number", 0)
+                            if pn not in seen_page_nums:
+                                seen_page_nums.add(pn)
+                                all_pages.append(p)
+            if all_pages:
+                all_pages.sort(key=lambda p: p.get("page_number", 0))
+                di_pages = all_pages
+                print(f"[LineList] Merged {len(di_pages)} pages from per-range JSONs", flush=True)
+        except Exception as e:
+            print(f"[LineList] Per-range JSON merge failed: {e}", flush=True)
+
     if not di_pages:
         raise HTTPException(status_code=404, detail="No cached OCR data")
     return {"pages": di_pages}
