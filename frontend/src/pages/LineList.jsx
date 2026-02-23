@@ -3,13 +3,13 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
     Upload, FileText, Loader2, Download,
     Plus, Trash2, Search, ListChecks, Play, FolderOpen, RefreshCcw, LogOut,
-    Check, AlertCircle
+    Check, AlertCircle, ArrowLeft, Clock, FileSpreadsheet
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { loadPdfJs, uploadToAzure } from '../services/analysisService';
 import PDFViewer from '../components/PDFViewer';
 import { db } from '../firebase';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, getDocs, deleteDoc, collection, query, orderBy, serverTimestamp } from 'firebase/firestore';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
 
@@ -42,6 +42,11 @@ const LineList = () => {
     const navigate = useNavigate();
     const { currentUser, logout } = useAuth();
     const username = currentUser?.displayName || currentUser?.email?.split('@')[0];
+
+    // View state
+    const [activeView, setActiveView] = useState('manage'); // 'manage' | 'editor'
+    const [savedLineLists, setSavedLineLists] = useState([]);
+    const [loadingSavedLists, setLoadingSavedLists] = useState(false);
 
     // PDF state
     const [pdfFile, setPdfFile] = useState(null);
@@ -169,6 +174,91 @@ const LineList = () => {
         fetchExistingFiles();
     }, [fetchExistingFiles]);
 
+    // Fetch saved line lists from Firestore
+    const fetchSavedLineLists = useCallback(async () => {
+        if (!currentUser?.uid) return;
+        setLoadingSavedLists(true);
+        try {
+            const q = query(
+                collection(db, 'users', currentUser.uid, 'linelists'),
+                orderBy('updated_at', 'desc')
+            );
+            const snapshot = await getDocs(q);
+            const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            setSavedLineLists(items);
+        } catch (err) {
+            console.error('Failed to fetch saved line lists:', err);
+        } finally {
+            setLoadingSavedLists(false);
+        }
+    }, [currentUser?.uid]);
+
+    // Load saved line lists on mount + when entering manage view
+    useEffect(() => {
+        if (activeView === 'manage') {
+            fetchSavedLineLists();
+        }
+    }, [activeView, fetchSavedLineLists]);
+
+    // Open a saved line list card
+    const handleOpenLineList = useCallback(async (item) => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+        setBlobPath(item.blob_path);
+        setLines(item.lines || []);
+        setPdfFile(null);
+        setSelectedBlobFile({ name: item.file_name, path: item.blob_path });
+        setExtractionStatus(item.lines?.length ? `저장된 데이터 ${item.lines.length}건 로드됨` : '');
+        setSaveStatus('idle');
+        setLastSavedAt(item.updated_at?.toDate?.() || null);
+
+        const url = buildBlobUrl(item.blob_path);
+        setPdfUrl(url);
+
+        try {
+            const pdfjsLib = await loadPdfJs();
+            const pdf = await pdfjsLib.getDocument({ url }).promise;
+            pdfDocRef.current = pdf;
+            setPdfPages(pdf.numPages);
+            setCurrentPage(1);
+        } catch (err) {
+            console.error('PDF load error (saved):', err);
+            setPdfPages(0);
+        }
+
+        setActiveView('editor');
+    }, []);
+
+    // Delete a saved line list
+    const handleDeleteLineList = useCallback(async (item) => {
+        if (!window.confirm(`"${item.file_name}" 라인 리스트를 삭제하시겠습니까?`)) return;
+        try {
+            await deleteDoc(doc(db, 'users', currentUser.uid, 'linelists', item.id));
+            setSavedLineLists(prev => prev.filter(x => x.id !== item.id));
+        } catch (err) {
+            console.error('Failed to delete line list:', err);
+        }
+    }, [currentUser?.uid]);
+
+    // Back to manage view
+    const handleBackToManage = useCallback(() => {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        setPdfFile(null);
+        setPdfUrl(null);
+        setPdfPages(0);
+        pdfDocRef.current = null;
+        setBlobPath(null);
+        setSelectedBlobFile(null);
+        setExtractionStatus('');
+        setLines([]);
+        setSaveStatus('idle');
+        setLastSavedAt(null);
+        setSelectedRowIdx(null);
+        setSearchTerm('');
+        setEditingCell(null);
+        setActiveView('manage');
+    }, []);
+
     // Select an existing blob file for preview + extraction
     const handleBlobFileSelect = useCallback(async (file) => {
         // Clear previous save timer
@@ -214,6 +304,8 @@ const LineList = () => {
                 console.error('Firestore load error:', err);
             }
         }
+
+        setActiveView('editor');
     }, [username, currentUser?.uid]);
 
     // Load PDF file
@@ -236,6 +328,8 @@ const LineList = () => {
         } catch (err) {
             console.error('PDF load error:', err);
         }
+
+        setActiveView('editor');
     }, []);
 
     // 패널 리사이즈 핸들러
@@ -361,7 +455,27 @@ const LineList = () => {
 
             // Save to Firestore immediately after extraction
             if (deduped.length > 0 && blob_name) {
-                saveToFirestore(deduped, blob_name, true);
+                await saveToFirestore(deduped, blob_name, true);
+                // Update saved list for manage view
+                const fileName = blob_name.split('/').pop();
+                setSavedLineLists(prev => {
+                    const docId = toDocId(blob_name);
+                    const existing = prev.findIndex(x => x.id === docId);
+                    const newItem = {
+                        id: docId,
+                        blob_path: blob_name,
+                        file_name: fileName,
+                        lines: deduped,
+                        line_count: deduped.length,
+                        updated_at: { toDate: () => new Date() },
+                    };
+                    if (existing >= 0) {
+                        const updated = [...prev];
+                        updated[existing] = newItem;
+                        return updated;
+                    }
+                    return [newItem, ...prev];
+                });
             }
 
         } catch (err) {
@@ -477,6 +591,208 @@ const LineList = () => {
         }
     };
 
+    // ─── Manage View (카드 그리드) ───
+    if (activeView === 'manage') {
+        return (
+            <div className="h-screen flex flex-col bg-slate-900 text-slate-100">
+                {/* Header */}
+                <header className="flex-shrink-0 bg-slate-800/80 border-b border-slate-700 px-6 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <ListChecks className="w-6 h-6 text-amber-400" />
+                        <h1 className="text-xl font-bold text-slate-100">P&ID Line List Extractor</h1>
+                    </div>
+                </header>
+
+                {/* Main: Sidebar + Card Grid */}
+                <div className="flex-1 flex overflow-hidden">
+                    {/* Left Sidebar: existing files + upload */}
+                    <div className="w-72 flex-shrink-0 border-r border-slate-700 flex flex-col bg-slate-800/50">
+                        {/* Existing files header */}
+                        <div className="flex-shrink-0 px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <FolderOpen className="w-4 h-4 text-amber-400" />
+                                <span className="text-sm font-medium text-slate-300">기존 도면 ({existingFiles.length})</span>
+                            </div>
+                            <button
+                                onClick={fetchExistingFiles}
+                                disabled={loadingFiles}
+                                className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+                                title="새로고침"
+                            >
+                                <RefreshCcw className={`w-4 h-4 ${loadingFiles ? 'animate-spin' : ''}`} />
+                            </button>
+                        </div>
+
+                        {/* Existing files list */}
+                        <div className="flex-1 overflow-auto">
+                            {loadingFiles ? (
+                                <div className="flex items-center justify-center py-8">
+                                    <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
+                                </div>
+                            ) : existingFiles.length > 0 ? (
+                                <div className="divide-y divide-slate-700/50">
+                                    {existingFiles.map((file, idx) => (
+                                        <button
+                                            key={idx}
+                                            onClick={() => handleBlobFileSelect(file)}
+                                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-700/50 transition-colors text-left"
+                                        >
+                                            <FileText className="w-4 h-4 text-amber-400/70 flex-shrink-0" />
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm text-slate-300 truncate">{file.name}</p>
+                                                <p className="text-xs text-slate-500">
+                                                    {file.size ? `${(file.size / 1024 / 1024).toFixed(1)}MB` : ''}
+                                                    {file.last_modified ? ` · ${new Date(file.last_modified).toLocaleDateString('ko-KR')}` : ''}
+                                                </p>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-center py-8 text-slate-500 text-sm">
+                                    저장된 도면이 없습니다
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Upload button at bottom */}
+                        <div
+                            className="flex-shrink-0 border-t border-slate-700 p-4"
+                            onDragOver={handleDragOver}
+                            onDrop={handleDrop}
+                        >
+                            <div
+                                onClick={() => fileInputRef.current?.click()}
+                                className="w-full border-2 border-dashed border-slate-600 hover:border-amber-500 rounded-xl p-4 text-center cursor-pointer transition-colors group"
+                            >
+                                <Upload className="w-6 h-6 text-slate-500 group-hover:text-amber-400 mx-auto mb-1 transition-colors" />
+                                <p className="text-slate-400 text-sm">새 PDF 업로드</p>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".pdf"
+                                    className="hidden"
+                                    onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+                                />
+                            </div>
+                        </div>
+
+                        {/* User Profile Footer */}
+                        <div className="flex-shrink-0 p-3 border-t border-slate-700 bg-slate-800/80">
+                            <div className="flex items-center justify-between gap-2">
+                                <Link to="/" className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer hover:bg-slate-700 p-1.5 -ml-1.5 rounded-lg transition-colors group">
+                                    <div className="w-8 h-8 rounded-full bg-amber-600 flex items-center justify-center text-white font-bold shrink-0 group-hover:scale-105 transition-transform">
+                                        {(currentUser?.displayName || currentUser?.email || 'U')[0].toUpperCase()}
+                                    </div>
+                                    <div className="flex flex-col min-w-0">
+                                        <span className="text-sm font-medium text-slate-200 truncate">{currentUser?.displayName || username || 'User'}</span>
+                                        <span className="text-[10px] text-slate-400 truncate">{currentUser?.email}</span>
+                                    </div>
+                                </Link>
+                                <button
+                                    onClick={async () => { try { await logout(); navigate('/login'); } catch {} }}
+                                    className="p-2 hover:bg-slate-700 text-slate-400 hover:text-red-400 rounded-md transition-colors"
+                                    title="로그아웃"
+                                >
+                                    <LogOut size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Right: Saved Line Lists Card Grid */}
+                    <div className="flex-1 overflow-auto p-6">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-lg font-semibold text-slate-200">
+                                저장된 라인 리스트
+                                <span className="ml-2 text-amber-400 text-base">({savedLineLists.length}건)</span>
+                            </h2>
+                            <button
+                                onClick={fetchSavedLineLists}
+                                disabled={loadingSavedLists}
+                                className="p-2 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+                                title="새로고침"
+                            >
+                                <RefreshCcw className={`w-4 h-4 ${loadingSavedLists ? 'animate-spin' : ''}`} />
+                            </button>
+                        </div>
+
+                        {loadingSavedLists ? (
+                            <div className="flex items-center justify-center py-20">
+                                <Loader2 className="w-8 h-8 text-slate-500 animate-spin" />
+                            </div>
+                        ) : savedLineLists.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                                {savedLineLists.map((item) => (
+                                    <div
+                                        key={item.id}
+                                        className="bg-slate-800/50 border border-slate-700 rounded-xl p-5 flex flex-col hover:border-amber-500/50 hover:shadow-lg hover:shadow-amber-500/5 transition-all group"
+                                    >
+                                        {/* Top: Icon + File name */}
+                                        <div className="flex items-start gap-3 mb-3">
+                                            <div className="w-10 h-10 rounded-lg bg-amber-600/20 flex items-center justify-center flex-shrink-0">
+                                                <FileSpreadsheet className="w-5 h-5 text-amber-400" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm font-medium text-slate-200 truncate" title={item.file_name}>
+                                                    {item.file_name}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Middle: line count + updated time */}
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-600/20 text-amber-400 rounded-md text-xs font-medium">
+                                                <ListChecks className="w-3 h-3" />
+                                                {item.line_count || 0}건
+                                            </span>
+                                            {item.updated_at && (
+                                                <span className="flex items-center gap-1 text-xs text-slate-500">
+                                                    <Clock className="w-3 h-3" />
+                                                    {(item.updated_at?.toDate?.() || new Date()).toLocaleDateString('ko-KR', {
+                                                        month: 'short',
+                                                        day: 'numeric',
+                                                        hour: '2-digit',
+                                                        minute: '2-digit',
+                                                    })}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Bottom: Action buttons */}
+                                        <div className="flex items-center gap-2 mt-auto">
+                                            <button
+                                                onClick={() => handleOpenLineList(item)}
+                                                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm font-medium transition-colors"
+                                            >
+                                                <FolderOpen className="w-4 h-4" />
+                                                열기
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteLineList(item)}
+                                                className="px-3 py-2 bg-slate-700 hover:bg-red-600/80 text-slate-400 hover:text-white rounded-lg text-sm font-medium transition-colors"
+                                                title="삭제"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+                                <FileSpreadsheet className="w-16 h-16 mb-4 opacity-20" />
+                                <p className="text-lg font-medium mb-1">추출된 라인 리스트가 없습니다</p>
+                                <p className="text-sm">좌측에서 도면을 선택하거나 새 PDF를 업로드하여 라인 리스트를 추출하세요</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ─── Editor View (PDF + Table) ───
     return (
         <div className="h-screen flex flex-col bg-slate-900 text-slate-100">
             {/* Header */}
@@ -500,7 +816,7 @@ const LineList = () => {
 
             {/* Main Content */}
             <div className="flex-1 flex overflow-hidden">
-                {/* Left Panel: PDF Upload & Preview */}
+                {/* Left Panel: PDF Preview */}
                 <div
                     className="flex-shrink-0 border-r border-slate-700 flex flex-col bg-slate-800/50"
                     style={{
@@ -508,127 +824,51 @@ const LineList = () => {
                         transition: isResizing ? 'none' : undefined,
                     }}
                 >
-                    {/* No file selected: show existing files + upload */}
-                    {!pdfFile && !selectedBlobFile ? (
-                        <div className="flex-1 flex flex-col overflow-hidden">
-                            {/* Existing files header */}
-                            <div className="flex-shrink-0 px-4 py-3 border-b border-slate-700 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <FolderOpen className="w-4 h-4 text-amber-400" />
-                                    <span className="text-sm font-medium text-slate-300">기존 도면 ({existingFiles.length})</span>
-                                </div>
-                                <button
-                                    onClick={fetchExistingFiles}
-                                    disabled={loadingFiles}
-                                    className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
-                                    title="새로고침"
-                                >
-                                    <RefreshCcw className={`w-4 h-4 ${loadingFiles ? 'animate-spin' : ''}`} />
-                                </button>
-                            </div>
-
-                            {/* Existing files list */}
-                            <div className="flex-1 overflow-auto">
-                                {loadingFiles ? (
-                                    <div className="flex items-center justify-center py-8">
-                                        <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
-                                    </div>
-                                ) : existingFiles.length > 0 ? (
-                                    <div className="divide-y divide-slate-700/50">
-                                        {existingFiles.map((file, idx) => (
-                                            <button
-                                                key={idx}
-                                                onClick={() => handleBlobFileSelect(file)}
-                                                className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-700/50 transition-colors text-left"
-                                            >
-                                                <FileText className="w-4 h-4 text-amber-400/70 flex-shrink-0" />
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="text-sm text-slate-300 truncate">{file.name}</p>
-                                                    <p className="text-xs text-slate-500">
-                                                        {file.size ? `${(file.size / 1024 / 1024).toFixed(1)}MB` : ''}
-                                                        {file.last_modified ? ` · ${new Date(file.last_modified).toLocaleDateString('ko-KR')}` : ''}
-                                                    </p>
-                                                </div>
-                                            </button>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="flex items-center justify-center py-8 text-slate-500 text-sm">
-                                        저장된 도면이 없습니다
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Upload button at bottom */}
-                            <div
-                                className="flex-shrink-0 border-t border-slate-700 p-4"
-                                onDragOver={handleDragOver}
-                                onDrop={handleDrop}
-                            >
-                                <div
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="w-full border-2 border-dashed border-slate-600 hover:border-amber-500 rounded-xl p-4 text-center cursor-pointer transition-colors group"
-                                >
-                                    <Upload className="w-6 h-6 text-slate-500 group-hover:text-amber-400 mx-auto mb-1 transition-colors" />
-                                    <p className="text-slate-400 text-sm">새 PDF 업로드</p>
-                                    <input
-                                        ref={fileInputRef}
-                                        type="file"
-                                        accept=".pdf"
-                                        className="hidden"
-                                        onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+                    {/* Back + Extract buttons */}
+                    <div className="flex-shrink-0 px-3 py-2 border-b border-slate-700 flex items-center gap-2">
+                        <button
+                            onClick={handleBackToManage}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors"
+                        >
+                            <ArrowLeft className="w-4 h-4" />
+                            목록
+                        </button>
+                        <button
+                            onClick={handleExtract}
+                            disabled={isExtracting}
+                            className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg font-medium text-sm transition-colors"
+                        >
+                            {isExtracting ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    추출 중...
+                                </>
+                            ) : (
+                                <>
+                                    <Play className="w-4 h-4" />
+                                    라인 리스트 추출
+                                </>
+                            )}
+                        </button>
+                        {isExtracting && (
+                            <div className="flex-1 flex items-center gap-2">
+                                <div className="flex-1 bg-slate-700 rounded-full h-1.5">
+                                    <div
+                                        className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
+                                        style={{ width: `${extractionProgress}%` }}
                                     />
                                 </div>
+                                <span className="text-xs text-slate-400 whitespace-nowrap">{extractionStatus}</span>
                             </div>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Extract Button */}
-                            <div className="flex-shrink-0 px-3 py-2 border-b border-slate-700 flex items-center gap-2">
-                                <button
-                                    onClick={handleExtract}
-                                    disabled={isExtracting}
-                                    className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg font-medium text-sm transition-colors"
-                                >
-                                    {isExtracting ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                            추출 중...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Play className="w-4 h-4" />
-                                            라인 리스트 추출
-                                        </>
-                                    )}
-                                </button>
-                                {isExtracting && (
-                                    <div className="flex-1 flex items-center gap-2">
-                                        <div className="flex-1 bg-slate-700 rounded-full h-1.5">
-                                            <div
-                                                className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
-                                                style={{ width: `${extractionProgress}%` }}
-                                            />
-                                        </div>
-                                        <span className="text-xs text-slate-400 whitespace-nowrap">{extractionStatus}</span>
-                                    </div>
-                                )}
-                            </div>
+                        )}
+                    </div>
 
-                            {/* PDF Viewer — same component as Dashboard */}
-                            <PDFViewer
-                                doc={{ page: currentPage, docId: pdfUrl || 'local' }}
-                                documents={[{ id: pdfUrl || 'local', name: pdfFile?.name || selectedBlobFile?.name || 'PDF', pdfUrl: pdfUrl }]}
-                                onClose={() => {
-                                    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-                                    setPdfFile(null); setPdfUrl(null); setPdfPages(0);
-                                    pdfDocRef.current = null; setBlobPath(null);
-                                    setSelectedBlobFile(null); setExtractionStatus('');
-                                    setSaveStatus('idle'); setLastSavedAt(null);
-                                }}
-                            />
-                        </>
-                    )}
+                    {/* PDF Viewer */}
+                    <PDFViewer
+                        doc={{ page: currentPage, docId: pdfUrl || 'local' }}
+                        documents={[{ id: pdfUrl || 'local', name: pdfFile?.name || selectedBlobFile?.name || 'PDF', pdfUrl: pdfUrl }]}
+                        onClose={handleBackToManage}
+                    />
 
                     {/* User Profile Footer */}
                     <div className="flex-shrink-0 p-3 border-t border-slate-700 bg-slate-800/80">
