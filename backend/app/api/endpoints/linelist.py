@@ -13,11 +13,12 @@ import traceback
 from typing import Optional
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Body, Query
+from fastapi import APIRouter, HTTPException, Body, Query, BackgroundTasks
 from azure.storage.blob import generate_blob_sas, BlobSasPermissions
 from app.core.config import settings
 from app.services.azure_di import azure_di_service
 from app.services.blob_storage import get_container_client, generate_sas_url
+from app.services.linelist_search import linelist_search_service
 
 router = APIRouter()
 
@@ -425,10 +426,30 @@ def _populate_source_pages(lines: list[dict], di_pages: list[dict]) -> list[dict
     return lines
 
 
+def _background_index_lines(lines, username, source_file, blob_path):
+    """Background task: delete old index entries and re-index lines."""
+    try:
+        linelist_search_service.delete_by_source_file(source_file, username)
+        count = linelist_search_service.index_lines(lines, username, source_file, blob_path)
+        print(f"[LineList] Background indexing: {count} lines indexed", flush=True)
+    except Exception as e:
+        print(f"[LineList] Background indexing failed: {e}", flush=True)
+
+
+def _background_index_lines_upsert(lines, username, source_file, blob_path):
+    """Background task: upsert lines without deleting (for partial page extraction)."""
+    try:
+        count = linelist_search_service.index_lines(lines, username, source_file, blob_path)
+        print(f"[LineList] Background indexing (upsert): {count} lines", flush=True)
+    except Exception as e:
+        print(f"[LineList] Background indexing failed: {e}", flush=True)
+
+
 @router.post("/extract")
 async def extract_linelist(
     blob_path: str = Body(...),
     username: Optional[str] = Body(None),
+    background_tasks: BackgroundTasks = None,
 ):
     """
     Extract P&ID Line List from a PDF already uploaded to Azure Blob.
@@ -485,6 +506,10 @@ async def extract_linelist(
 
         print(f"[LineList] Extracted {len(lines)} lines from {len(di_pages)} pages", flush=True)
 
+        # Trigger background indexing to Azure AI Search
+        if lines and username and background_tasks:
+            background_tasks.add_task(_background_index_lines, lines, username, pdf_filename, blob_path)
+
         # Save result JSON to {username}/json/{filename}_linelist.json
         json_saved_path = None
         if pdf_filename and lines:
@@ -525,6 +550,7 @@ async def extract_linelist_pages(
     blob_path: str = Body(...),
     pages: str = Body(None),
     username: Optional[str] = Body(None),
+    background_tasks: BackgroundTasks = None,
 ):
     """
     Extract Line List from specific pages of a P&ID PDF.
@@ -571,6 +597,11 @@ async def extract_linelist_pages(
         lines = _populate_source_pages(lines, di_pages)
 
         print(f"[LineList] Pages {pages}: {len(lines)} lines extracted", flush=True)
+
+        # Trigger background indexing (upsert — no delete for partial page extraction)
+        if lines and username and background_tasks:
+            pdf_filename = blob_path.split('/')[-1]
+            background_tasks.add_task(_background_index_lines_upsert, lines, username, pdf_filename, blob_path)
 
         return {
             "lines": lines,

@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.firebase_admin import verify_id_token
 from app.services.lessons_search import lessons_search_service
 from app.services.revision_search import revision_search_service
+from app.services.linelist_search import linelist_search_service
 
 router = APIRouter()
 
@@ -296,6 +297,37 @@ def _search_lessons_revision(search_query: str, username: str | None, is_admin: 
     except Exception as e:
         print(f"[Chat] Revision cross-search failed: {e}", flush=True)
 
+    # Linelist
+    try:
+        ll = linelist_search_service.hybrid_search(
+            query=search_query, username=username, top=top, exact_match=exact_match
+        )
+        for r in ll:
+            full_raw = r.get("content", "") or r.get("content_preview", "")
+            full_cleaned = _clean_content(full_raw)
+            cleaned_short = full_cleaned[:300] + ("..." if len(full_cleaned) > 300 else "")
+            azure_hl = r.get("azure_highlights", [])
+            highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned_short
+            score = r.get("score", 0)
+            extra_results.append({
+                "filename": r.get("line_number", ""),
+                "source": r.get("source_file", ""),
+                "page": r.get("source_page", 0),
+                "content": cleaned_short,
+                "full_content": full_cleaned,
+                "highlight": highlight_text,
+                "score": score,
+                "@search.score": score,
+                "path": r.get("blob_path", ""),
+                "blob_path": r.get("blob_path", ""),
+                "coords": None,
+                "type": "linelist",
+                "category": r.get("pid_no", ""),
+                "user_id": username or "",
+            })
+    except Exception as e:
+        print(f"[Chat] Linelist cross-search failed: {e}", flush=True)
+
     return extra_results
 
 
@@ -495,7 +527,7 @@ async def chat(
             # FOLDER-SPECIFIC SEARCH: lessons / revision
             # (These use dedicated Azure Search indexes)
             # ---------------------------------------------------------
-            if request.folder in ("lessons", "revision"):
+            if request.folder in ("lessons", "revision", "linelist"):
                 # Determine username for lessons/revision search
                 folder_username = None
                 if is_admin:
@@ -535,7 +567,7 @@ async def chat(
                             "user_id": folder_username or "",
                             "file_nm": r.get("file_nm", ""),
                         })
-                else:  # revision
+                elif request.folder == "revision":
                     service_results = revision_search_service.hybrid_search(
                         query=search_query,
                         username=folder_username,
@@ -568,6 +600,40 @@ async def chat(
                             "user_id": folder_username or "",
                             "title": r.get("title", ""),
                             "revision": rev_label,
+                        })
+                else:  # linelist
+                    service_results = linelist_search_service.hybrid_search(
+                        query=search_query,
+                        username=folder_username,
+                        top=50,
+                        exact_match=request.exact_match,
+                    )
+                    mapped_results = []
+                    for r in service_results:
+                        raw = r.get("content", "") or r.get("content_preview", "")
+                        cleaned = _clean_content(raw)
+                        azure_hl = r.get("azure_highlights", [])
+                        highlight_text = " ... ".join(azure_hl[:3]) if azure_hl else cleaned[:300]
+                        mapped_results.append({
+                            "filename": r.get("line_number", ""),
+                            "source": r.get("source_file", ""),
+                            "page": r.get("source_page", 0),
+                            "content": cleaned[:300] + ("..." if len(cleaned) > 300 else ""),
+                            "highlight": highlight_text,
+                            "score": r.get("score", 0),
+                            "@search.score": r.get("score", 0),
+                            "path": r.get("blob_path", ""),
+                            "blob_path": r.get("blob_path", ""),
+                            "coords": None,
+                            "type": "linelist",
+                            "category": r.get("pid_no", ""),
+                            "user_id": folder_username or "",
+                            "line_number": r.get("line_number", ""),
+                            "from_equip": r.get("from_equip", ""),
+                            "to_equip": r.get("to_equip", ""),
+                            "pipe_spec": r.get("pipe_spec", ""),
+                            "fluid_code": r.get("fluid_code", ""),
+                            "pid_no": r.get("pid_no", ""),
                         })
 
                 print(f"[Chat] Folder search found {len(mapped_results)} results", flush=True)
@@ -620,6 +686,9 @@ async def chat(
                         rev_label = r.get("revision", "")
                         fname = f"[Rev.{rev_label}] {rev_filename}" if rev_label else rev_filename
                         pg = r.get("page_number", "")
+                    elif request.folder == "linelist":
+                        fname = r.get("line_number", "") or r.get("source_file", "")
+                        pg = r.get("source_page", "")
                     else:  # lessons
                         fname = r.get("source_file", "") or r.get("file_nm", "")
                         pg = ""
