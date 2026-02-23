@@ -1,15 +1,20 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
     ArrowLeft, Upload, FileText, Trash2, Plus, Download,
     MessageSquareText, Loader2, LogOut, X, Edit3, Check,
-    ChevronRight, AlertCircle, Settings
+    ChevronRight, AlertCircle, Settings, RefreshCw, CloudOff,
+    CheckCircle2, Clock
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { auth } from '../firebase';
+import { auth, db } from '../firebase';
+import { doc, setDoc, getDoc, getDocs, deleteDoc, collection, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { getUploadSas, uploadToAzure, startAnalysis, pollAnalysisStatus, countPdfPages, loadPdfJs } from '../services/analysisService';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
 const getCommentsUrl = (path) => `${API_BASE}/api/v1/comments/${path}`;
+
+const toDocId = (blobPath) => blobPath.replace(/\//g, '_').replace(/\./g, '-');
 
 const COLUMNS = [
     { key: 'no', label: 'No', width: 50, editable: false },
@@ -27,16 +32,32 @@ const CommentExtractor = () => {
     const { currentUser, logout } = useAuth();
     const fileInputRef = useRef(null);
 
+    const username = currentUser?.displayName || currentUser?.email?.split('@')[0] || '';
+
     // State
-    const [files, setFiles] = useState([]); // { name, drawing_no, comments[] }
-    const [selectedFileIdx, setSelectedFileIdx] = useState(null);
+    const [blobFiles, setBlobFiles] = useState([]); // blob file list
+    const [loadingFiles, setLoadingFiles] = useState(false);
+    const [selectedBlobPath, setSelectedBlobPath] = useState(null);
     const [rows, setRows] = useState([]);
+    const [fileMeta, setFileMeta] = useState(null); // {filename, drawing_no, total_pages, total_comments}
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [editCell, setEditCell] = useState(null); // { rowIdx, colKey }
     const [editValue, setEditValue] = useState('');
     const [dragOver, setDragOver] = useState(false);
     const [exporting, setExporting] = useState(false);
+    const [analyzing, setAnalyzing] = useState(false);
+    const [analysisMsg, setAnalysisMsg] = useState('');
+    const [deleting, setDeleting] = useState(null); // blob_path being deleted
+
+    // Firestore save state
+    const [saveStatus, setSaveStatus] = useState('idle');
+    const [lastSavedAt, setLastSavedAt] = useState(null);
+    const rowsRef = useRef(rows);
+    const saveTimerRef = useRef(null);
+
+    // Keep rowsRef in sync
+    useEffect(() => { rowsRef.current = rows; }, [rows]);
 
     // ── Auth helper ──
     const getToken = async () => {
@@ -45,7 +66,73 @@ const CommentExtractor = () => {
         return user.getIdToken();
     };
 
-    // ── Upload PDF ──
+    // ── Load blob file list ──
+    const loadBlobFiles = useCallback(async () => {
+        if (!username) return;
+        setLoadingFiles(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/v1/azure/list?path=${encodeURIComponent(username)}/comments/`);
+            if (res.ok) {
+                const data = await res.json();
+                setBlobFiles(data.filter(f => f.name.toLowerCase().endsWith('.pdf')));
+            }
+        } catch (err) {
+            console.error('Failed to load blob files:', err);
+        } finally {
+            setLoadingFiles(false);
+        }
+    }, [username]);
+
+    // Load on mount
+    useEffect(() => { loadBlobFiles(); }, [loadBlobFiles]);
+
+    // ── Firestore save ──
+    const saveToFirestore = useCallback(async (commentRows, blobPath, meta, isInitial = false) => {
+        if (!currentUser?.uid || !blobPath || !commentRows || commentRows.length === 0) return;
+        setSaveStatus('saving');
+        try {
+            const docId = toDocId(blobPath);
+            const docRef = doc(db, 'users', currentUser.uid, 'comments', docId);
+            const fileName = blobPath.split('/').pop();
+            const payload = {
+                blob_path: blobPath,
+                file_name: fileName,
+                drawing_no: meta?.drawing_no || '',
+                total_pages: meta?.total_pages || 0,
+                total_comments: commentRows.length,
+                comments: commentRows,
+                updated_at: serverTimestamp(),
+            };
+            if (isInitial) {
+                payload.created_at = serverTimestamp();
+            }
+            await setDoc(docRef, payload, { merge: true });
+            setSaveStatus('saved');
+            setLastSavedAt(new Date());
+            setTimeout(() => setSaveStatus(prev => prev === 'saved' ? 'idle' : prev), 2500);
+        } catch (err) {
+            console.error('[Comments] Firestore save error:', err);
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus(prev => prev === 'error' ? 'idle' : prev), 4000);
+        }
+    }, [currentUser?.uid]);
+
+    // Debounced auto-save
+    useEffect(() => {
+        if (!selectedBlobPath || rows.length === 0) return;
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+            saveToFirestore(rowsRef.current, selectedBlobPath, fileMeta);
+        }, 1500);
+        return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+    }, [rows, selectedBlobPath, fileMeta, saveToFirestore]);
+
+    // Cleanup timer on unmount
+    useEffect(() => {
+        return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+    }, []);
+
+    // ── Upload PDF (new blob flow) ──
     const uploadPdf = useCallback(async (file) => {
         if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
             setError('PDF 파일만 업로드 가능합니다.');
@@ -53,45 +140,85 @@ const CommentExtractor = () => {
         }
         setLoading(true);
         setError('');
+        setAnalyzing(false);
+        setAnalysisMsg('');
+
         try {
+            // 1. Count pages
+            const totalPages = await countPdfPages(file);
+
+            // 2. Get SAS upload URL
+            const { upload_url: sasUrl, blob_name } = await getUploadSas(file.name, username);
+
+            // 3. Upload to Azure Blob
+            await uploadToAzure(sasUrl, file);
+
+            // 4. Extract annotations from blob (temp path)
             const token = await getToken();
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const res = await fetch(getCommentsUrl('extract'), {
+            const extractRes = await fetch(getCommentsUrl('extract-blob'), {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData,
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ blob_path: blob_name, username }),
             });
-
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.detail || `서버 오류 (${res.status})`);
+            if (!extractRes.ok) {
+                const errData = await extractRes.json().catch(() => ({}));
+                throw new Error(errData.detail || `추출 오류 (${extractRes.status})`);
             }
+            const data = await extractRes.json();
 
-            const data = await res.json();
-            const newFile = {
-                name: data.filename,
+            // 5. Start DI analysis + indexing (async, non-blocking)
+            setAnalyzing(true);
+            setAnalysisMsg('DI 분석 시작...');
+            startAnalysis(file.name, totalPages, username, 'comments')
+                .then(() => pollAnalysisStatus(file.name, (status) => {
+                    if (status.status === 'in_progress') {
+                        const pct = status.completed_chunks?.length
+                            ? Math.round((status.completed_chunks.length / Math.ceil(totalPages / 50)) * 100)
+                            : 0;
+                        setAnalysisMsg(`DI 분석 중... ${pct}%`);
+                    }
+                }, totalPages, username))
+                .then(() => {
+                    setAnalyzing(false);
+                    setAnalysisMsg('인덱싱 완료 - Know-how DB에서 검색 가능');
+                    setTimeout(() => setAnalysisMsg(''), 5000);
+                })
+                .catch((err) => {
+                    console.error('DI analysis error:', err);
+                    setAnalyzing(false);
+                    setAnalysisMsg('DI 분석 실패 (코멘트 추출은 정상)');
+                    setTimeout(() => setAnalysisMsg(''), 5000);
+                });
+
+            // 6. The blob is in temp initially; after DI completes it moves to {user}/comments/{file}
+            //    Construct the final blob path for Firestore reference
+            const finalBlobPath = `${username}/comments/${file.name}`;
+
+            // 7. Set UI state
+            const meta = {
+                filename: data.filename,
                 drawing_no: data.drawing_no,
                 total_pages: data.total_pages,
                 total_comments: data.total_comments,
-                comments: data.comments || [],
             };
+            setFileMeta(meta);
+            setRows(data.comments || []);
+            setSelectedBlobPath(finalBlobPath);
 
-            setFiles(prev => {
-                const updated = [...prev, newFile];
-                const newIdx = updated.length - 1;
-                setSelectedFileIdx(newIdx);
-                setRows(newFile.comments);
-                return updated;
-            });
+            // 8. Firestore initial save
+            if (data.comments && data.comments.length > 0) {
+                saveToFirestore(data.comments, finalBlobPath, meta, true);
+            }
+
+            // 9. Refresh file list (with delay for blob move)
+            setTimeout(() => loadBlobFiles(), 3000);
         } catch (err) {
             console.error('Upload error:', err);
             setError(err.message || 'PDF 업로드 중 오류가 발생했습니다.');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [username, saveToFirestore, loadBlobFiles]);
 
     const handleFileSelect = (e) => {
         const fileList = e.target.files;
@@ -113,25 +240,110 @@ const CommentExtractor = () => {
     const handleDragOver = (e) => { e.preventDefault(); setDragOver(true); };
     const handleDragLeave = () => setDragOver(false);
 
-    // ── Select file from sidebar ──
-    const selectFile = (idx) => {
-        setSelectedFileIdx(idx);
-        setRows(files[idx].comments);
+    // ── Select file from sidebar (Firestore-first load) ──
+    const selectFile = useCallback(async (file) => {
+        const blobPath = file.path || `${username}/comments/${file.name}`;
+        setSelectedBlobPath(blobPath);
         setEditCell(null);
-    };
+        setLoading(true);
+        setError('');
 
-    const removeFile = (idx) => {
-        setFiles(prev => {
-            const updated = prev.filter((_, i) => i !== idx);
-            if (selectedFileIdx === idx) {
-                setSelectedFileIdx(updated.length > 0 ? 0 : null);
-                setRows(updated.length > 0 ? updated[0].comments : []);
-            } else if (selectedFileIdx > idx) {
-                setSelectedFileIdx(selectedFileIdx - 1);
+        try {
+            // 1. Try Firestore first
+            if (currentUser?.uid) {
+                const docId = toDocId(blobPath);
+                const docRef = doc(db, 'users', currentUser.uid, 'comments', docId);
+                const snap = await getDoc(docRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    if (data.comments && data.comments.length > 0) {
+                        setRows(data.comments);
+                        setFileMeta({
+                            filename: data.file_name,
+                            drawing_no: data.drawing_no || '',
+                            total_pages: data.total_pages || 0,
+                            total_comments: data.comments.length,
+                        });
+                        setLoading(false);
+                        return;
+                    }
+                }
             }
-            return updated;
-        });
-    };
+
+            // 2. Fallback: extract from blob
+            const token = await getToken();
+            const res = await fetch(getCommentsUrl('extract-blob'), {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ blob_path: blobPath, username }),
+            });
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.detail || `추출 오류 (${res.status})`);
+            }
+            const data = await res.json();
+            const meta = {
+                filename: data.filename,
+                drawing_no: data.drawing_no,
+                total_pages: data.total_pages,
+                total_comments: data.total_comments,
+            };
+            setRows(data.comments || []);
+            setFileMeta(meta);
+
+            // Save to Firestore for future loads
+            if (data.comments && data.comments.length > 0) {
+                saveToFirestore(data.comments, blobPath, meta, true);
+            }
+        } catch (err) {
+            console.error('File select error:', err);
+            setError(err.message || '파일 로드 중 오류가 발생했습니다.');
+            setRows([]);
+            setFileMeta(null);
+        } finally {
+            setLoading(false);
+        }
+    }, [username, currentUser?.uid, saveToFirestore]);
+
+    // ── Delete file ──
+    const deleteFile = useCallback(async (file) => {
+        const blobPath = file.path || `${username}/comments/${file.name}`;
+        if (!window.confirm(`"${file.name}" 파일을 삭제하시겠습니까?\nBlob, 분석 데이터, 인덱스가 모두 삭제됩니다.`)) return;
+
+        setDeleting(blobPath);
+        try {
+            const token = await getToken();
+            // 1. Delete blob + JSON + search index
+            await fetch(getCommentsUrl('delete-blob'), {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ blob_path: blobPath, username }),
+            });
+
+            // 2. Delete Firestore doc
+            if (currentUser?.uid) {
+                const docId = toDocId(blobPath);
+                const docRef = doc(db, 'users', currentUser.uid, 'comments', docId);
+                await deleteDoc(docRef).catch(() => {});
+            }
+
+            // 3. Update UI
+            setBlobFiles(prev => prev.filter(f => {
+                const fPath = f.path || `${username}/comments/${f.name}`;
+                return fPath !== blobPath;
+            }));
+            if (selectedBlobPath === blobPath) {
+                setSelectedBlobPath(null);
+                setRows([]);
+                setFileMeta(null);
+            }
+        } catch (err) {
+            console.error('Delete error:', err);
+            setError('파일 삭제 중 오류가 발생했습니다.');
+        } finally {
+            setDeleting(null);
+        }
+    }, [username, currentUser?.uid, selectedBlobPath]);
 
     // ── Inline editing ──
     const startEdit = (rowIdx, colKey) => {
@@ -147,17 +359,6 @@ const CommentExtractor = () => {
         setRows(prev => {
             const updated = [...prev];
             updated[rowIdx] = { ...updated[rowIdx], [colKey]: editValue };
-            // Sync back to file
-            if (selectedFileIdx !== null) {
-                setFiles(fPrev => {
-                    const fUpdated = [...fPrev];
-                    fUpdated[selectedFileIdx] = {
-                        ...fUpdated[selectedFileIdx],
-                        comments: updated,
-                    };
-                    return fUpdated;
-                });
-            }
             return updated;
         });
         setEditCell(null);
@@ -174,7 +375,7 @@ const CommentExtractor = () => {
     const addRow = () => {
         const newRow = {
             no: rows.length + 1,
-            drawing_no: files[selectedFileIdx]?.drawing_no || '',
+            drawing_no: fileMeta?.drawing_no || '',
             page: 0,
             type: '',
             author: '',
@@ -182,27 +383,11 @@ const CommentExtractor = () => {
             reply: '',
             created_date: '',
         };
-        const updated = [...rows, newRow];
-        setRows(updated);
-        if (selectedFileIdx !== null) {
-            setFiles(prev => {
-                const fUpdated = [...prev];
-                fUpdated[selectedFileIdx] = { ...fUpdated[selectedFileIdx], comments: updated };
-                return fUpdated;
-            });
-        }
+        setRows(prev => [...prev, newRow]);
     };
 
     const deleteRow = (rowIdx) => {
-        const updated = rows.filter((_, i) => i !== rowIdx).map((r, i) => ({ ...r, no: i + 1 }));
-        setRows(updated);
-        if (selectedFileIdx !== null) {
-            setFiles(prev => {
-                const fUpdated = [...prev];
-                fUpdated[selectedFileIdx] = { ...fUpdated[selectedFileIdx], comments: updated };
-                return fUpdated;
-            });
-        }
+        setRows(prev => prev.filter((_, i) => i !== rowIdx).map((r, i) => ({ ...r, no: i + 1 })));
         setEditCell(null);
     };
 
@@ -212,7 +397,7 @@ const CommentExtractor = () => {
         setExporting(true);
         try {
             const token = await getToken();
-            const filename = (files[selectedFileIdx]?.name || 'comments').replace('.pdf', '') + '_comments.xlsx';
+            const filename = (fileMeta?.filename || 'comments').replace('.pdf', '') + '_comments.xlsx';
             const res = await fetch(getCommentsUrl('export-excel'), {
                 method: 'POST',
                 headers: {
@@ -280,36 +465,59 @@ const CommentExtractor = () => {
 
                 {/* File list */}
                 <div className="flex-1 overflow-y-auto px-3 pb-3">
-                    <p className="text-xs text-[#8b7e6a] px-1 mb-2 font-medium">
-                        업로드된 파일 ({files.length})
-                    </p>
-                    {files.length === 0 && (
+                    <div className="flex items-center justify-between px-1 mb-2">
+                        <p className="text-xs text-[#8b7e6a] font-medium">
+                            저장된 파일 ({blobFiles.length})
+                        </p>
+                        <button
+                            onClick={loadBlobFiles}
+                            disabled={loadingFiles}
+                            className="p-1 hover:bg-[#ebe7df] rounded transition-colors"
+                            title="새로고침"
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 text-[#8b7e6a] ${loadingFiles ? 'animate-spin' : ''}`} />
+                        </button>
+                    </div>
+                    {loadingFiles && blobFiles.length === 0 && (
+                        <div className="flex items-center gap-2 px-1 text-xs text-[#8b7e6a]">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> 로딩 중...
+                        </div>
+                    )}
+                    {!loadingFiles && blobFiles.length === 0 && (
                         <p className="text-xs text-[#b0a58e] px-1">아직 업로드된 파일이 없습니다.</p>
                     )}
-                    {files.map((f, idx) => (
-                        <div
-                            key={idx}
-                            onClick={() => selectFile(idx)}
-                            className={`group flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer mb-1 transition-colors ${
-                                selectedFileIdx === idx
-                                    ? 'bg-lime-100 border border-lime-300'
-                                    : 'hover:bg-[#ebe7df] border border-transparent'
-                            }`}
-                        >
-                            <FileText className={`w-4 h-4 flex-shrink-0 ${selectedFileIdx === idx ? 'text-lime-600' : 'text-[#8b7e6a]'}`} />
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm truncate font-medium">{f.name}</p>
-                                <p className="text-xs text-[#8b7e6a]">{f.total_comments}개 코멘트 / {f.total_pages}p</p>
-                            </div>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
-                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-all"
-                                title="삭제"
+                    {blobFiles.map((f, idx) => {
+                        const fPath = f.path || `${username}/comments/${f.name}`;
+                        const isSelected = selectedBlobPath === fPath;
+                        const isDeleting = deleting === fPath;
+                        return (
+                            <div
+                                key={fPath}
+                                onClick={() => !isDeleting && selectFile(f)}
+                                className={`group flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer mb-1 transition-colors ${
+                                    isSelected
+                                        ? 'bg-lime-100 border border-lime-300'
+                                        : 'hover:bg-[#ebe7df] border border-transparent'
+                                } ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
                             >
-                                <X className="w-3.5 h-3.5 text-red-500" />
-                            </button>
-                        </div>
-                    ))}
+                                <FileText className={`w-4 h-4 flex-shrink-0 ${isSelected ? 'text-lime-600' : 'text-[#8b7e6a]'}`} />
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm truncate font-medium">{f.name}</p>
+                                </div>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); deleteFile(f); }}
+                                    disabled={isDeleting}
+                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-all"
+                                    title="삭제"
+                                >
+                                    {isDeleting
+                                        ? <Loader2 className="w-3.5 h-3.5 text-red-500 animate-spin" />
+                                        : <X className="w-3.5 h-3.5 text-red-500" />
+                                    }
+                                </button>
+                            </div>
+                        );
+                    })}
                 </div>
 
                 {/* User Profile Footer */}
@@ -348,8 +556,27 @@ const CommentExtractor = () => {
                     </div>
                 )}
 
+                {/* Analysis status banner */}
+                {analysisMsg && (
+                    <div className={`mx-6 mt-4 p-3 rounded-lg flex items-center gap-2 text-sm ${
+                        analyzing
+                            ? 'bg-blue-50 border border-blue-200 text-blue-700'
+                            : analysisMsg.includes('실패')
+                                ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                                : 'bg-green-50 border border-green-200 text-green-700'
+                    }`}>
+                        {analyzing
+                            ? <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                            : analysisMsg.includes('실패')
+                                ? <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                : <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                        }
+                        {analysisMsg}
+                    </div>
+                )}
+
                 {/* No file selected: drop zone */}
-                {selectedFileIdx === null ? (
+                {!selectedBlobPath ? (
                     <div className="flex-1 flex items-center justify-center p-8">
                         <div
                             onDrop={handleDrop}
@@ -365,7 +592,7 @@ const CommentExtractor = () => {
                             {loading ? (
                                 <div className="flex flex-col items-center gap-4">
                                     <Loader2 className="w-12 h-12 text-lime-600 animate-spin" />
-                                    <p className="text-lg font-medium text-[#5a4f3f]">PDF 분석 중...</p>
+                                    <p className="text-lg font-medium text-[#5a4f3f]">PDF 업로드 및 분석 중...</p>
                                 </div>
                             ) : (
                                 <div className="flex flex-col items-center gap-4">
@@ -376,7 +603,7 @@ const CommentExtractor = () => {
                                         <p className="text-xl font-bold text-[#333] mb-2">PDF 파일을 드래그하여 업로드</p>
                                         <p className="text-[#8b7e6a]">또는 클릭하여 파일을 선택하세요</p>
                                     </div>
-                                    <p className="text-xs text-[#b0a58e]">PDF 파일의 주석(Annotation)을 자동 추출합니다</p>
+                                    <p className="text-xs text-[#b0a58e]">PDF 파일의 주석(Annotation)을 자동 추출하고 Know-how DB에 인덱싱합니다</p>
                                 </div>
                             )}
                         </div>
@@ -387,11 +614,36 @@ const CommentExtractor = () => {
                         <div className="px-6 py-3 border-b border-[#e5e1d8] bg-white flex items-center justify-between gap-4">
                             <div className="flex items-center gap-3">
                                 <h2 className="text-base font-bold truncate max-w-md">
-                                    {files[selectedFileIdx]?.name}
+                                    {fileMeta?.filename || selectedBlobPath?.split('/').pop()}
                                 </h2>
                                 <span className="text-sm text-[#8b7e6a]">
-                                    ({rows.length}개 코멘트)
+                                    ({rows.length}개 코멘트{fileMeta?.total_pages ? ` / ${fileMeta.total_pages}p` : ''})
                                 </span>
+                                {/* Save status badge */}
+                                {rows.length > 0 && (
+                                    <span className="flex items-center gap-1.5 text-xs">
+                                        {saveStatus === 'saving' && (
+                                            <>
+                                                <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                                                <span className="text-amber-400">저장 중...</span>
+                                            </>
+                                        )}
+                                        {saveStatus === 'saved' && lastSavedAt && (
+                                            <>
+                                                <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                                                <span className="text-green-600">
+                                                    저장됨 {lastSavedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </>
+                                        )}
+                                        {saveStatus === 'error' && (
+                                            <>
+                                                <CloudOff className="w-3.5 h-3.5 text-red-400" />
+                                                <span className="text-red-500">저장 오류</span>
+                                            </>
+                                        )}
+                                    </span>
+                                )}
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
@@ -413,7 +665,14 @@ const CommentExtractor = () => {
 
                         {/* Table */}
                         <div className="flex-1 overflow-auto">
-                            {rows.length === 0 ? (
+                            {loading ? (
+                                <div className="flex items-center justify-center h-full">
+                                    <div className="flex flex-col items-center gap-3">
+                                        <Loader2 className="w-10 h-10 text-lime-600 animate-spin" />
+                                        <p className="text-[#8b7e6a]">코멘트 로딩 중...</p>
+                                    </div>
+                                </div>
+                            ) : rows.length === 0 ? (
                                 <div className="flex items-center justify-center h-full text-[#8b7e6a]">
                                     <div className="text-center">
                                         <MessageSquareText className="w-12 h-12 mx-auto mb-3 text-[#d5cfc3]" />

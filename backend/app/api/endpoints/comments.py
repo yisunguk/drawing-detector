@@ -2,17 +2,20 @@
 PDF Comment Extractor - API Endpoints
 
 - POST /extract       : Upload PDF → extract annotations → return JSON
+- POST /extract-blob  : Download PDF from Azure Blob → extract annotations → return JSON
+- POST /delete-blob   : Delete comment PDF + JSON + search index
 - POST /export-excel  : Receive table data → return Excel file
 """
 
 import io
+import os
 import re
 import logging
 from datetime import datetime
 from typing import List, Optional
 
 import fitz  # PyMuPDF
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -108,22 +111,15 @@ ANNOT_TYPE_MAP = {
 }
 
 
-# ── Endpoints ──
-
-@router.post("/extract")
-async def extract_comments(file: UploadFile = File(...)):
-    """Upload a PDF and extract all annotations/comments."""
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
-
+def _extract_annotations(pdf_bytes: bytes, filename: str) -> dict:
+    """PyMuPDF로 PDF 어노테이션 추출 (공통 로직)"""
     try:
-        pdf_bytes = await file.read()
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as e:
         logger.error(f"Failed to open PDF: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=f"PDF 파일을 열 수 없습니다: {str(e)}")
 
-    drawing_no = _extract_drawing_no(file.filename)
+    drawing_no = _extract_drawing_no(filename)
     total_pages = len(doc)
     comments = []
     idx = 1
@@ -164,12 +160,103 @@ async def extract_comments(file: UploadFile = File(...)):
     doc.close()
 
     return {
-        "filename": file.filename,
+        "filename": filename,
         "drawing_no": drawing_no,
         "total_pages": total_pages,
         "total_comments": len(comments),
         "comments": comments,
     }
+
+
+# ── Endpoints ──
+
+@router.post("/extract")
+async def extract_comments(file: UploadFile = File(...)):
+    """Upload a PDF and extract all annotations/comments."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
+
+    pdf_bytes = await file.read()
+    return _extract_annotations(pdf_bytes, file.filename)
+
+
+@router.post("/extract-blob")
+async def extract_comments_from_blob(
+    blob_path: str = Body(...),
+    username: str = Body(None),
+):
+    """Azure Blob에서 PDF 다운로드 → 어노테이션 추출"""
+    from app.services.blob_storage import get_container_client
+
+    container_client = get_container_client()
+    blob_client = container_client.get_blob_client(blob_path)
+
+    if not blob_client.exists():
+        raise HTTPException(status_code=404, detail=f"Blob not found: {blob_path}")
+
+    pdf_bytes = blob_client.download_blob().readall()
+    filename = blob_path.split('/')[-1]
+    return _extract_annotations(pdf_bytes, filename)
+
+
+@router.post("/delete-blob")
+async def delete_comment_file(
+    blob_path: str = Body(...),
+    username: str = Body(None),
+):
+    """코멘트 PDF 삭제 (blob + JSON + Azure Search 인덱스)"""
+    from app.services.blob_storage import get_container_client
+
+    container_client = get_container_client()
+    filename = blob_path.split('/')[-1]
+
+    # 1. PDF blob 삭제
+    blob = container_client.get_blob_client(blob_path)
+    if blob.exists():
+        blob.delete_blob()
+        print(f"[Comments] Deleted PDF blob: {blob_path}", flush=True)
+
+    # 2. JSON 분석 결과 삭제 ({username}/json/{base}.json)
+    if username:
+        base = os.path.splitext(filename)[0]
+        json_blob = container_client.get_blob_client(f"{username}/json/{base}.json")
+        if json_blob.exists():
+            json_blob.delete_blob()
+            print(f"[Comments] Deleted JSON: {username}/json/{base}.json", flush=True)
+
+        # Also delete split-format JSON folder
+        json_folder = f"{username}/json/{base}"
+        try:
+            split_blobs = list(container_client.list_blobs(name_starts_with=f"{json_folder}/"))
+            for b in split_blobs:
+                container_client.get_blob_client(b.name).delete_blob()
+            if split_blobs:
+                print(f"[Comments] Deleted {len(split_blobs)} split JSON blobs", flush=True)
+        except Exception as e:
+            print(f"[Comments] Warning: split JSON cleanup: {e}", flush=True)
+
+    # 3. Azure Search 인덱스 삭제
+    try:
+        from app.services.azure_search import azure_search_service
+        if azure_search_service.client:
+            # Search by source filename and blob_path to scope deletion
+            filter_expr = f"source eq '{filename}'"
+            if username:
+                filter_expr += f" and blob_path ge '{username}/' and blob_path lt '{username}0'"
+            results = azure_search_service.client.search(
+                search_text="*",
+                filter=filter_expr,
+                select=["id"],
+                top=5000,
+            )
+            doc_ids = [{"id": r["id"]} for r in results]
+            if doc_ids:
+                azure_search_service.client.delete_documents(documents=doc_ids)
+                print(f"[Comments] Deleted {len(doc_ids)} search index entries", flush=True)
+    except Exception as e:
+        print(f"[Comments] Warning: search index cleanup: {e}", flush=True)
+
+    return {"deleted": blob_path}
 
 
 @router.post("/export-excel")
