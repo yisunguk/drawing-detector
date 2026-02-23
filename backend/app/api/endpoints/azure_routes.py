@@ -266,12 +266,14 @@ def get_index_status(username: str, folder: str = ""):
 
 
 @router.get("/debug-linelist-index")
-def debug_linelist_index():
-    """Temporary debug: check all data in linelist-index (no username filter)."""
+def debug_linelist_index(username: str = "", source_file: str = ""):
+    """Temporary debug: check linelist-index data + optionally trigger re-index from blob JSON."""
     try:
         client = linelist_search_service.client
         if not client:
             return {"error": "linelist search client not initialized"}
+
+        # Check index contents
         results = client.search(
             search_text="*",
             facets=["source_file,count:100"],
@@ -280,15 +282,37 @@ def debug_linelist_index():
         )
         count = results.get_count()
         facets = results.get_facets()
-        # Get sample docs
         samples = []
         for r in results:
             samples.append({"username": r.get("username"), "source_file": r.get("source_file"), "line_number": r.get("line_number")})
-        return {
+
+        info = {
             "total_documents": count,
             "source_file_facets": {f["value"]: f["count"] for f in facets.get("source_file", [])},
             "sample_docs": samples,
         }
+
+        # If username + source_file given, try to re-index from _linelist.json in blob
+        if username and source_file:
+            import os
+            container_client = get_container_client()
+            base_name = os.path.splitext(source_file)[0]
+            json_blob_name = f"{username}/json/{base_name}_linelist.json"
+            try:
+                blob_client = container_client.get_blob_client(json_blob_name)
+                data = json.loads(blob_client.download_blob().readall())
+                lines = data.get("lines", [])
+                blob_path = f"{username}/line/{source_file}"
+                if lines:
+                    linelist_search_service.delete_by_source_file(source_file, username)
+                    indexed = linelist_search_service.index_lines(lines, username, source_file, blob_path)
+                    info["reindex_result"] = {"lines_found": len(lines), "lines_indexed": indexed}
+                else:
+                    info["reindex_result"] = {"error": "no lines in JSON", "json_path": json_blob_name}
+            except Exception as e:
+                info["reindex_result"] = {"error": str(e), "json_path": json_blob_name}
+
+        return info
     except Exception as e:
         return {"error": str(e)}
 
