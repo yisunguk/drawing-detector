@@ -518,6 +518,25 @@ async def start_robust_analysis_task(
                     from app.services.azure_search import azure_search_service
                     final_blob_name = f"{username}/{category}/{filename}" if username else f"{category}/{filename}"
 
+                    # Move file from temp to final location
+                    temp_blob_name = f"{username}/temp/{filename}" if username else f"temp/{filename}"
+                    temp_blob_client = container_client.get_blob_client(temp_blob_name)
+                    if temp_blob_client.exists():
+                        final_blob_client = container_client.get_blob_client(final_blob_name)
+                        if not final_blob_client.exists():
+                            source_sas_url = generate_sas_url(temp_blob_name)
+                            final_blob_client.start_copy_from_url(source_sas_url)
+                            import time as _time
+                            for _ in range(30):
+                                props = final_blob_client.get_blob_properties()
+                                if props.copy.status == "success":
+                                    break
+                                if props.copy.status == "failed":
+                                    break
+                                _time.sleep(0.5)
+                        temp_blob_client.delete_blob()
+                        print(f"[StartAnalysis] CACHE HIT (split): Moved {temp_blob_name} -> {final_blob_name}", flush=True)
+
                     # Background re-indexing: read page JSONs one by one
                     def reindex_split_pages():
                         all_pages = []
@@ -668,6 +687,26 @@ async def start_robust_analysis_task(
             # Construct FINAL blob path for indexing (e.g. username/drawings/file.pdf)
             # This ensures the index points to the correct permanent location, not temp.
             final_blob_name = f"{username}/{category}/{filename}" if username else f"{category}/{filename}"
+
+            # Move file from temp to final location (cache hit skips analysis loop which normally does this)
+            temp_blob_name = f"{username}/temp/{filename}" if username else f"temp/{filename}"
+            temp_blob_client = container_client.get_blob_client(temp_blob_name)
+            if temp_blob_client.exists():
+                final_blob_client = container_client.get_blob_client(final_blob_name)
+                if not final_blob_client.exists():
+                    source_sas_url = generate_sas_url(temp_blob_name)
+                    final_blob_client.start_copy_from_url(source_sas_url)
+                    import time as _time
+                    for _ in range(30):
+                        props = final_blob_client.get_blob_properties()
+                        if props.copy.status == "success":
+                            break
+                        if props.copy.status == "failed":
+                            print(f"[StartAnalysis] CACHE HIT: Blob copy failed: {props.copy.status_description}", flush=True)
+                            break
+                        _time.sleep(0.5)
+                temp_blob_client.delete_blob()
+                print(f"[StartAnalysis] CACHE HIT: Moved {temp_blob_name} -> {final_blob_name}", flush=True)
 
             print(f"[StartAnalysis] Queuing background indexing for {final_blob_name} ({len(existing_pages)} pages)")
             background_tasks.add_task(
