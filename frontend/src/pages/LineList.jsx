@@ -76,11 +76,9 @@ const LineList = () => {
     const [editingCell, setEditingCell] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Highlight state
-    const [ocrData, setOcrData] = useState(null);
+    // Highlight state (coords from backend _populate_source_pages)
     const [highlightTerm, setHighlightTerm] = useState(null);
-    const [highlightCoords, setHighlightCoords] = useState(null);
-    const [ocrFetchTrigger, setOcrFetchTrigger] = useState(0);
+    const [highlightCoords, setHighlightCoords] = useState(null); // {polygon, width, height}
 
     // Firestore save state
     const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
@@ -152,28 +150,6 @@ const LineList = () => {
     useEffect(() => {
         return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
     }, []);
-
-    // Fetch OCR data for highlighting when in editor view with a blob
-    useEffect(() => {
-        if (activeView !== 'editor' || !blobPath || !username) {
-            setOcrData(null);
-            return;
-        }
-        let cancelled = false;
-        (async () => {
-            try {
-                const res = await fetch(
-                    `${API_BASE}/api/v1/linelist/di-ocr?blob_path=${encodeURIComponent(blobPath)}&username=${encodeURIComponent(username)}`
-                );
-                if (!res.ok || cancelled) return;
-                const data = await res.json();
-                if (!cancelled) setOcrData(data.pages || null);
-            } catch (err) {
-                console.warn('[LineList] OCR fetch failed (highlight disabled):', err.message);
-            }
-        })();
-        return () => { cancelled = true; };
-    }, [activeView, blobPath, username, ocrFetchTrigger]);
 
     const buildBlobUrl = (blobPath) => {
         const encodedPath = blobPath.split('/').map(s => encodeURIComponent(s)).join('/');
@@ -284,7 +260,6 @@ const LineList = () => {
         setSelectedRowIdx(null);
         setSearchTerm('');
         setEditingCell(null);
-        setOcrData(null);
         setHighlightTerm(null);
         setHighlightCoords(null);
         setActiveView('manage');
@@ -484,9 +459,6 @@ const LineList = () => {
             setExtractionProgress(100);
             setExtractionStatus(`완료! ${deduped.length}개 라인 추출됨`);
 
-            // Re-trigger OCR fetch so highlighting works after extraction
-            setOcrFetchTrigger(t => t + 1);
-
             // Save to Firestore immediately after extraction
             if (deduped.length > 0 && blob_name) {
                 await saveToFirestore(deduped, blob_name, true);
@@ -520,79 +492,7 @@ const LineList = () => {
         }
     }, [pdfFile, pdfPages, username, selectedBlobFile, blobPath, saveToFirestore]);
 
-    // OCR에서 라인 번호의 정확한 polygon 좌표를 찾는 함수
-    const findLineCoords = useCallback((lineNumber, pageNum) => {
-        if (!ocrData || !lineNumber) return null;
-
-        const page = ocrData.find(p => p.page_number === pageNum);
-        if (!page) return null;
-
-        const words = page.layout?.words || [];
-        const lines = page.layout?.lines || [];
-
-        // 정규화: 구분자(하이픈, 따옴표, 공백 등) 제거하여 OCR 변형 대응
-        const normalize = (s) => s.toLowerCase().replace(/[-–—""''″`\s.]/g, '');
-        const normalizedSearch = normalize(lineNumber);
-        const seqMatch = lineNumber.match(/\d{4,}/);
-        const seqNum = seqMatch ? seqMatch[0] : null;
-
-        // 1순위: OCR lines에서 전체 라인 번호 매칭 (가장 신뢰성 높음)
-        //   → 도면 위 라인 번호는 보통 하나의 OCR line으로 인식됨
-        let bestLine = null;
-        let bestRatio = 0;
-        for (const line of lines) {
-            const nc = normalize(line.content || '');
-            if (nc.includes(normalizedSearch) && line.polygon) {
-                const ratio = normalizedSearch.length / nc.length;
-                if (ratio > bestRatio) {
-                    bestRatio = ratio;
-                    bestLine = line;
-                }
-            }
-        }
-        if (bestLine) return bestLine.polygon;
-
-        // 2순위: OCR words에서 전체 라인 번호 매칭 (한 단어로 인식된 경우)
-        for (const word of words) {
-            const nc = normalize(word.content || '');
-            if (nc.includes(normalizedSearch) && word.polygon) {
-                return word.polygon;
-            }
-        }
-
-        // 3순위: OCR lines에서 시퀀스 번호 매칭 (부분 매칭)
-        if (seqNum) {
-            let bestSeqLine = null;
-            let bestSeqRatio = 0;
-            for (const line of lines) {
-                const lc = (line.content || '').toLowerCase();
-                if (lc.includes(seqNum) && line.polygon) {
-                    // 같은 시퀀스 번호가 여러 곳에 있으면, 라인 번호의 다른 부분도
-                    // 포함하는 line을 선호 (예: "PYL"이 함께 있는 line)
-                    const parts = lineNumber.toLowerCase().split(/[-"'\s]+/).filter(p => p.length > 1);
-                    const overlapCount = parts.filter(p => lc.includes(p)).length;
-                    const ratio = overlapCount / parts.length;
-                    if (ratio > bestSeqRatio) {
-                        bestSeqRatio = ratio;
-                        bestSeqLine = line;
-                    }
-                }
-            }
-            if (bestSeqLine) return bestSeqLine.polygon;
-
-            // 4순위: OCR words에서 시퀀스 번호 매칭 (최후 수단)
-            for (const word of words) {
-                const wc = (word.content || '').trim();
-                if (wc.includes(seqNum) && word.polygon) {
-                    return word.polygon;
-                }
-            }
-        }
-
-        return null;
-    }, [ocrData]);
-
-    // 테이블 행 클릭 → PDF 페이지 이동 + 하이라이트 토글
+    // 테이블 행 클릭 → PDF 페이지 이동 + 하이라이트 (백엔드 제공 좌표 사용)
     const handleRowClick = useCallback((line, actualIdx) => {
         if (selectedRowIdx === actualIdx) {
             // 같은 행 재클릭 → 하이라이트 해제
@@ -603,16 +503,17 @@ const LineList = () => {
         }
         setSelectedRowIdx(actualIdx);
         const sourcePage = parseInt(line.source_page);
-        const targetPage = (sourcePage && sourcePage >= 1 && sourcePage <= pdfPages) ? sourcePage : currentPage;
         if (sourcePage && sourcePage >= 1 && sourcePage <= pdfPages) {
             setCurrentPage(sourcePage);
         }
-
-        // OCR 데이터에서 정확한 좌표 찾기
-        const coords = findLineCoords(line.line_number, targetPage);
         setHighlightTerm(line.line_number || null);
-        setHighlightCoords(coords);
-    }, [pdfPages, selectedRowIdx, currentPage, findLineCoords]);
+        // 백엔드 _populate_source_pages에서 저장한 polygon 좌표 사용
+        setHighlightCoords(line.source_polygon ? {
+            polygon: line.source_polygon,
+            width: line.source_layout_width,
+            height: line.source_layout_height,
+        } : null);
+    }, [pdfPages, selectedRowIdx]);
 
     // Table editing
     const handleCellClick = (rowIdx, colKey) => {
@@ -984,12 +885,18 @@ const LineList = () => {
 
                     {/* PDF Viewer */}
                     <PDFViewer
-                        doc={{ page: currentPage, docId: pdfUrl || 'local', term: highlightTerm || undefined, coords: highlightCoords || undefined }}
+                        doc={{
+                            page: currentPage,
+                            docId: pdfUrl || 'local',
+                            term: highlightTerm || undefined,
+                            coords: highlightCoords?.polygon || undefined,
+                            layoutWidth: highlightCoords?.width || undefined,
+                            layoutHeight: highlightCoords?.height || undefined,
+                        }}
                         documents={[{
                             id: pdfUrl || 'local',
                             name: pdfFile?.name || selectedBlobFile?.name || 'PDF',
                             pdfUrl: pdfUrl,
-                            ocrData: ocrData,
                         }]}
                         onClose={handleBackToManage}
                     />

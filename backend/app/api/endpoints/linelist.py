@@ -8,6 +8,7 @@ P&ID Line List Extraction API
 """
 import json
 import os
+import re
 import traceback
 from typing import Optional
 from datetime import datetime, timedelta
@@ -332,21 +333,95 @@ def _call_gpt_for_linelist(page_texts: list[dict]) -> list[dict]:
         return []
 
 
+def _normalize_text(s: str) -> str:
+    """Remove separators/quotes/spaces for fuzzy OCR matching."""
+    return re.sub(r'[-–—""\'\'″`\s.,:;]+', '', s.lower())
+
+
 def _populate_source_pages(lines: list[dict], di_pages: list[dict]) -> list[dict]:
     """
-    Match each line's line_number against DI page content to set source_page.
+    Match each line's line_number against DI page data to set:
+      - source_page: page number
+      - source_polygon: DI polygon coordinates [x1,y1,...,x8,y8]
+      - source_layout_width / source_layout_height: page dimensions for coord transform
     """
     for line in lines:
         line_num = (line.get("line_number") or "").strip()
         if not line_num:
             continue
-        search_text = line_num.lower()
+
+        normalized_search = _normalize_text(line_num)
+        seq_match = re.search(r'\d{4,}', line_num)
+        seq_num = seq_match.group(0) if seq_match else None
+        parts = [p for p in re.split(r'[-"\'\s]+', line_num.lower()) if len(p) > 1]
+
         for page_data in di_pages:
             page_num = page_data.get("page_number", 0)
-            content = (page_data.get("content") or "").lower()
-            if search_text in content:
-                line["source_page"] = str(page_num)
-                break
+            normalized_content = _normalize_text(page_data.get("content") or "")
+
+            if normalized_search not in normalized_content:
+                continue
+
+            line["source_page"] = str(page_num)
+
+            # --- Find polygon coordinates ---
+            layout = page_data.get("layout", {})
+            ocr_lines = layout.get("lines", [])
+            ocr_words = layout.get("words", [])
+            page_w = layout.get("width", 0)
+            page_h = layout.get("height", 0)
+
+            polygon = None
+
+            # 1) OCR lines: full line number match (normalized)
+            best_line, best_ratio = None, 0
+            for ol in ocr_lines:
+                nc = _normalize_text(ol.get("content", ""))
+                if normalized_search in nc and ol.get("polygon"):
+                    ratio = len(normalized_search) / max(len(nc), 1)
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_line = ol
+            if best_line:
+                polygon = best_line["polygon"]
+
+            # 2) OCR words: full line number match
+            if not polygon:
+                for w in ocr_words:
+                    nc = _normalize_text(w.get("content", ""))
+                    if normalized_search in nc and w.get("polygon"):
+                        polygon = w["polygon"]
+                        break
+
+            # 3) OCR lines: sequence number + context overlap
+            if not polygon and seq_num:
+                best_sl, best_overlap = None, 0
+                for ol in ocr_lines:
+                    lc = (ol.get("content") or "").lower()
+                    if seq_num in lc and ol.get("polygon"):
+                        overlap = sum(1 for p in parts if p in lc)
+                        if overlap > best_overlap:
+                            best_overlap = overlap
+                            best_sl = ol
+                if best_sl:
+                    polygon = best_sl["polygon"]
+
+            # 4) OCR words: sequence number (last resort)
+            if not polygon and seq_num:
+                for w in ocr_words:
+                    wc = (w.get("content") or "").strip()
+                    if seq_num in wc and w.get("polygon"):
+                        polygon = w["polygon"]
+                        break
+
+            if polygon:
+                line["source_polygon"] = polygon
+                line["source_layout_width"] = page_w
+                line["source_layout_height"] = page_h
+                print(f"[LineList] Polygon found for {line_num} on page {page_num}", flush=True)
+
+            break  # Found page, stop
+
     return lines
 
 

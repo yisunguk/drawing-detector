@@ -52,6 +52,18 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
     const bestMatch = useMemo(() => {
         if (!doc?.term || !documentData) return null;
 
+        // Direct coords mode: backend pre-computed polygon, skip OCR search
+        if (doc.coords && Array.isArray(doc.coords) && doc.layoutWidth && doc.layoutHeight) {
+            return {
+                content: doc.term,
+                polygon: doc.coords,
+                layoutWidth: doc.layoutWidth,
+                layoutHeight: doc.layoutHeight,
+                unit: doc.unit || 'inch',
+                isDirectMatch: true
+            };
+        }
+
         const dataSource = activeDocData || documentData.ocrData || documentData.pdfTextData;
         if (!dataSource) return null;
 
@@ -151,7 +163,7 @@ const PDFViewer = ({ doc, documents, activeDocData, onClose, overlay, onCanvasSi
         });
 
         return highestScore > 60 ? topResult : null;
-    }, [doc?.term, documentData, activeDocData, currentPage, calculateScore]);
+    }, [doc?.term, doc?.coords, doc?.layoutWidth, doc?.layoutHeight, documentData, activeDocData, currentPage, calculateScore]);
 
     // Enhanced Coordinate Mapping
     const transformPoint = useCallback((x, y, layoutWidth, layoutHeight) => {
