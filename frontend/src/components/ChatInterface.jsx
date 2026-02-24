@@ -263,11 +263,35 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
         try {
             let context = null;
             let viewingContext = null;
+
+            // Large doc detection: >50 pages → frontend context is incomplete/too large
+            // Must fallback to backend Azure Search for accurate RAG
+            const isLargeDoc = activeDoc && (
+                (activeDoc.ocrMeta && activeDoc.ocrMeta.total_pages > 50) ||
+                (activeDoc.pdfTextData && activeDoc.pdfTextData.length > 50)
+            );
+
             if (chatScope === 'active') {
-                context = formatContext();
+                if (isLargeDoc) {
+                    // Large doc: frontend pdfTextData misses graphic text + truncated at 100k chars
+                    // Force backend Azure Search (indexed by Azure DI OCR = accurate)
+                    console.log(`[ChatContext] Active: large doc (${activeDoc.ocrMeta?.total_pages || activeDoc.pdfTextData?.length}p). Using Azure Search.`);
+                    context = null;
+                    viewingContext = buildViewingContext();
+                } else {
+                    context = formatContext();
+                }
             } else if (chatScope === 'all') {
-                // All mode: send all documents' context + viewing context for current page
-                context = formatContext();
+                const hasLargeDoc = documents.some(doc =>
+                    (doc.ocrMeta && doc.ocrMeta.total_pages > 50) ||
+                    (doc.pdfTextData && doc.pdfTextData.length > 50)
+                );
+                if (hasLargeDoc) {
+                    console.log(`[ChatContext] All: large doc detected. Using Azure Search.`);
+                    context = null;
+                } else {
+                    context = formatContext();
+                }
                 viewingContext = buildViewingContext();
             }
 
@@ -279,16 +303,15 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
 
             const headers = { 'Content-Type': 'application/json; charset=UTF-8' };
 
-            if (chatScope === 'all') {
-                const user = auth.currentUser;
-                if (!user) {
-                    setMessages(prev => [...prev, { role: 'assistant', content: '❌ 인증이 필요합니다.' }]);
-                    setIsLoading(false);
-                    return;
-                }
-                const idToken = await user.getIdToken();
-                headers['Authorization'] = `Bearer ${idToken}`;
+            // ALWAYS send auth token (Azure Search requires it in both Active and All modes)
+            const user = auth.currentUser;
+            if (!user) {
+                setMessages(prev => [...prev, { role: 'assistant', content: '❌ 인증이 필요합니다.' }]);
+                setIsLoading(false);
+                return;
             }
+            const idToken = await user.getIdToken();
+            headers['Authorization'] = `Bearer ${idToken}`;
 
             let docIds = null;
             if (chatScope === 'all' && documents.length > 0) {
