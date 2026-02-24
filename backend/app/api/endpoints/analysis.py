@@ -513,6 +513,7 @@ async def start_robust_analysis_task(
                 meta_total = meta_data.get("total_pages", 0)
                 if meta_total > 0 and meta_total >= total_pages:
                     print(f"[StartAnalysis] CACHE HIT (split): {meta_total} pages, skipping analysis")
+                    status_manager.init_status(filename, total_pages, category, username=username)
                     status_manager.mark_completed(filename, json_location=json_folder, username=username)
 
                     from app.services.azure_search import azure_search_service
@@ -678,7 +679,8 @@ async def start_robust_analysis_task(
 
             print(f"[StartAnalysis] CACHE HIT: Skipping analysis, queuing background re-indexing.")
 
-            # Update status
+            # Update status (init first so mark_completed has a status blob to update)
+            status_manager.init_status(filename, total_pages, category, username=username)
             status_manager.mark_completed(filename, json_location=json_path, username=username)
 
             # Trigger Background Indexing (Re-index existing JSON)
