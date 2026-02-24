@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Bot, User, Loader2, Sparkles, AlertCircle, RefreshCcw, List } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, AlertCircle, RefreshCcw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { db, auth } from '../firebase';
@@ -497,34 +497,6 @@ const ChatInterface = ({ activeDoc, documents = [], chatScope = 'active', chatCo
                                     )}
 
                                     {/* Sources / Citations list for Q&A */}
-                                    {msg.role === 'assistant' && msg.results && msg.results.length > 0 && (
-                                        <div className="mt-4 pt-3 border-t border-gray-100">
-                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">
-                                                <List size={10} />
-                                                출처 (Sources)
-                                            </div>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {msg.results.map((res, rIdx) => (
-                                                    <button
-                                                        key={rIdx}
-                                                        onClick={() => {
-                                                            if (onCitationClick) {
-                                                                // Pass the actual matched content for better highlighting
-                                                                // We use a pipe-delimited format that handleCitationClick can parse
-                                                                onCitationClick(`${res.content}|${res.page}|${res.filename}|${res.coords || ''}|${res.type || ''}`);
-                                                            }
-                                                        }}
-                                                        className="flex items-center gap-1 px-2 py-1 bg-[#f4f1ea] hover:bg-[#e5e1d8] text-[#d97757] text-[10px] font-medium rounded-md border border-[#e5e1d8]/50 transition-colors max-w-[150px] truncate"
-                                                        title={`${res.filename} - Page ${res.page}`}
-                                                    >
-                                                        <Sparkles size={8} />
-                                                        <span className="truncate">{res.filename}</span>
-                                                        <span className="text-gray-400 font-normal ml-0.5">p.{res.page}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         ))}
