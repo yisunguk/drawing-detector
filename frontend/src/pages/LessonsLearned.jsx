@@ -11,7 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { auth } from '../firebase';
 
 // Config
-const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
+const API_BASE = (import.meta.env.VITE_API_URL ?? 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
 
 const getLessonsApiUrl = (path) => {
     const base = API_BASE.endsWith('/api') ? `${API_BASE}/v1/lessons` : `${API_BASE}/api/v1/lessons`;
@@ -30,7 +30,7 @@ const LessonsLearned = () => {
 
     // Restore saved state once
     const saved = useRef(_loadSS()).current;
-    const defaultChat = [{ role: 'assistant', content: '안녕하세요! Lessons Learned에 대해 궁금한 점을 물어보세요.' }];
+    const defaultChat = [{ role: 'assistant', content: '안녕하세요! DOC-Master에 대해 궁금한 점을 물어보세요.' }];
 
     // === Left Sidebar State ===
     const [categoryTree, setCategoryTree] = useState([]);
@@ -613,7 +613,7 @@ const LessonsLearned = () => {
 
     const handleResetChat = () => {
         if (!confirm('대화 내용을 초기화 하시겠습니까?')) return;
-        setChatMessages([{ role: 'assistant', content: '안녕하세요! Lessons Learned에 대해 궁금한 점을 물어보세요.' }]);
+        setChatMessages([{ role: 'assistant', content: '안녕하세요! DOC-Master에 대해 궁금한 점을 물어보세요.' }]);
         setQuery('');
         setPreviewDoc(null);
         setSelectedSourceFile(null);
@@ -755,7 +755,7 @@ const LessonsLearned = () => {
                     <div className="flex items-center justify-between">
                         <h1 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                             <BookOpen className="w-5 h-5 text-purple-600" />
-                            Lessons Learned
+                            DOC-Master
                         </h1>
                         <button
                             onClick={() => navigate('/')}
@@ -1049,7 +1049,7 @@ const LessonsLearned = () => {
                             {!hasSearched && !isSearching && (
                                 <div className="flex flex-col items-center justify-center py-16 text-gray-400">
                                     <BookOpen className="w-16 h-16 mb-4 text-gray-300" />
-                                    <p className="text-lg font-medium text-gray-500 mb-2">Lessons Learned 검색</p>
+                                    <p className="text-lg font-medium text-gray-500 mb-2">DOC-Master 검색</p>
                                     <p className="text-sm">프로젝트 경험과 교훈을 키워드로 검색하세요.</p>
                                 </div>
                             )}

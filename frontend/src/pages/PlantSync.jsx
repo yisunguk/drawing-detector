@@ -14,7 +14,7 @@ import { parsePidTags } from '../utils/pidTagParser';
 import PDFViewer from '../components/PDFViewer';
 import DiffViewer from '../components/DiffViewer';
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
+const API_BASE = (import.meta.env.VITE_API_URL ?? 'https://drawing-detector-backend-435353955407.us-central1.run.app').replace(/\/$/, '');
 const getUrl = (path) => `${API_BASE}/api/v1/plantsync/${path}`;
 
 const getToken = async () => {
@@ -1236,7 +1236,7 @@ const PlantSync = () => {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-100 to-cyan-100 flex items-center justify-center">
               <Layers className="w-5 h-5 text-sky-600" />
             </div>
-            <h1 className="text-xl font-bold text-gray-900">도면 리비전 관리</h1>
+            <h1 className="text-xl font-bold text-gray-900">도면 마크업 관리</h1>
           </div>
         </div>
 
